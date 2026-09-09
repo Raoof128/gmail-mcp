@@ -1,0 +1,29 @@
+name: Feature request
+description: Suggest a capability or a change in behaviour
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What is hard or impossible today. Describe the situation, not the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+      description: Optional. If you already have a shape in mind, describe it.
+    validations:
+      required: false
+
+  - type: textarea
+    id: security
+    attributes:
+      label: Effect on the permission model
+      description: |
+        This project puts every mailbox mutation behind a server-enforced policy. If your idea adds a
+        write, changes a default, or affects approvals, say how you would keep that boundary intact.
+    validations:
+      required: false

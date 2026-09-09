@@ -1,0 +1,49 @@
+name: Bug report
+description: Something behaves differently from what it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not report security vulnerabilities here. Follow
+        [SECURITY.md](https://github.com/Raoof128/gmail-mcp/blob/main/SECURITY.md) instead.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you observed, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: The smallest sequence that shows it. Commands and output are ideal.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part
+      options:
+        - Policy engine
+        - Approvals and the claim
+        - Operation journal
+        - Attachment staging
+        - Schema or migrations
+        - MCP endpoint
+        - Build, lint or CI
+        - Something else or not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Output of `node --version` and `npx wrangler --version`, and your operating system.
+    validations:
+      required: false
