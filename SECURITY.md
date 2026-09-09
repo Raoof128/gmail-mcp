@@ -1,7 +1,7 @@
 # Security Policy
 
-This project mediates access to a mailbox. Its whole purpose is to constrain what an AI model can do
-there, so security reports are treated as the highest-priority class of issue.
+This project mediates access to a mailbox. Constraining what an AI model can do there is the whole
+point of it, so a security report outranks everything else in the queue.
 
 ## Reporting a vulnerability
 
@@ -35,8 +35,7 @@ Neither the model, nor the MCP client, nor the tool annotations are trusted to e
 
 ### In scope
 
-These are the attacks the design is built to withstand. A report showing any of them succeeding is a
-vulnerability:
+The design is built to withstand these. A report showing any of them succeeding is a vulnerability.
 
 | Threat                                                    | The control that should stop it                                                                                        |
 | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
@@ -55,8 +54,8 @@ vulnerability:
 
 ### Out of scope
 
-These are real risks that this project does not claim to defend against. They are listed so the boundary
-is explicit rather than implied:
+These are real risks this project does not claim to defend against, listed so the boundary is written down
+rather than assumed.
 
 - A compromised operating system or browser session on the owner's own machine.
 - A compromised Google account, or Google-side compromise.
@@ -65,23 +64,26 @@ is explicit rather than implied:
 
 ## Honest limitations
 
-Stated plainly, because a security document that only lists strengths is marketing:
+A security document that lists only strengths is marketing, so here is the other half.
 
-- **The server-side policy engine is the only enforcement layer.** Client-side tool annotations are hints
-  and the design does not rely on them. If the engine has a bug, nothing else catches it.
-- **Approval defeats model-initiated and injection-initiated writes.** It does not defend against someone
-  who already controls the owner's browser session.
-- **Attachment type checking is by filename**, applied to outbound uploads. Archives are not inspected.
-  Gmail's own scanner is the authoritative check and its rejection is surfaced.
-- **The project is unfinished.** Google OAuth, the Gmail tools and the local companion are not
-  implemented. Do not deploy it against a mailbox you care about yet.
+The server-side policy engine is the only enforcement layer. Client-side tool annotations are hints and
+the design does not rely on them. If the engine has a bug, nothing else catches it.
+
+Approval defeats writes started by the model or by an injected instruction. It does nothing against
+someone who already controls the owner's browser session.
+
+Attachment type checking works on the filename, and applies to outbound uploads. Archives are not
+inspected. Gmail's own scanner is the authoritative check, and its rejection reaches the caller.
+
+The project is unfinished. Google OAuth, the Gmail tools and the local companion do not exist. Do not
+point it at a mailbox you care about yet.
 
 ## Handling secrets
 
 - `worker/.dev.vars` is gitignored and must never be committed. `worker/.dev.vars.example` holds
-  throwaway placeholders only.
-- Google refresh tokens are stored encrypted with AES-256-GCM under a rotatable keyring, with additional
-  authenticated data binding each ciphertext to its owner, account and field, so a ciphertext copied to
+  throwaway placeholders.
+- Google refresh tokens are encrypted with AES-256-GCM under a rotatable keyring. The additional
+  authenticated data binds each ciphertext to its owner, account and field, so a ciphertext copied into
   another row fails to decrypt.
 - Tokens never appear in tool results, audit rows or logs. The audit log records counts and identifiers,
-  and the module renders its own summaries so a caller cannot pass message content through it.
+  and the module renders its own summaries, so a caller cannot push message content through it.

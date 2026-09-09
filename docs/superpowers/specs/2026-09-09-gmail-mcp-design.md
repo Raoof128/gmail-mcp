@@ -486,7 +486,7 @@ Two rows per mutating call: an `intent` row before any external side effect (too
 | Companion       | `staging`      | `/staging/*` only                                                   | Flow C            |
 | Owner's browser | session cookie | `/approve`, `/policy`, `/accounts`, `/audit`, `/connect`, `/logout` | Google OIDC login |
 
-Per-client allowed scopes are enforced by our authorization handler, since the library does not: the pre-registered `companion` client may receive only `staging`; CIMD and DCR clients may receive only `mcp`; a request for any other combination is rejected before consent. Every API route additionally checks the token's scope and RFC 8707 audience. Google Gmail refresh tokens are held only by the Worker (Flow B).
+Per-client allowed scopes are enforced by our authorization handler, since the library does not: the pre-registered `companion` client may receive only `staging`; CIMD and DCR clients may receive only `mcp`; a request for any other combination is rejected before consent. Every API route also checks the token's scope and RFC 8707 audience. Google Gmail refresh tokens are held only by the Worker (Flow B).
 
 ### 4.2 Flow A: Claude to Worker
 
@@ -641,9 +641,9 @@ Tool names observed on the hosted Claude Gmail connector this date. Input and ou
 | `apply_sensitive_message_label`, `apply_sensitive_thread_label`                               | same                                                                   | parity, carries `+sensitive`                                                                            |
 | `mark_message_spam`, `mark_thread_spam`, `unmark_message_spam`, `unmark_thread_spam`          | same                                                                   | parity                                                                                                  |
 | `trash_message`, `trash_thread`, `untrash_message`, `untrash_thread`                          | same                                                                   | parity                                                                                                  |
-| —                                                                                             | `download_attachment`                                                  | extension                                                                                               |
-| —                                                                                             | `send_draft`                                                           | extension (replaces hosted `send_message(draftId)`)                                                     |
-| —                                                                                             | `list_accounts`, `connect_account`, `get_policy`, `open_policy_editor` | extension                                                                                               |
-| —                                                                                             | `list_pending`, `execute_pending`, `cancel_pending`                    | extension                                                                                               |
+| (none)                                                                                        | `download_attachment`                                                  | extension                                                                                               |
+| (none)                                                                                        | `send_draft`                                                           | extension (replaces hosted `send_message(draftId)`)                                                     |
+| (none)                                                                                        | `list_accounts`, `connect_account`, `get_policy`, `open_policy_editor` | extension                                                                                               |
+| (none)                                                                                        | `list_pending`, `execute_pending`, `cancel_pending`                    | extension                                                                                               |
 
 Hosted count 29. Ours 38. Intentional omissions: none.

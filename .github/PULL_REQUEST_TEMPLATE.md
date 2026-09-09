@@ -1,10 +1,10 @@
 ## What this changes
 
-<!-- The behaviour that is different now, in a sentence or two. The diff shows what; explain why. -->
+<!-- What behaves differently now, in a sentence or two. The diff shows what changed, so explain why. -->
 
 ## How it was verified
 
-<!-- The command you ran and what it showed. "Should work" is not verification. -->
+<!-- The command you ran and what it printed. "Should work" is not verification. -->
 
 - [ ] `npm run verify` passes locally
 - [ ] A test covers the change, and it was watched failing before the fix

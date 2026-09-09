@@ -6,12 +6,12 @@ release.
 
 ## [Unreleased]
 
-The project is pre-release. Nothing here has sent an email yet.
+The project is pre-release. Nothing here has sent an email.
 
 ### Added
 
-- **Worker foundations.** The authority core of the Gmail MCP server, built and tested against the real
-  Workers runtime: 77 tests, no mocked storage.
+- Worker foundations: the authority core of the Gmail MCP server, tested against the real Workers
+  runtime across 77 tests with no mocked storage.
   - D1 schema where ownership is a composite foreign key rather than a convention, with partial unique
     indexes for owner-wide policy rows and bounded checks on account flags.
   - Action-based policy engine. Every action resolves to `allow`, `ask` or `deny`; modifiers
