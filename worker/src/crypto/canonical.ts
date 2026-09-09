@@ -37,11 +37,13 @@ export function canonicalize(value: unknown): string {
   }
 }
 
-export async function sha256Hex(bytes: Uint8Array): Promise<string> {
+export async function sha256Hex(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
   const d = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
   return Array.from(d, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 export function hashCanonical(canonical: string): Promise<string> {
-  return sha256Hex(new TextEncoder().encode(canonical));
+  // TextEncoder yields an ArrayBufferLike-backed view; copy into an ArrayBuffer-backed one so it
+  // satisfies BufferSource under TypeScript's generic typed arrays.
+  return sha256Hex(new Uint8Array(new TextEncoder().encode(canonical)));
 }

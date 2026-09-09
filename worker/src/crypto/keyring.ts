@@ -1,10 +1,10 @@
 export type AadParts = { userId: string; accountId: string; field: string };
 
-export function frameAad(p: AadParts): Uint8Array {
-  return new TextEncoder().encode(["gmail-mcp:v1", p.userId, p.accountId, p.field].join("\0"));
+export function frameAad(p: AadParts): Uint8Array<ArrayBuffer> {
+  return new Uint8Array(new TextEncoder().encode(["gmail-mcp:v1", p.userId, p.accountId, p.field].join("\0")));
 }
 
-function fromB64(s: string): Uint8Array {
+function fromB64(s: string): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 }
 
@@ -30,7 +30,7 @@ export class Keyring {
     return k;
   }
 
-  async encrypt(plain: string, aad: AadParts): Promise<{ ciphertext: Uint8Array; keyId: string }> {
+  async encrypt(plain: string, aad: AadParts): Promise<{ ciphertext: Uint8Array<ArrayBuffer>; keyId: string }> {
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const k = await this.key(this.currentKeyId);
     const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: frameAad(aad) }, k, new TextEncoder().encode(plain)));
@@ -40,7 +40,7 @@ export class Keyring {
     return { ciphertext: out, keyId: this.currentKeyId };
   }
 
-  async decrypt(ciphertext: Uint8Array, keyId: string, aad: AadParts): Promise<string> {
+  async decrypt(ciphertext: Uint8Array<ArrayBuffer>, keyId: string, aad: AadParts): Promise<string> {
     if (ciphertext.length < 12 + 16) throw new Error("ciphertext too short");
     const k = await this.key(keyId);
     const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: ciphertext.slice(0, 12), additionalData: frameAad(aad) }, k, ciphertext.slice(12));
