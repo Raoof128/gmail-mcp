@@ -30,10 +30,35 @@ The project is pre-release. Nothing here has sent an email.
   - AES-256-GCM keyring with per-ciphertext key ids and framed additional authenticated data.
   - MCP endpoint with four control tools, behind a development bearer that requires two secrets and is
     deleted rather than disabled once OAuth lands.
-- Project documentation: README, architecture overview, security policy, contribution guide and code of
-  conduct.
+- Project documentation: README, architecture overview, security policy, contribution guide, code of
+  conduct, and GitHub issue and pull request templates.
 - Tooling: ESLint with type-aware rules, Prettier, EditorConfig, and a single `npm run verify` gate that
-  CI runs unchanged.
+  CI runs unchanged. Dependabot watches npm and GitHub Actions weekly.
+
+### Changed
+
+- Staging ingest validates before it writes. The body is read to completion, length-checked and hashed
+  before anything reaches R2. Streaming straight through aborted the in-flight upload when the declared
+  length was wrong, which left a partial object behind and surfaced as an unhandled rejection that made
+  the test runner exit non-zero even though every assertion passed.
+- Prose across the project documents had its AI writing patterns removed: em dashes, bold-lead bullets
+  rewritten as sentences, decorative adverbs and one transition crutch. The named invariants in the
+  design spec and the mandated fields in the implementation plan kept their bold leads, because the rest
+  of those documents and the code comments cite them by name.
+- CI runs `actions/checkout` and `actions/setup-node` at v7.
+
+### Removed
+
+- The `@types/node` dependency, which nothing used. The worker tsconfig lists its types explicitly and
+  does not include `node`, and the only `node:` import sits outside the tsconfig `include`. It also
+  shadowed the Workers `Crypto` interface, which is where `DigestStream` is declared.
+
+### Security
+
+- The development bearer requires both `DEV_STATIC_TOKEN` and `DEV_STATIC_USER`. A partial configuration
+  authenticates nobody rather than inventing an identity.
+- Dependabot ignores vitest major bumps. `@cloudflare/vitest-plugin` peers on `vitest ^4.1.0` and it is
+  what runs the Worker tests inside workerd, so a major bump cannot pass CI until the plugin accepts one.
 
 ### Not yet implemented
 

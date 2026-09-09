@@ -3,3 +3,6 @@ node_modules/
 .wrangler/
 .dev.vars
 dist/
+
+# Local agent working notes, not shared with the repository
+CLAUDE.md
