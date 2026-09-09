@@ -1,5 +1,9 @@
 # Gmail MCP for Claude
 
+[![CI](https://github.com/Raoof128/gmail-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/Raoof128/gmail-mcp/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](package.json)
+
 A Gmail [Model Context Protocol](https://modelcontextprotocol.io) server that can move attachments to
 and from your disk, work across several Google accounts, and put every mailbox mutation behind a
 permission model the server enforces rather than the model.
