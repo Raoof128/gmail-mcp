@@ -90,7 +90,7 @@ gmail/
 **Interfaces:**
 - Produces: `Env` (= `Cloudflare.Env` augmented) with bindings `DB: D1Database`, `STAGING: R2Bucket`, `OAUTH_KV: KVNamespace`, var `WORKER_HOSTNAME`, secrets `TOKEN_KEKS`, `TOKEN_KEK_CURRENT`, `STATE_HMAC_KEY`, `CSRF_HMAC_KEY`, optional `DEV_STATIC_TOKEN`, `DEV_STATIC_USER`. Default export with `fetch` and `scheduled`.
 
-- [ ] **Step 1 (RED): write the smoke test first**
+- [x] **Step 1 (RED): write the smoke test first**
 
 `worker/test/smoke.test.ts`:
 ```ts
@@ -114,7 +114,7 @@ describe("worker smoke", () => {
 });
 ```
 
-- [ ] **Step 2: root and shared package files**
+- [x] **Step 2: root and shared package files**
 
 `package.json`:
 ```json
@@ -183,7 +183,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({ test: { include: ["test/**/*.test.ts"] } });
 ```
 
-- [ ] **Step 3: worker package files**
+- [x] **Step 3: worker package files**
 
 `worker/package.json`:
 ```json
@@ -312,7 +312,7 @@ export default {
 
 Create an empty `worker/migrations/.gitkeep` so `readD1Migrations` finds the directory before Task 3 adds the first file.
 
-- [ ] **Step 4: install, generate types, run**
+- [x] **Step 4: install, generate types, run**
 
 From the repo root:
 ```bash
@@ -323,7 +323,7 @@ cd worker && npm run types && npx vitest run test/smoke.test.ts
 ```
 Expected: both tests PASS. `wrangler types` writes `worker/worker-configuration.d.ts`; commit it. If `readD1Migrations` is not exported from the package root in the installed build, import it from `@cloudflare/vitest-plugin/config` instead (the docs name that subpath); this is the only fallback in the task.
 
-- [ ] **Step 5: commit**
+- [x] **Step 5: commit**
 
 ```bash
 git add -A
@@ -342,7 +342,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Produces: `ACTIONS`, `type Action`, `MODIFIERS`, `type Modifier`, `LEVELS`, `type Level`, `DEFAULT_POLICY`, `raise`, `JOURNALED_ACTIONS`; `GmailMcpError`, `ErrorCode`; zod `AccountAlias`, `StagingHandle`, `Sha256Hex`, `StagingHandleResponse`, `PendingApprovalResult`, `UploadIntent`.
 
-- [ ] **Step 1 (RED): test**
+- [x] **Step 1 (RED): test**
 
 `shared/test/actions.test.ts`:
 ```ts
@@ -397,11 +397,11 @@ describe("strict schemas", () => {
 });
 ```
 
-- [ ] **Step 2: run, expect module-not-found failures**
+- [x] **Step 2: run, expect module-not-found failures**
 
 Run: `cd shared && npx vitest run`
 
-- [ ] **Step 3 (GREEN): implement**
+- [x] **Step 3 (GREEN): implement**
 
 `shared/src/actions.ts`:
 ```ts
@@ -509,11 +509,11 @@ export const UploadIntent = z.object({
 export type UploadIntent = z.infer<typeof UploadIntent>;
 ```
 
-- [ ] **Step 4: run, expect PASS (7 tests)**
+- [x] **Step 4: run, expect PASS (7 tests)**
 
 Run: `cd shared && npx vitest run`
 
-- [ ] **Step 5: commit**
+- [x] **Step 5: commit**
 
 ```bash
 git add shared
@@ -532,7 +532,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Produces: the tables in spec 3.2 plus `execution_started_at` on `pending_actions`; `seedUserAndAccount(db, {userId, accountId, alias, isDefault?, orgDomains?, sendAs?})`.
 
-- [ ] **Step 1 (RED): fixtures and tests before the migration exists**
+- [x] **Step 1 (RED): fixtures and tests before the migration exists**
 
 `worker/test/fixtures.ts`:
 ```ts
@@ -622,11 +622,11 @@ describe("schema constraints", () => {
 });
 ```
 
-- [ ] **Step 2: run, expect failures ("no such table")**
+- [x] **Step 2: run, expect failures ("no such table")**
 
 Run: `cd worker && npx vitest run test/schema.test.ts`
 
-- [ ] **Step 3 (GREEN): the migration**
+- [x] **Step 3 (GREEN): the migration**
 
 `worker/migrations/0001_init.sql`:
 ```sql
@@ -746,11 +746,11 @@ CREATE INDEX staging_objects_expires ON staging_objects(expires_at);
 
 A composite foreign key with a NULL member (`operation_id IS NULL`) is not enforced by SQLite, which is exactly what allows unclaimed pending rows; once set, the triple must match a real operation of the same account.
 
-- [ ] **Step 4: run, expect PASS (7 tests)**
+- [x] **Step 4: run, expect PASS (7 tests)**
 
 Run: `cd worker && npx vitest run test/schema.test.ts`. If the FOREIGN KEY tests pass without the migration having FK enforcement, D1 has it on by default; if they fail with "no such error", add `PRAGMA foreign_keys = ON;` as the first line of the migration and rerun.
 
-- [ ] **Step 5: commit**
+- [x] **Step 5: commit**
 
 ```bash
 git add worker/migrations worker/test
@@ -769,7 +769,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Produces: `Keyring.fromEnv(env)`, `keyring.encrypt(plain, aad) -> {ciphertext, keyId}`, `keyring.decrypt(ciphertext, keyId, aad) -> string`, `keyring.currentKeyId`, `type AadParts = { userId; accountId; field }`, `frameAad`, `randomId(prefix)` (16 bytes, 22 chars), `randomHandle()` (32 bytes, 43 chars), `b64url`, `fromB64url`.
 
-- [ ] **Step 1 (RED): test**
+- [x] **Step 1 (RED): test**
 
 `worker/test/keyring.test.ts`:
 ```ts
@@ -812,11 +812,11 @@ describe("keyring", () => {
 });
 ```
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
 Run: `cd worker && npx vitest run test/keyring.test.ts`
 
-- [ ] **Step 3 (GREEN): implement**
+- [x] **Step 3 (GREEN): implement**
 
 `worker/src/crypto/random.ts`:
 ```ts
@@ -896,9 +896,9 @@ export class Keyring {
 }
 ```
 
-- [ ] **Step 4: run, expect PASS (5 tests)**
+- [x] **Step 4: run, expect PASS (5 tests)**
 
-- [ ] **Step 5: commit**
+- [x] **Step 5: commit**
 
 ```bash
 git add worker/src/crypto worker/test/keyring.test.ts
@@ -917,7 +917,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Produces: `canonicalize(value: unknown): string` (throws `TypeError` on `undefined` anywhere, functions, symbols, bigint, non-finite numbers, non-plain objects, lone surrogates), `sha256Hex(bytes): Promise<string>`, `hashCanonical(canonical: string): Promise<string>` (sha256 of the UTF-8 bytes of the exact string that gets stored).
 
-- [ ] **Step 1 (RED): test, including the RFC 8785 §3.2.3 example**
+- [x] **Step 1 (RED): test, including the RFC 8785 §3.2.3 example**
 
 `worker/test/canonical.test.ts`:
 ```ts
@@ -957,9 +957,9 @@ describe("JCS canonicalize", () => {
 });
 ```
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
-- [ ] **Step 3 (GREEN): implement**
+- [x] **Step 3 (GREEN): implement**
 
 `worker/src/crypto/canonical.ts`:
 ```ts
@@ -1008,11 +1008,11 @@ export function hashCanonical(canonical: string): Promise<string> {
 
 `String.prototype.isWellFormed` is ES2024 and present in workerd; the `target` is ES2023, so if `tsc` complains, add `"lib": ["ES2024"]` to `worker/tsconfig.json`.
 
-- [ ] **Step 4: run, expect PASS (4 tests)**
+- [x] **Step 4: run, expect PASS (4 tests)**
 
 If the RFC example fails on the number `333333333.33333329`, print `JSON.stringify(333333333.33333329)`; the RFC expects `333333333.3333333`, which is ES number formatting, so a mismatch means a typo in the test string, not the implementation.
 
-- [ ] **Step 5: commit**
+- [x] **Step 5: commit**
 
 ```bash
 git add worker/src/crypto/canonical.ts worker/test/canonical.test.ts
@@ -1033,7 +1033,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 Normalisation rules: domain lower-cased and converted to ASCII; local part kept case-exact except for Gmail and Googlemail, where it is lower-cased and the `+tag` removed. The grammar is deliberately restricted: no quoted local parts, no comments, no leading, trailing or consecutive dots, one address per string, display names allowed only in the `Name <addr>` form without commas. Plan 3 may swap in a full RFC 5322 parser; this module is a permission boundary and prefers false negatives.
 
-- [ ] **Step 1 (RED): test**
+- [x] **Step 1 (RED): test**
 
 `worker/test/recipients.test.ts`:
 ```ts
@@ -1097,9 +1097,9 @@ describe("recipientModifiers", () => {
 });
 ```
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
-- [ ] **Step 3 (GREEN): implement**
+- [x] **Step 3 (GREEN): implement**
 
 `worker/src/policy/recipients.ts`:
 ```ts
@@ -1171,11 +1171,11 @@ export function recipientModifiers(all: string[], ctx: TrustContext): Modifier[]
 }
 ```
 
-- [ ] **Step 4: run, expect PASS (9 tests)**
+- [x] **Step 4: run, expect PASS (9 tests)**
 
 If the IDN case fails because the runtime's URL parser keeps Unicode, replace the `new URL` line with `toASCII(domain.toLowerCase())` from `node:punycode` under `nodejs_compat` and rerun.
 
-- [ ] **Step 5: commit**
+- [x] **Step 5: commit**
 
 ```bash
 git add worker/src/policy/recipients.ts worker/test/recipients.test.ts
@@ -1194,7 +1194,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Produces: `LIMITS`, `BLOCKED_EXTENSIONS`, `assertNotBlocked(filename)`, `sanitizeFilename(name)` (UTF-8 byte-bounded to 255, never splits a scalar, keeps the extension), `assertHeaderSafe(field, value)` (throws `invalid_header`, and `limit_exceeded` for subject over 998 bytes), `utf8Length(s)`.
 
-- [ ] **Step 1 (RED): test**
+- [x] **Step 1 (RED): test**
 
 `worker/test/limits.test.ts`:
 ```ts
@@ -1252,9 +1252,9 @@ describe("headers and sizes", () => {
 });
 ```
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
-- [ ] **Step 3 (GREEN): implement**
+- [x] **Step 3 (GREEN): implement**
 
 `worker/src/policy/limits.ts`:
 ```ts
@@ -1323,9 +1323,9 @@ export function assertHeaderSafe(field: string, value: string): void {
 }
 ```
 
-- [ ] **Step 4: run, expect PASS (8 tests)**
+- [x] **Step 4: run, expect PASS (8 tests)**
 
-- [ ] **Step 5: commit**
+- [x] **Step 5: commit**
 
 ```bash
 git add worker/src/policy/limits.ts worker/test/limits.test.ts
@@ -1346,7 +1346,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 Each test seeds its own user so ordering cannot matter.
 
-- [ ] **Step 1 (RED): test**
+- [x] **Step 1 (RED): test**
 
 `worker/test/engine.test.ts`:
 ```ts
@@ -1401,9 +1401,9 @@ describe("decide with modifiers", () => {
 });
 ```
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
-- [ ] **Step 3 (GREEN): implement**
+- [x] **Step 3 (GREEN): implement**
 
 `worker/src/policy/engine.ts`:
 ```ts
@@ -1451,9 +1451,9 @@ export async function setPolicy(db: D1Database, o: { userId: string; accountId: 
 }
 ```
 
-- [ ] **Step 4: run, expect PASS (6 tests)**
+- [x] **Step 4: run, expect PASS (6 tests)**
 
-- [ ] **Step 5: commit**
+- [x] **Step 5: commit**
 
 ```bash
 git add worker/src/policy/engine.ts worker/test/engine.test.ts
@@ -1479,7 +1479,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 Payload convention used by Plan 3's tools: a pending payload for any `send.*` or `draft.write` action carries `attachments: string[]` of staging handles (possibly empty). No other field is inspected by the claim.
 
-- [ ] **Step 1 (RED): test**
+- [x] **Step 1 (RED): test**
 
 `worker/test/claim.test.ts`:
 ```ts
@@ -1610,9 +1610,9 @@ describe("operations journal", () => {
 });
 ```
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
-- [ ] **Step 3 (GREEN): journal**
+- [x] **Step 3 (GREEN): journal**
 
 `worker/src/operations/journal.ts`:
 ```ts
@@ -1679,7 +1679,7 @@ export async function transition(
 
 A `failed_safe` row with a key blocks reuse of that key on purpose: the caller sees `existing.state === "failed_safe"` and decides whether to retry with a new key. Silently freeing keys is how duplicate sends happen.
 
-- [ ] **Step 4 (GREEN): pending**
+- [x] **Step 4 (GREEN): pending**
 
 `worker/src/approval/pending.ts`:
 ```ts
@@ -1749,7 +1749,7 @@ export async function finishPending(db: D1Database, id: string, to: "executed" |
 }
 ```
 
-- [ ] **Step 5 (GREEN): claim**
+- [x] **Step 5 (GREEN): claim**
 
 `worker/src/approval/claim.ts`:
 ```ts
@@ -1828,11 +1828,11 @@ export async function claimPending(
 }
 ```
 
-- [ ] **Step 6: run, expect PASS (11 tests)**
+- [x] **Step 6: run, expect PASS (11 tests)**
 
 Run: `cd worker && npx vitest run test/claim.test.ts`
 
-- [ ] **Step 7: commit**
+- [x] **Step 7: commit**
 
 ```bash
 git add worker/src/approval worker/src/operations worker/test/claim.test.ts
@@ -1854,7 +1854,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - `ack(env, {handle, userId}) -> boolean`: TTL-checked.
 - `extendExpiry(db, handles, userId, accountId, until)`, `consume(db, operationId)` (clears the reservation), `release(db, operationId)`, `purgeExpired(env, now, limit = 200)` (batched R2 delete, transactional D1 delete).
 
-- [ ] **Step 1 (RED): test**
+- [x] **Step 1 (RED): test**
 
 `worker/test/staging.test.ts`:
 ```ts
@@ -1974,9 +1974,9 @@ describe("hold, reserve, consume, release, purge", () => {
 });
 ```
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
-- [ ] **Step 3 (GREEN): implement**
+- [x] **Step 3 (GREEN): implement**
 
 `worker/src/staging/store.ts`:
 ```ts
@@ -2103,11 +2103,11 @@ export async function purgeExpired(env: Env, now: number, limit = 200): Promise<
 }
 ```
 
-- [ ] **Step 4: run, expect PASS (12 tests)**
+- [x] **Step 4: run, expect PASS (12 tests)**
 
 `FixedLengthStream` and `crypto.DigestStream` are Workers globals declared by the generated `worker-configuration.d.ts`. `R2Bucket.delete` accepts an array of keys.
 
-- [ ] **Step 5: commit**
+- [x] **Step 5: commit**
 
 ```bash
 git add worker/src/staging worker/test/staging.test.ts
@@ -2128,7 +2128,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - `type AuditFacts = { recipients?: number; attachments?: number; ids?: string[] }`; `auditIntent(db, {userId, accountId, tool, action, modifiers, decision, pendingId?, operationId?, facts, clientHint?}) -> number`; `auditOutcome(db, {...same, gmailResultId?})`. The module renders the stored summary; there is no free-text parameter.
 - `runCron(env, now, limit = 200) -> CronReport`.
 
-- [ ] **Step 1 (RED): test**
+- [x] **Step 1 (RED): test**
 
 `worker/test/cron.test.ts`:
 ```ts
@@ -2192,9 +2192,9 @@ describe("cron", () => {
 });
 ```
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
-- [ ] **Step 3 (GREEN): audit**
+- [x] **Step 3 (GREEN): audit**
 
 `worker/src/audit/log.ts`:
 ```ts
@@ -2227,7 +2227,7 @@ export const auditIntent = (db: D1Database, b: Base) => write(db, "intent", b);
 export const auditOutcome = (db: D1Database, b: Base & { gmailResultId?: string }) => write(db, "outcome", b);
 ```
 
-- [ ] **Step 4 (GREEN): cron**
+- [x] **Step 4 (GREEN): cron**
 
 `worker/src/cron.ts`:
 ```ts
@@ -2302,9 +2302,9 @@ export default {
 } satisfies ExportedHandler<Env>;
 ```
 
-- [ ] **Step 5: run, expect PASS (3 tests)**
+- [x] **Step 5: run, expect PASS (3 tests)**
 
-- [ ] **Step 6: commit**
+- [x] **Step 6: commit**
 
 ```bash
 git add worker/src/audit worker/src/cron.ts worker/src/index.ts worker/test/cron.test.ts
@@ -2327,7 +2327,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - `POST /mcp` returns 401 with a `WWW-Authenticate` challenge without a valid bearer.
 - Test helper `rpc(env, token, method, params, id)` that posts JSON-RPC to the Worker and parses either a JSON body or an SSE body.
 
-- [ ] **Step 1 (RED): helper and tests**
+- [x] **Step 1 (RED): helper and tests**
 
 `worker/test/mcp-client.ts`:
 ```ts
@@ -2395,9 +2395,9 @@ describe("protocol", () => {
 });
 ```
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
-- [ ] **Step 3 (GREEN): dev auth**
+- [x] **Step 3 (GREEN): dev auth**
 
 `worker/src/mcp/auth-dev.ts`:
 ```ts
@@ -2421,7 +2421,7 @@ export function authenticateDev(request: Request, env: Env): Principal | null {
 }
 ```
 
-- [ ] **Step 4 (GREEN): server factory**
+- [x] **Step 4 (GREEN): server factory**
 
 `worker/src/mcp/server.ts`:
 ```ts
@@ -2497,7 +2497,7 @@ export function buildServer(env: Env, principal: Principal): McpServer {
 }
 ```
 
-- [ ] **Step 5 (GREEN): wire `/mcp`**
+- [x] **Step 5 (GREEN): wire `/mcp`**
 
 `worker/src/index.ts`:
 ```ts
@@ -2528,11 +2528,11 @@ export default {
 } satisfies ExportedHandler<Env>;
 ```
 
-- [ ] **Step 6: run, expect PASS (3 tests)**
+- [x] **Step 6: run, expect PASS (3 tests)**
 
 Run: `cd worker && npx vitest run test/mcp.test.ts`. The stateless handler accepts a 2025 client's `initialize` and subsequent calls without a session id; if `tools/list` returns a JSON-RPC error demanding initialisation, the handler is in the 2026-07-28-only mode and the helper must add `_meta` protocol negotiation as its README documents. That is the one runtime behaviour this task cannot pin from documentation.
 
-- [ ] **Step 7: manual check with MCP Inspector**
+- [x] **Step 7: manual check with MCP Inspector**
 
 Create `worker/.dev.vars` (git-ignored):
 ```
@@ -2552,14 +2552,14 @@ npx @modelcontextprotocol/inspector@2.5.0 --cli http://localhost:8787/mcp --tran
 ```
 Expected: the four tool names.
 
-- [ ] **Step 8: full suite and typecheck**
+- [x] **Step 8: full suite and typecheck**
 
 ```bash
 npm run typecheck && npm test
 ```
 Expected: all green, then `git add package-lock.json worker/worker-configuration.d.ts` if either changed.
 
-- [ ] **Step 9: commit**
+- [x] **Step 9: commit**
 
 ```bash
 git add worker/src worker/test
