@@ -5,6 +5,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # @cloudflare/vitest-plugin peers on vitest ^4.1.0 and it is the only thing that runs the
+      # Worker tests inside workerd. A vitest major bump cannot pass CI until the plugin accepts it.
+      - dependency-name: vitest
+        update-types: [version-update:semver-major]
     groups:
       dev-tooling:
         patterns:
