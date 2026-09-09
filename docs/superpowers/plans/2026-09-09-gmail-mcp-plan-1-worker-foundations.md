@@ -98,7 +98,7 @@ gmail/
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {
-    "typescript": "5.9.2"
+    "typescript": "5.9.3"
   }
 }
 ```
@@ -141,9 +141,9 @@ dist/
     "./errors": "./src/errors.ts",
     "./schemas": "./src/schemas.ts"
   },
-  "scripts": { "typecheck": "tsc --noEmit" },
-  "dependencies": { "zod": "4.1.5" },
-  "devDependencies": { "vitest": "4.0.5" }
+  "scripts": { "test": "vitest run", "typecheck": "tsc --noEmit" },
+  "dependencies": { "zod": "4.5.4" },
+  "devDependencies": { "vitest": "4.1.11" }
 }
 ```
 
@@ -170,25 +170,25 @@ dist/
   "dependencies": {
     "@gmail-mcp/shared": "0.0.1",
     "@modelcontextprotocol/server": "2.0.0",
-    "agents": "0.4.2",
-    "zod": "4.1.5"
+    "agents": "0.22.0",
+    "zod": "4.5.4"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "0.3.1",
-    "@cloudflare/workers-types": "4.20260611.0",
-    "vitest": "4.0.5",
-    "wrangler": "4.115.0"
+    "@cloudflare/vitest-plugin": "1.1.6",
+    "@cloudflare/workers-types": "5.20260908.1",
+    "vitest": "4.1.11",
+    "wrangler": "4.130.0"
   }
 }
 ```
 
-If any pinned version does not resolve, run `npm view <pkg> version` and pin the current one; do not use ranges.
+Versions above were measured from the npm registry on 2026-09-09. `@cloudflare/vitest-plugin` 1.1.6 peers on vitest ^4.1.0, so vitest stays on 4.x even though 5.0 exists. If `npm install` reports a peer conflict, run `npm view <pkg> version` and pin the current one; never use ranges.
 
 `worker/tsconfig.json`:
 ```json
 {
   "extends": "../tsconfig.base.json",
-  "compilerOptions": { "types": ["@cloudflare/workers-types/2023-07-01", "@cloudflare/vitest-plugin"] },
+  "compilerOptions": { "types": ["@cloudflare/workers-types", "@cloudflare/vitest-plugin"] },
   "include": ["src", "test"]
 }
 ```
@@ -240,6 +240,7 @@ export interface Env {
   STATE_HMAC_KEY: string;      // base64 32 bytes
   CSRF_HMAC_KEY: string;       // base64 32 bytes
   DEV_STATIC_TOKEN?: string;   // dev only
+  DEV_STATIC_USER?: string;    // dev only: user_id the static token maps to
 }
 ```
 
@@ -265,7 +266,8 @@ export {};
 
 `worker/test/smoke.test.ts`:
 ```ts
-import { env, createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
+import { env } from "cloudflare:workers";
+import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { describe, it, expect } from "vitest";
 import worker from "../src/index";
 
@@ -295,7 +297,7 @@ Then:
 ```bash
 cd worker && npx vitest run test/smoke.test.ts
 ```
-Expected: both tests PASS. If `cloudflare:test` does not export `env`, check the installed `@cloudflare/vitest-plugin` README for the current import (the docs show `env` from `cloudflare:workers` and `createExecutionContext` from `cloudflare:test`); adjust the import in the test to whichever the installed version documents and keep that form for every later test.
+Expected: both tests PASS. The import form follows the plugin docs: bindings via `env` from `cloudflare:workers`, execution-context helpers from `cloudflare:test`. If the installed plugin rejects either import, read `node_modules/@cloudflare/vitest-plugin/README.md` and adjust once, then keep that form in every later test.
 
 - [ ] **Step 6: Commit**
 
@@ -448,7 +450,7 @@ export class GmailMcpError extends Error {
 import { z } from "zod";
 
 export const StagingHandleResponse = z.object({
-  handle: z.string().regex(/^sh_[A-Za-z0-9_-]{43}$|^sh_[A-Za-z0-9_-]+$/),
+  handle: z.string().regex(/^sh_[A-Za-z0-9_-]+$/),
   account: z.string(),
   filename: z.string(),
   mime: z.string(),
@@ -465,7 +467,7 @@ export const PendingApprovalResult = z.object({
   modifiers: z.array(z.string()),
   account: z.string(),
   summary: z.string(),
-  approval: z.object({ mode: z.literal("url"), url: z.string().url() }),
+  approval: z.object({ mode: z.literal("url"), url: z.url() }),
   expires_at: z.string(),
 });
 export type PendingApprovalResult = z.infer<typeof PendingApprovalResult>;
@@ -501,6 +503,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Files:**
 - Create: `worker/migrations/0001_init.sql`, `worker/src/db/migrate-for-tests.ts`, `worker/test/schema.test.ts`
+- Create: `worker/test/fixtures.ts`
 - Modify: `worker/test/setup.ts`
 
 **Interfaces:**
@@ -629,8 +632,15 @@ CREATE INDEX staging_objects_expires ON staging_objects(expires_at);
 ```ts
 import init from "../../migrations/0001_init.sql?raw";
 
-/** Splits on ';' at line ends. Migrations must not contain ';' inside string literals. */
+/**
+ * Splits on ';' at line ends. Migrations must not contain ';' inside string literals.
+ * Idempotent: if the test runtime does not isolate storage per file, a second call is a no-op.
+ */
 export async function applyMigrations(db: D1Database): Promise<void> {
+  const already = await db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'")
+    .first<{ name: string }>();
+  if (already) return;
   const statements = init
     .split(/;\s*\n/)
     .map((s) => s.trim())
@@ -643,16 +653,19 @@ export async function applyMigrations(db: D1Database): Promise<void> {
 
 If `?raw` imports are not supported by the plugin's bundler, replace the import with `import { readFileSync } from "node:fs"` guarded behind `nodejs_compat`, or inline the SQL as a template string exported from `worker/src/db/schema.sql.ts` and have the migration file generated from it. Keep one source of truth.
 
-`worker/test/setup.ts`:
+`worker/test/setup.ts` (hooks only; fixtures live in a separate module so importing them never re-registers hooks):
 ```ts
-import { env } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { beforeAll } from "vitest";
 import { applyMigrations } from "../src/db/migrate-for-tests";
 
 beforeAll(async () => {
   await applyMigrations(env.DB);
 });
+```
 
+`worker/test/fixtures.ts`:
+```ts
 export async function seedUserAndAccount(
   db: D1Database,
   o: { userId: string; accountId: string; alias: string; isDefault?: boolean; orgDomains?: string[]; sendAs?: string[] },
@@ -675,9 +688,9 @@ export async function seedUserAndAccount(
 
 `worker/test/schema.test.ts`:
 ```ts
-import { env } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { describe, it, expect } from "vitest";
-import { seedUserAndAccount } from "./setup";
+import { seedUserAndAccount } from "./fixtures";
 
 describe("schema constraints", () => {
   it("rejects duplicate global policy rows (NULL account_id)", async () => {
@@ -1299,9 +1312,9 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 `worker/test/engine.test.ts`:
 ```ts
-import { env } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { describe, it, expect, beforeAll } from "vitest";
-import { seedUserAndAccount } from "./setup";
+import { seedUserAndAccount } from "./fixtures";
 import { decide, effectiveLevel, setPolicy } from "../src/policy/engine";
 
 beforeAll(async () => {
@@ -1435,9 +1448,9 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 `worker/test/claim.test.ts`:
 ```ts
-import { env } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { describe, it, expect, beforeAll } from "vitest";
-import { seedUserAndAccount } from "./setup";
+import { seedUserAndAccount } from "./fixtures";
 import { createPending, approvePending, cancelPending, getPending } from "../src/approval/pending";
 import { claimPending } from "../src/approval/claim";
 import { acquire, transition } from "../src/operations/journal";
@@ -1769,7 +1782,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: `randomHandle`, `sha256Hex`, `sanitizeFilename`, `assertNotBlocked`, `LIMITS`.
 - Produces:
-  - `ingest(env, {userId, accountId, direction, filename, mime, body: ReadableStream<Uint8Array>, declaredSize?, declaredSha256?, source?}): Promise<StagingRow>` (tee into R2 and DigestStream, enforces 25 MB, verifies declared hash when given)
+  - `ingest(env, {userId, accountId, direction, filename, mime, length, body: ReadableStream<Uint8Array>, declaredSha256?, source?}): Promise<StagingRow>` (rejects `length` over 25 MB before reading, wraps the body in `FixedLengthStream(length)` so a short or long body errors, tees into R2 and `DigestStream`, verifies the declared hash when given)
   - `openForRead(env, {handle, userId}): Promise<{row: StagingRow; body: ReadableStream}>` throwing `handle_invalid | handle_expired`
   - `ack(env, {handle, userId}): Promise<boolean>`
   - `extendExpiry(db, handles: string[], userId, accountId, until: number)`
@@ -1781,9 +1794,9 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 `worker/test/staging.test.ts`:
 ```ts
-import { env } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { describe, it, expect, beforeAll } from "vitest";
-import { seedUserAndAccount } from "./setup";
+import { seedUserAndAccount } from "./fixtures";
 import { ingest, openForRead, ack, purgeExpired, extendExpiry, consume, release } from "../src/staging/store";
 import { sha256Hex } from "../src/crypto/canonical";
 
@@ -1795,23 +1808,35 @@ beforeAll(async () => {
   await seedUserAndAccount(env.DB, { userId: "su2", accountId: "sb", alias: "main" });
 });
 
+const up = (name: string, data: Uint8Array, extra: Record<string, unknown> = {}) =>
+  ingest(env, { userId: "su", accountId: "sa", direction: "upload", filename: name, mime: "application/octet-stream", length: data.byteLength, body: stream(data), ...extra });
+
 describe("ingest", () => {
   it("stores bytes in R2, computes sha256, sanitises the filename, sets 30 min ttl", async () => {
     const data = bytes(1000);
-    const row = await ingest(env, { userId: "su", accountId: "sa", direction: "download", filename: "../x\u202e.pdf", mime: "application/pdf", body: stream(data) });
+    const row = await ingest(env, { userId: "su", accountId: "sa", direction: "download", filename: "../x\u202e.pdf", mime: "application/pdf", length: 1000, body: stream(data) });
     expect(row.handle).toMatch(/^sh_/);
     expect(row.filename).toBe("x_.pdf");
+    expect(row.size).toBe(1000);
     expect(row.sha256).toBe(await sha256Hex(data));
     expect(row.expires_at - row.created_at).toBe(30 * 60_000);
     const obj = await env.STAGING.get(row.r2_key);
     expect((await obj!.arrayBuffer()).byteLength).toBe(1000);
   });
-  it("rejects blocked extensions before storing and oversize bodies", async () => {
-    await expect(ingest(env, { userId: "su", accountId: "sa", direction: "upload", filename: "run.exe", mime: "x", body: stream(bytes(1)) })).rejects.toThrow(/blocked_extension/);
-    await expect(ingest(env, { userId: "su", accountId: "sa", direction: "upload", filename: "big.bin", mime: "x", body: stream(bytes(1)), declaredSize: 26 * 1024 * 1024 })).rejects.toThrow(/limit_exceeded/);
+  it("rejects blocked extensions and over-cap lengths before reading any bytes", async () => {
+    await expect(up("run.exe", bytes(1))).rejects.toThrow(/blocked_extension/);
+    await expect(up("big.bin", bytes(1), { length: 25 * 1024 * 1024 + 1 })).rejects.toThrow(/limit_exceeded/);
+  });
+  it("rejects a body whose byte count differs from length, leaving no R2 object or row", async () => {
+    await expect(up("short.bin", bytes(3), { length: 5 })).rejects.toThrow();
+    await expect(up("long.bin", bytes(7), { length: 5 })).rejects.toThrow();
+    const n = await env.DB.prepare("SELECT count(*) AS c FROM staging_objects WHERE filename IN ('short.bin','long.bin')").first<{ c: number }>();
+    expect(n?.c).toBe(0);
+    const listed = await env.STAGING.list({ prefix: "stg/su/" });
+    expect(listed.objects.filter((o) => o.size === 3 || o.size === 7)).toHaveLength(0);
   });
   it("rejects a declared sha256 that does not match and leaves no row", async () => {
-    await expect(ingest(env, { userId: "su", accountId: "sa", direction: "upload", filename: "a.txt", mime: "text/plain", body: stream(bytes(5)), declaredSha256: "0".repeat(64) })).rejects.toThrow(/handle_invalid/);
+    await expect(up("a.txt", bytes(5), { declaredSha256: "0".repeat(64) })).rejects.toThrow(/handle_invalid/);
     const n = await env.DB.prepare("SELECT count(*) AS c FROM staging_objects WHERE filename = 'a.txt'").first<{ c: number }>();
     expect(n?.c).toBe(0);
   });
@@ -1819,7 +1844,7 @@ describe("ingest", () => {
 
 describe("read and ack", () => {
   it("streams to the owner, refuses other users, allows re-read before ack, blocks after ack", async () => {
-    const row = await ingest(env, { userId: "su", accountId: "sa", direction: "download", filename: "r.txt", mime: "text/plain", body: stream(bytes(3, 9)) });
+    const row = await ingest(env, { userId: "su", accountId: "sa", direction: "download", filename: "r.txt", mime: "text/plain", length: 3, body: stream(bytes(3, 9)) });
     const first = await openForRead(env, { handle: row.handle, userId: "su" });
     expect(new Uint8Array(await new Response(first.body).arrayBuffer())).toEqual(bytes(3, 9));
     await expect(openForRead(env, { handle: row.handle, userId: "su2" })).rejects.toThrow(/handle_invalid/);
@@ -1832,8 +1857,8 @@ describe("read and ack", () => {
 
 describe("expiry, hold, consume, release, purge", () => {
   it("purges expired unreserved objects from R2 and D1, keeps reserved ones", async () => {
-    const a = await ingest(env, { userId: "su", accountId: "sa", direction: "upload", filename: "a.bin", mime: "x", body: stream(bytes(2)) });
-    const b = await ingest(env, { userId: "su", accountId: "sa", direction: "upload", filename: "b.bin", mime: "x", body: stream(bytes(2)) });
+    const a = await up("a.bin", bytes(2));
+    const b = await up("b.bin", bytes(2));
     await env.DB.prepare("UPDATE staging_objects SET expires_at = 1 WHERE handle IN (?, ?)").bind(a.handle, b.handle).run();
     await env.DB.prepare("INSERT INTO operations (id, user_id, account_id, action, state, payload_hash, created_at, updated_at) VALUES ('op_x', 'su', 'sa', 'send.message', 'delivery_unknown', 'h', 1, 1)").run();
     await env.DB.prepare("UPDATE staging_objects SET reserved_by_operation_id = 'op_x' WHERE handle = ?").bind(b.handle).run();
@@ -1843,7 +1868,7 @@ describe("expiry, hold, consume, release, purge", () => {
     expect(await env.STAGING.get(b.r2_key)).not.toBeNull();
   });
   it("extendExpiry, consume and release update the right rows", async () => {
-    const c = await ingest(env, { userId: "su", accountId: "sa", direction: "upload", filename: "c.bin", mime: "x", body: stream(bytes(2)) });
+    const c = await up("c.bin", bytes(2));
     await extendExpiry(env.DB, [c.handle], "su", "sa", c.expires_at + 99_000);
     const e = await env.DB.prepare("SELECT expires_at AS e FROM staging_objects WHERE handle = ?").bind(c.handle).first<{ e: number }>();
     expect(e?.e).toBe(c.expires_at + 99_000);
@@ -1885,47 +1910,42 @@ function hex(buf: ArrayBuffer): string {
   return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/** Counts bytes and aborts past the cap, forwarding chunks unchanged. */
-function limitBytes(max: number): { transform: TransformStream<Uint8Array, Uint8Array>; count: () => number } {
-  let n = 0;
-  const transform = new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, controller) {
-      n += chunk.byteLength;
-      if (n > max) controller.error(new GmailMcpError("limit_exceeded", `limit_exceeded: staged file > ${max} bytes`));
-      else controller.enqueue(chunk);
-    },
-  });
-  return { transform, count: () => n };
-}
-
 export async function ingest(
   env: Env,
   o: {
     userId: string; accountId: string; direction: "download" | "upload"; filename: string; mime: string;
-    body: ReadableStream<Uint8Array>; declaredSize?: number; declaredSha256?: string;
+    length: number; body: ReadableStream<Uint8Array>; declaredSha256?: string;
     source?: { messageId: string; attachmentId: string };
   },
 ): Promise<StagingRow> {
   const filename = sanitizeFilename(o.filename);
   assertNotBlocked(filename);
-  if (o.declaredSize !== undefined && o.declaredSize > LIMITS.stagedFileBytes) {
-    throw new GmailMcpError("limit_exceeded", `limit_exceeded: declared size ${o.declaredSize}`);
+  if (!Number.isInteger(o.length) || o.length < 0 || o.length > LIMITS.stagedFileBytes) {
+    throw new GmailMcpError("limit_exceeded", `limit_exceeded: length ${o.length} not within 0..${LIMITS.stagedFileBytes}`);
   }
   const handle = randomHandle();
   const r2Key = `stg/${o.userId}/${handle}`;
-  const limiter = limitBytes(LIMITS.stagedFileBytes);
-  const [forR2, forDigest] = o.body.pipeThrough(limiter.transform).tee();
+  // FixedLengthStream errors if the body is shorter or longer than `length`, so the cap above is exact,
+  // and R2 receives a known-length stream.
+  const fixed = new FixedLengthStream(o.length);
+  const pumping = o.body.pipeTo(fixed.writable);
+  const [forR2, forDigest] = fixed.readable.tee();
   const digest = new crypto.DigestStream("SHA-256");
-  const digestDone = forDigest.pipeTo(digest);
-  let put: R2Object | null = null;
-  try {
-    put = await env.STAGING.put(r2Key, forR2, { httpMetadata: { contentType: o.mime } });
-    await digestDone;
-  } catch (e) {
+  // Run all three concurrently and observe every rejection: an unobserved rejection from the digest branch
+  // would surface as an unhandled promise rejection and fail the process.
+  const settled = await Promise.allSettled([
+    env.STAGING.put(r2Key, forR2, { httpMetadata: { contentType: o.mime } }),
+    forDigest.pipeTo(digest),
+    pumping,
+  ]);
+  const failure = settled.find((s): s is PromiseRejectedResult => s.status === "rejected");
+  if (failure) {
     await env.STAGING.delete(r2Key).catch(() => {});
-    if (e instanceof GmailMcpError) throw e;
-    throw new GmailMcpError("internal", `ingest failed: ${String((e as Error).message ?? e)}`);
+    const reason = failure.reason;
+    if (reason instanceof GmailMcpError) throw reason;
+    throw new GmailMcpError("internal", `ingest failed: ${String((reason as Error)?.message ?? reason)}`);
   }
+  const put = (settled[0] as PromiseFulfilledResult<R2Object | null>).value;
   const sha256 = hex(await digest.digest);
   if (o.declaredSha256 && o.declaredSha256.toLowerCase() !== sha256) {
     await env.STAGING.delete(r2Key);
@@ -1934,7 +1954,7 @@ export async function ingest(
   const now = Date.now();
   const row: StagingRow = {
     handle, user_id: o.userId, account_id: o.accountId, direction: o.direction, r2_key: r2Key,
-    filename, mime: o.mime, size: put?.size ?? limiter.count(), sha256,
+    filename, mime: o.mime, size: put?.size ?? o.length, sha256,
     source_message_id: o.source?.messageId ?? null, source_attachment_id: o.source?.attachmentId ?? null,
     reserved_by_operation_id: null, created_at: now, expires_at: now + DOWNLOAD_TTL_MS, consumed_at: null,
   };
@@ -2006,7 +2026,7 @@ export async function purgeExpired(env: Env, now: number): Promise<{ deleted: nu
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `cd worker && npx vitest run test/staging.test.ts`
-Expected: PASS (6 tests). If `crypto.DigestStream` is undefined in the test runtime, confirm `compatibility_date` is at least `2023-07-01` in `wrangler.jsonc`; it is a Workers-specific API and exists in workerd.
+Expected: PASS (7 tests). `crypto.DigestStream` and `FixedLengthStream` are Workers-specific globals present in workerd; if TypeScript cannot see them, confirm `@cloudflare/workers-types` is in `tsconfig.json` `types`. If the "long.bin" case passes bytes through instead of erroring, the runtime silently truncated: assert on `settled[2]` (the `pumping` promise) rejecting, which FixedLengthStream guarantees when more bytes are written than declared.
 
 - [ ] **Step 5: Commit**
 
@@ -2032,9 +2052,9 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 `worker/test/cron.test.ts`:
 ```ts
-import { env } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { describe, it, expect, beforeAll } from "vitest";
-import { seedUserAndAccount } from "./setup";
+import { seedUserAndAccount } from "./fixtures";
 import { runCron } from "../src/cron";
 import { auditIntent, auditOutcome, redactSummary } from "../src/audit/log";
 
@@ -2206,10 +2226,11 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 `worker/test/mcp.test.ts`:
 ```ts
-import { env, createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
+import { env } from "cloudflare:workers";
+import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { describe, it, expect, beforeAll } from "vitest";
 import worker from "../src/index";
-import { seedUserAndAccount } from "./setup";
+import { seedUserAndAccount } from "./fixtures";
 import { buildServer } from "../src/mcp/server";
 
 const devEnv = { ...env, DEV_STATIC_TOKEN: "dev-token", DEV_STATIC_USER: "mu" } as any;
@@ -2477,4 +2498,8 @@ Not in this plan by design: 2.3 Gmail tools, 3.5 send pipeline, 3.6 upload inten
 
 **Type consistency:** `Principal` defined in Task 12 `auth-dev.ts` and consumed by `server.ts`; `PendingRow`, `claimPending`, `acquire`, `transition` names match between Task 9 implementation and test; `StagingRow`, `ingest`, `openForRead`, `ack`, `extendExpiry`, `consume`, `release`, `purgeExpired` match between Task 10 and Task 11's cron; `effectiveLevel`, `decide`, `setPolicy` match Task 8 and Task 12.
 
-**Known verification points for the executor:** the `cloudflare:test` import names, the `?raw` SQL import, `crypto.DigestStream` availability, the SDK's `registerTool` schema form, and the `createMcpHandler` call shape. Each task names the fallback to apply if the installed version differs.
+**Measured on 2026-09-09 from the npm registry:** every pinned version in Task 1; `agents` 0.22.0 exports `./mcp/server` and peers on `@modelcontextprotocol/server` 2.0.0 and zod ^4; `@cloudflare/vitest-plugin` 1.1.6 peers on vitest ^4.1.0.
+
+**Still to verify on first install:** the `?raw` SQL import under the plugin's bundler, the plugin's ambient types for `cloudflare:test`, the SDK's `registerTool` schema form (raw shape vs `z.object`), the `createMcpHandler` call shape, and whether R2's local emulation enforces known-length streams the same way production does. Each task names the fallback to apply if the installed version differs.
+
+**Not wired in this plan, by design:** `extendExpiry` (the pending-creation hold, spec 3.7) and `finishPending` are exported but only called from the tool layer in Plan 3. `JOURNALED_ACTIONS` is consumed in Plan 3.
