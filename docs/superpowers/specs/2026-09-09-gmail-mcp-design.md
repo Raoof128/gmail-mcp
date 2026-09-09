@@ -169,7 +169,7 @@ Names mirror the hosted connector baseline (Appendix A) where one exists.
 
 | Tool | Action | Notes |
 |---|---|---|
-| `search_threads` | read.search | Gmail query syntax; `limit` default 20 max 100; `page_token` |
+| `search_threads` | read.search | Gmail query syntax; `limit` default 20 max 50 (hosted parity); `page_token` |
 | `get_thread` | read.message | `messageFormat` default `PLAIN_TEXT`; `max_messages`, `include_body`, `body_char_limit` |
 | `get_message` | read.message | attachments as metadata: `attachmentId`, filename, mime, size |
 | `list_drafts`, `get_draft`, `list_labels` | read.message | paginated |

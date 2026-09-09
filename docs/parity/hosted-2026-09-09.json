@@ -1,0 +1,237 @@
+{
+  "captured": "2026-09-09",
+  "source": "Hosted claude.ai Gmail connector tool schemas as exposed to Claude Code (server id 78b80aa3-2f99-4593-83ca-9a5a4e879724). Descriptions condensed; property names, types, enums and required lists verbatim.",
+  "notes": [
+    "Hosted descriptions reference batch_apply_sensitive_message_labels and batch_apply_sensitive_thread_labels, which were not exposed in this session. Recorded as referenced-but-unexposed.",
+    "search_threads pageSize maximum is 50. Our spec aligns to 50.",
+    "No hosted tool returns attachment bytes. get_message/get_thread/get_draft expose attachment_ids and attachments metadata only.",
+    "Hosted send_message, create_draft, update_draft accept Attachment { content: base64, filename?, mimeType?, inline? }. Ours accept staging handles instead."
+  ],
+  "shared_defs": {
+    "Attachment": {
+      "properties": {
+        "content": { "type": "string", "format": "byte" },
+        "filename": { "type": "string" },
+        "id": { "type": "string", "readOnly": true },
+        "inline": { "type": "boolean" },
+        "mimeType": { "type": "string" }
+      },
+      "required": ["content"]
+    },
+    "MessageFormat": ["MESSAGE_FORMAT_UNSPECIFIED", "MINIMAL", "FULL_CONTENT", "METADATA_ONLY", "PLAIN_TEXT", "RAW"],
+    "LabelColorPreset": ["LABEL_COLOR_PRESET_UNSPECIFIED", "LABEL_COLOR_PRESET_BLACK", "LABEL_COLOR_PRESET_DARK_GRAY", "LABEL_COLOR_PRESET_GRAY", "LABEL_COLOR_PRESET_LIGHT_GRAY", "LABEL_COLOR_PRESET_WHITE", "LABEL_COLOR_PRESET_RED", "LABEL_COLOR_PRESET_ORANGE", "LABEL_COLOR_PRESET_YELLOW", "LABEL_COLOR_PRESET_GREEN", "LABEL_COLOR_PRESET_MINT", "LABEL_COLOR_PRESET_TEAL", "LABEL_COLOR_PRESET_BLUE", "LABEL_COLOR_PRESET_PURPLE", "LABEL_COLOR_PRESET_PINK", "LABEL_COLOR_PRESET_DARK_RED", "LABEL_COLOR_PRESET_DARK_ORANGE", "LABEL_COLOR_PRESET_DARK_GREEN", "LABEL_COLOR_PRESET_DARK_BLUE", "LABEL_COLOR_PRESET_DARK_PURPLE", "LABEL_COLOR_PRESET_DARK_PINK", "LABEL_COLOR_PRESET_BROWN"],
+    "LabelListVisibility": ["LABEL_LIST_VISIBILITY_UNSPECIFIED", "LABEL_SHOW", "LABEL_SHOW_IF_UNREAD", "LABEL_HIDE"],
+    "MessageListVisibility": ["MESSAGE_LIST_VISIBILITY_UNSPECIFIED", "SHOW", "HIDE"],
+    "LabelOption": ["LABEL_OPTION_UNSPECIFIED", "TRASH", "SPAM"]
+  },
+  "tools": {
+    "search_threads": {
+      "purpose": "List threads matching a Gmail query with pagination.",
+      "input": {
+        "properties": {
+          "includeTrash": { "type": "boolean" },
+          "pageSize": { "type": "integer", "format": "int32", "default": 20, "maximum": 50 },
+          "pageToken": { "type": "string" },
+          "query": { "type": "string" },
+          "view": { "type": "string", "enum": ["THREAD_VIEW_UNSPECIFIED", "THREAD_VIEW_METADATA_ONLY", "THREAD_VIEW_MINIMAL"] }
+        },
+        "required": []
+      },
+      "output": "threads[] with id and related messages (snippet, subject, sender, to/cc/bcc, date, label_ids). Empty object means zero matches."
+    },
+    "get_thread": {
+      "purpose": "Retrieve a thread and its messages (drafts omitted).",
+      "input": { "properties": { "messageFormat": { "type": "string", "enum": "MessageFormat" }, "threadId": { "type": "string" } }, "required": ["threadId"] },
+      "output": "messages[] per messageFormat; FULL_CONTENT and PLAIN_TEXT include attachment_ids and attachments metadata."
+    },
+    "get_message": {
+      "purpose": "Retrieve one message by id (not drafts).",
+      "input": { "properties": { "messageFormat": { "type": "string", "enum": "MessageFormat" }, "messageId": { "type": "string" } }, "required": ["messageId"] },
+      "output": "id, snippet, subject, sender, to/cc/bcc, date, label_ids, attachment_ids, plaintext_body, html_body, attachments per format."
+    },
+    "list_drafts": {
+      "purpose": "List drafts with optional query and pagination.",
+      "input": {
+        "properties": {
+          "pageSize": { "type": "integer", "format": "int32", "default": 20, "maximum": 50 },
+          "pageToken": { "type": "string" },
+          "query": { "type": "string" },
+          "view": { "type": "string", "enum": ["DRAFT_VIEW_UNSPECIFIED", "DRAFT_VIEW_METADATA_ONLY", "DRAFT_VIEW_FULL"] }
+        },
+        "required": []
+      },
+      "output": "drafts[] with id, thread_id, recipients, date; subject and plaintext_body when DRAFT_VIEW_FULL."
+    },
+    "get_draft": {
+      "purpose": "Retrieve one draft by id.",
+      "input": { "properties": { "draftId": { "type": "string" }, "messageFormat": { "type": "string", "enum": "MessageFormat" } }, "required": ["draftId"] },
+      "output": "Draft message per messageFormat."
+    },
+    "list_labels": {
+      "purpose": "List all labels.",
+      "input": { "properties": {}, "required": [] },
+      "output": "labels[] with id and name. DRAFT and SENT are read-only."
+    },
+    "create_draft": {
+      "purpose": "Create a draft, optionally as a reply.",
+      "input": {
+        "properties": {
+          "attachments": { "type": "array", "items": "Attachment" },
+          "bcc": { "type": "array", "items": { "type": "string" } },
+          "body": { "type": "string" },
+          "cc": { "type": "array", "items": { "type": "string" } },
+          "htmlBody": { "type": "string" },
+          "replyToMessageId": { "type": "string" },
+          "subject": { "type": "string" },
+          "to": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": []
+      },
+      "output": "Draft { id, threadId }."
+    },
+    "update_draft": {
+      "purpose": "Merge-update a draft; attachments are replaced, not merged.",
+      "input": {
+        "properties": {
+          "attachments": { "type": "array", "items": "Attachment" },
+          "bcc": { "type": "array", "items": { "type": "string" } },
+          "body": { "type": "string" },
+          "cc": { "type": "array", "items": { "type": "string" } },
+          "draftId": { "type": "string" },
+          "htmlBody": { "type": "string" },
+          "subject": { "type": "string" },
+          "to": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["draftId"]
+      },
+      "output": "Draft { id, threadId }."
+    },
+    "send_message": {
+      "purpose": "Send new mail, a threaded message, or an existing draft.",
+      "input": {
+        "properties": {
+          "attachments": { "type": "array", "items": "Attachment" },
+          "bcc": { "type": "array", "items": { "type": "string" } },
+          "body": { "type": "string" },
+          "cc": { "type": "array", "items": { "type": "string" } },
+          "draftId": { "type": "string" },
+          "htmlBody": { "type": "string" },
+          "replyThreadId": { "type": "string" },
+          "replyToMessageId": { "type": "string" },
+          "subject": { "type": "string" },
+          "to": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": []
+      },
+      "output": "Message { id, threadId, labelIds }."
+    },
+    "reply": {
+      "purpose": "Reply to a message; replyAll optional; to/cc override defaults.",
+      "input": {
+        "properties": {
+          "bcc": { "type": "array", "items": { "type": "string" } },
+          "body": { "type": "string" },
+          "cc": { "type": "array", "items": { "type": "string" } },
+          "htmlBody": { "type": "string" },
+          "messageId": { "type": "string" },
+          "replyAll": { "type": "boolean" },
+          "to": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["messageId"]
+      },
+      "output": "Message { id, threadId, labelIds }."
+    },
+    "forward": {
+      "purpose": "Forward a message with optional comment.",
+      "input": {
+        "properties": {
+          "bcc": { "type": "array", "items": { "type": "string" } },
+          "cc": { "type": "array", "items": { "type": "string" } },
+          "forwardText": { "type": "string" },
+          "htmlBody": { "type": "string" },
+          "messageId": { "type": "string" },
+          "to": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["messageId"]
+      },
+      "output": "Message { id, threadId, labelIds }."
+    },
+    "create_label": {
+      "purpose": "Create a label, nested with '/'.",
+      "input": {
+        "properties": {
+          "autoCreateParentLabels": { "type": "boolean", "default": true },
+          "colorPreset": { "type": "string", "enum": "LabelColorPreset" },
+          "displayName": { "type": "string" },
+          "labelListVisibility": { "type": "string", "enum": "LabelListVisibility" },
+          "messageListVisibility": { "type": "string", "enum": "MessageListVisibility" }
+        },
+        "required": ["displayName"]
+      },
+      "output": "Label."
+    },
+    "update_label": {
+      "purpose": "Modify a label's name, color, visibility.",
+      "input": {
+        "properties": {
+          "colorPreset": { "type": "string", "enum": "LabelColorPreset" },
+          "displayName": { "type": "string" },
+          "labelId": { "type": "string" },
+          "labelListVisibility": { "type": "string", "enum": "LabelListVisibility" },
+          "messageListVisibility": { "type": "string", "enum": "MessageListVisibility" }
+        },
+        "required": ["labelId"]
+      },
+      "output": "Label."
+    },
+    "delete_label": {
+      "purpose": "Delete a label.",
+      "input": { "properties": { "labelId": { "type": "string" } }, "required": ["labelId"] },
+      "output": "empty"
+    },
+    "label_message": {
+      "purpose": "Add labels to a message (not TRASH/SPAM).",
+      "input": { "properties": { "labelIds": { "type": "array", "items": { "type": "string" } }, "messageId": { "type": "string" } }, "required": ["messageId", "labelIds"] },
+      "output": "Message { id, threadId, labelIds }."
+    },
+    "unlabel_message": {
+      "purpose": "Remove labels from a message.",
+      "input": { "properties": { "labelIds": { "type": "array", "items": { "type": "string" } }, "messageId": { "type": "string" } }, "required": ["messageId", "labelIds"] },
+      "output": "Message { id, threadId, labelIds }."
+    },
+    "label_thread": {
+      "purpose": "Add labels to a thread (not TRASH/SPAM).",
+      "input": { "properties": { "labelIds": { "type": "array", "items": { "type": "string" } }, "threadId": { "type": "string" } }, "required": ["threadId", "labelIds"] },
+      "output": "Thread."
+    },
+    "unlabel_thread": {
+      "purpose": "Remove labels from a thread.",
+      "input": { "properties": { "labelIds": { "type": "array", "items": { "type": "string" } }, "threadId": { "type": "string" } }, "required": ["threadId", "labelIds"] },
+      "output": "Thread."
+    },
+    "update_message_labels": {
+      "purpose": "Atomically add and remove labels on one message.",
+      "input": { "properties": { "addLabelIds": { "type": "array", "items": { "type": "string" } }, "messageId": { "type": "string" }, "removeLabelIds": { "type": "array", "items": { "type": "string" } } }, "required": ["messageId"] },
+      "output": "Message { id, threadId, labelIds }."
+    },
+    "apply_sensitive_message_label": {
+      "purpose": "Apply TRASH or SPAM to one message.",
+      "input": { "properties": { "labelOption": { "type": "string", "enum": "LabelOption" }, "messageId": { "type": "string" } }, "required": ["messageId", "labelOption"] },
+      "output": "Message."
+    },
+    "apply_sensitive_thread_label": {
+      "purpose": "Apply TRASH or SPAM to one thread.",
+      "input": { "properties": { "labelOption": { "type": "string", "enum": "LabelOption" }, "threadId": { "type": "string" } }, "required": ["threadId", "labelOption"] },
+      "output": "Thread."
+    },
+    "mark_message_spam": { "purpose": "Mark one message as spam.", "input": { "properties": { "messageId": { "type": "string" } }, "required": ["messageId"] }, "output": "Message." },
+    "mark_thread_spam": { "purpose": "Mark a thread as spam.", "input": { "properties": { "threadId": { "type": "string" } }, "required": ["threadId"] }, "output": "Thread." },
+    "unmark_message_spam": { "purpose": "Unmark one message as spam.", "input": { "properties": { "messageId": { "type": "string" } }, "required": ["messageId"] }, "output": "Message." },
+    "unmark_thread_spam": { "purpose": "Unmark a thread as spam.", "input": { "properties": { "threadId": { "type": "string" } }, "required": ["threadId"] }, "output": "Thread." },
+    "trash_message": { "purpose": "Move one message to Trash.", "input": { "properties": { "messageId": { "type": "string" } }, "required": ["messageId"] }, "output": "Message." },
+    "trash_thread": { "purpose": "Move a thread to Trash.", "input": { "properties": { "threadId": { "type": "string" } }, "required": ["threadId"] }, "output": "Thread." },
+    "untrash_message": { "purpose": "Remove one message from Trash.", "input": { "properties": { "messageId": { "type": "string" } }, "required": ["messageId"] }, "output": "Message." },
+    "untrash_thread": { "purpose": "Remove a thread from Trash.", "input": { "properties": { "threadId": { "type": "string" } }, "required": ["threadId"] }, "output": "Thread." }
+  },
+  "referenced_but_unexposed": ["batch_apply_sensitive_message_labels", "batch_apply_sensitive_thread_labels"]
+}
