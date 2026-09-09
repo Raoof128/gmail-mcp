@@ -244,7 +244,7 @@ Not used: `_meta.anthropic/requiresUserInteraction` (forces a client prompt on e
 | aggregate attachments at send | account `send_limit_bytes`, default 25 MB |
 | canonical argument JSON stored in `payload_json` | 1 MB |
 
-Blocked extensions: `GMAIL_BLOCKED_EXTENSION_SET`, configuration seeded from Google's published list (about 50 entries including `exe dll bat cmd js jse vbs msi jar apk appx iso ps1 mjs msix lnk vhd xll`). Checked by filename at stage time and again at send time. Archives are not inspected.
+Blocked extensions: `GMAIL_BLOCKED_EXTENSION_SET`, configuration seeded from Google's published list (about 50 entries including `exe dll bat cmd js jse vbs msi jar apk appx iso ps1 mjs msix lnk vhd xll`). Checked by filename on uploads at stage time and again at send time. Downloads to disk are sanitised but not filtered by this list, since it describes what Gmail refuses to send, not what the owner may save. Archives are not inspected.
 
 ### 2.8 Recipient trust rules for `+external`
 
