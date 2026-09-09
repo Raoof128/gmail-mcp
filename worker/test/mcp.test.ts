@@ -5,7 +5,16 @@ import { rpc } from "./mcp-client";
 
 // A plain copy, never Object.create(env): the test env is a Proxy, and assigning onto a child
 // delegates through the prototype chain and would mutate the real env for later assertions.
-const devEnv = { ...env, DEV_STATIC_TOKEN: "dev-token", DEV_STATIC_USER: "mu" };
+// Build every env explicitly. Never Object.create(env): the test env is a Proxy, and assigning onto
+// a child delegates through the prototype chain and would mutate the real env. Never assume the
+// ambient env lacks the dev secrets either: a developer .dev.vars file puts them there.
+function envWithout(...keys: string[]): Record<string, unknown> {
+  const copy: Record<string, unknown> = { ...env };
+  for (const k of keys) delete copy[k];
+  return copy;
+}
+const bareEnv = envWithout("DEV_STATIC_TOKEN", "DEV_STATIC_USER");
+const devEnv = { ...bareEnv, DEV_STATIC_TOKEN: "dev-token", DEV_STATIC_USER: "mu" };
 const INIT = { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "0" } };
 
 beforeAll(async () => {
@@ -16,8 +25,8 @@ describe("/mcp auth gate", () => {
   it("401 without a bearer, with a wrong bearer, and when the dev path is not fully configured", async () => {
     expect((await rpc(devEnv, null, "initialize", INIT)).status).toBe(401);
     expect((await rpc(devEnv, "nope", "initialize", INIT)).status).toBe(401);
-    expect((await rpc(env, "dev-token", "initialize", INIT)).status).toBe(401);
-    const tokenOnly = { ...env, DEV_STATIC_TOKEN: "dev-token" };
+    expect((await rpc(bareEnv, "dev-token", "initialize", INIT)).status).toBe(401);
+    const tokenOnly = { ...bareEnv, DEV_STATIC_TOKEN: "dev-token" };
     expect((await rpc(tokenOnly, "dev-token", "initialize", INIT)).status).toBe(401);
   });
 });
