@@ -1,0 +1,25 @@
+{
+  "name": "@gmail-mcp/worker",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "types": "wrangler types",
+    "dev": "wrangler dev",
+    "test": "npm run types && vitest run",
+    "typecheck": "npm run types && tsc --noEmit",
+    "migrate:local": "wrangler d1 migrations apply gmail-mcp --local"
+  },
+  "dependencies": {
+    "@gmail-mcp/shared": "0.0.1",
+    "@modelcontextprotocol/server": "2.0.0",
+    "agents": "0.22.0",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.1.6",
+    "@types/node": "24.13.3",
+    "vitest": "4.1.11",
+    "wrangler": "4.130.0"
+  }
+}

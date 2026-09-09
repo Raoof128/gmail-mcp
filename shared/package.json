@@ -1,0 +1,14 @@
+{
+  "name": "@gmail-mcp/shared",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./actions": "./src/actions.ts",
+    "./errors": "./src/errors.ts",
+    "./schemas": "./src/schemas.ts"
+  },
+  "scripts": { "test": "vitest run", "typecheck": "tsc --noEmit" },
+  "dependencies": { "zod": "4.5.4" },
+  "devDependencies": { "vitest": "4.1.11" }
+}

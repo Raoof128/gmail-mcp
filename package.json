@@ -1,0 +1,20 @@
+{
+  "name": "gmail-mcp",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "worker"
+  ],
+  "scripts": {
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  },
+  "allowScripts": {
+    "workerd@1.20260908.1": true,
+    "esbuild@0.28.1": true,
+    "core-js-pure@3.50.0": true
+  }
+}

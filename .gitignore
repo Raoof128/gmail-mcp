@@ -1,4 +1,5 @@
 .remember/
 node_modules/
-.dev.vars
 .wrangler/
+.dev.vars
+dist/
