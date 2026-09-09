@@ -42,8 +42,15 @@ describe("decide with modifiers", () => {
     await seedUserAndAccount(env.DB, { userId: "e7", accountId: "e7b", alias: "q" });
     await setPolicy(env.DB, { userId: "e7", accountId: "e7a", action: "send.message", level: "allow" });
     await setPolicy(env.DB, { userId: "e7", accountId: "e7b", action: "send.message", level: "deny" });
-    expect(await decide(env.DB, { userId: "e7", accountId: "e7a", action: "send.message", modifiers: ["+external"] })).toEqual({ base: "allow", level: "ask", modifiers: ["+external"] });
-    expect((await decide(env.DB, { userId: "e7", accountId: "e7b", action: "send.message", modifiers: ["+attachment"] })).level).toBe("deny");
-    expect((await decide(env.DB, { userId: "e7", accountId: "e7a", action: "label.apply", modifiers: [] })).level).toBe("allow");
+    expect(
+      await decide(env.DB, { userId: "e7", accountId: "e7a", action: "send.message", modifiers: ["+external"] }),
+    ).toEqual({ base: "allow", level: "ask", modifiers: ["+external"] });
+    expect(
+      (await decide(env.DB, { userId: "e7", accountId: "e7b", action: "send.message", modifiers: ["+attachment"] }))
+        .level,
+    ).toBe("deny");
+    expect((await decide(env.DB, { userId: "e7", accountId: "e7a", action: "label.apply", modifiers: [] })).level).toBe(
+      "allow",
+    );
   });
 });

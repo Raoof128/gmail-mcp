@@ -117,8 +117,19 @@ export async function ingest(
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
       .bind(
-        row.handle, row.user_id, row.account_id, row.direction, row.r2_key, row.filename, row.mime,
-        row.size, row.sha256, row.source_message_id, row.source_attachment_id, row.created_at, row.expires_at,
+        row.handle,
+        row.user_id,
+        row.account_id,
+        row.direction,
+        row.r2_key,
+        row.filename,
+        row.mime,
+        row.size,
+        row.sha256,
+        row.source_message_id,
+        row.source_attachment_id,
+        row.created_at,
+        row.expires_at,
       )
       .run();
   } catch (e) {

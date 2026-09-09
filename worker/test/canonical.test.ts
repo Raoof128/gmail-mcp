@@ -7,16 +7,17 @@ const RFC_STRING = String.fromCharCode(0x20ac, 0x24, 0xf, 0xa, 0x41, 0x27, 0x42,
 describe("JCS canonicalize", () => {
   it("matches the RFC 8785 example", () => {
     const input = {
+      // eslint-disable-next-line no-loss-of-precision -- the RFC vector asserts this rounding
       numbers: [333333333.33333329, 1e30, 4.5, 0.002, 1e-27],
       string: RFC_STRING,
       literals: [null, true, false],
     };
-    expect(canonicalize(input)).toBe("{\"literals\":[null,true,false],\"numbers\":[333333333.3333333,1e+30,4.5,0.002,1e-27],\"string\":\"€$\\u000f\\nA'B\\\"\\\\\\\\\\\"/\"}");
+    expect(canonicalize(input)).toBe(
+      '{"literals":[null,true,false],"numbers":[333333333.3333333,1e+30,4.5,0.002,1e-27],"string":"€$\\u000f\\nA\'B\\"\\\\\\\\\\"/"}',
+    );
   });
   it("sorts keys by UTF-16 code units", () => {
-    expect(canonicalize({ b: 1, a: [true, null, "x"], "é": 0, z: 0 })).toBe(
-      "{\"a\":[true,null,\"x\"],\"b\":1,\"z\":0,\"é\":0}",
-    );
+    expect(canonicalize({ b: 1, a: [true, null, "x"], é: 0, z: 0 })).toBe('{"a":[true,null,"x"],"b":1,"z":0,"é":0}');
   });
   it("rejects non I-JSON input instead of guessing", () => {
     expect(() => canonicalize({ a: undefined })).toThrow(TypeError);

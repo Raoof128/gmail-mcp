@@ -35,15 +35,42 @@ describe("strict schemas", () => {
     expect(AccountAlias.safeParse("a/b").success).toBe(false);
   });
   it("accepts a staging handle response and rejects a loose one", () => {
-    const ok = StagingHandleResponse.safeParse({ handle: H, account: "personal", filename: "a.pdf", mime: "application/pdf", size: 10, sha256: "0".repeat(64), expires_at: "2026-09-09T00:00:00Z" });
+    const ok = StagingHandleResponse.safeParse({
+      handle: H,
+      account: "personal",
+      filename: "a.pdf",
+      mime: "application/pdf",
+      size: 10,
+      sha256: "0".repeat(64),
+      expires_at: "2026-09-09T00:00:00Z",
+    });
     expect(ok.success).toBe(true);
-    const bad = StagingHandleResponse.safeParse({ handle: H, account: "personal", filename: "a.pdf", mime: "application/pdf", size: 10, sha256: "0".repeat(64), expires_at: "tomorrow" });
+    const bad = StagingHandleResponse.safeParse({
+      handle: H,
+      account: "personal",
+      filename: "a.pdf",
+      mime: "application/pdf",
+      size: 10,
+      sha256: "0".repeat(64),
+      expires_at: "tomorrow",
+    });
     expect(bad.success).toBe(false);
   });
   it("pending result requires known action and modifier names", () => {
-    const base = { status: "pending_approval", action_id: "pa_" + "B".repeat(22), account: "personal", summary: "s", approval: { mode: "url", url: "https://x.test/approve/pa_x" }, expires_at: "2026-09-09T00:00:00Z" };
-    expect(PendingApprovalResult.safeParse({ ...base, action: "send.message", modifiers: ["+external"] }).success).toBe(true);
+    const base = {
+      status: "pending_approval",
+      action_id: "pa_" + "B".repeat(22),
+      account: "personal",
+      summary: "s",
+      approval: { mode: "url", url: "https://x.test/approve/pa_x" },
+      expires_at: "2026-09-09T00:00:00Z",
+    };
+    expect(PendingApprovalResult.safeParse({ ...base, action: "send.message", modifiers: ["+external"] }).success).toBe(
+      true,
+    );
     expect(PendingApprovalResult.safeParse({ ...base, action: "send.anything", modifiers: [] }).success).toBe(false);
-    expect(PendingApprovalResult.safeParse({ ...base, action: "send.message", modifiers: ["+magic"] }).success).toBe(false);
+    expect(PendingApprovalResult.safeParse({ ...base, action: "send.message", modifiers: ["+magic"] }).success).toBe(
+      false,
+    );
   });
 });

@@ -5,9 +5,11 @@
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "vars": { "WORKER_HOSTNAME": "gmail-mcp.example.workers.dev" },
-  "d1_databases": [{ "binding": "DB", "database_name": "gmail-mcp", "database_id": "local-dev", "migrations_dir": "migrations" }],
+  "d1_databases": [
+    { "binding": "DB", "database_name": "gmail-mcp", "database_id": "local-dev", "migrations_dir": "migrations" },
+  ],
   "r2_buckets": [{ "binding": "STAGING", "bucket_name": "gmail-mcp-staging" }],
   "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "local-dev" }],
   "triggers": { "crons": ["*/5 * * * *"] },
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
 }

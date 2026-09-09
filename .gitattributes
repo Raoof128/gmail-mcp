@@ -1,0 +1,9 @@
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.pdf binary
+*.ico binary
+
+package-lock.json linguist-generated=true -diff
+worker/worker-configuration.d.ts linguist-generated=true -diff

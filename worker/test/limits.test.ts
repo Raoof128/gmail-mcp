@@ -1,9 +1,35 @@
 import { describe, it, expect } from "vitest";
-import { BLOCKED_EXTENSIONS, assertNotBlocked, sanitizeFilename, assertHeaderSafe, LIMITS, utf8Length } from "../src/policy/limits";
+import {
+  BLOCKED_EXTENSIONS,
+  assertNotBlocked,
+  sanitizeFilename,
+  assertHeaderSafe,
+  LIMITS,
+  utf8Length,
+} from "../src/policy/limits";
 
 describe("blocked extensions", () => {
   it("contains Google's published set", () => {
-    for (const e of ["exe", "dll", "bat", "cmd", "js", "jse", "vbs", "msi", "jar", "apk", "appx", "iso", "ps1", "mjs", "msix", "lnk", "vhd", "xll"]) {
+    for (const e of [
+      "exe",
+      "dll",
+      "bat",
+      "cmd",
+      "js",
+      "jse",
+      "vbs",
+      "msi",
+      "jar",
+      "apk",
+      "appx",
+      "iso",
+      "ps1",
+      "mjs",
+      "msix",
+      "lnk",
+      "vhd",
+      "xll",
+    ]) {
       expect(BLOCKED_EXTENSIONS.has(e), e).toBe(true);
     }
   });

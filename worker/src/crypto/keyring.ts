@@ -10,7 +10,10 @@ function fromB64(s: string): Uint8Array<ArrayBuffer> {
 
 export class Keyring {
   private readonly keys = new Map<string, CryptoKey>();
-  private constructor(private readonly raw: Record<string, string>, public readonly currentKeyId: string) {}
+  private constructor(
+    private readonly raw: Record<string, string>,
+    public readonly currentKeyId: string,
+  ) {}
 
   static fromEnv(env: { TOKEN_KEKS: string; TOKEN_KEK_CURRENT: string }): Keyring {
     const raw = JSON.parse(env.TOKEN_KEKS) as Record<string, string>;
@@ -33,7 +36,13 @@ export class Keyring {
   async encrypt(plain: string, aad: AadParts): Promise<{ ciphertext: Uint8Array<ArrayBuffer>; keyId: string }> {
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const k = await this.key(this.currentKeyId);
-    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: frameAad(aad) }, k, new TextEncoder().encode(plain)));
+    const ct = new Uint8Array(
+      await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv, additionalData: frameAad(aad) },
+        k,
+        new TextEncoder().encode(plain),
+      ),
+    );
     const out = new Uint8Array(12 + ct.length);
     out.set(iv, 0);
     out.set(ct, 12);
@@ -43,7 +52,11 @@ export class Keyring {
   async decrypt(ciphertext: Uint8Array<ArrayBuffer>, keyId: string, aad: AadParts): Promise<string> {
     if (ciphertext.length < 12 + 16) throw new Error("ciphertext too short");
     const k = await this.key(keyId);
-    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: ciphertext.slice(0, 12), additionalData: frameAad(aad) }, k, ciphertext.slice(12));
+    const plain = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: ciphertext.slice(0, 12), additionalData: frameAad(aad) },
+      k,
+      ciphertext.slice(12),
+    );
     return new TextDecoder().decode(plain);
   }
 }

@@ -1,7 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { parseAddress, isTrusted, recipientModifiers } from "../src/policy/recipients";
 
-const consumer = { selfAddresses: ["raouf@gmail.com"], allowlist: ["Friend@example.com", "@uni.edu.au"], orgDomains: [] };
+const consumer = {
+  selfAddresses: ["raouf@gmail.com"],
+  allowlist: ["Friend@example.com", "@uni.edu.au"],
+  orgDomains: [],
+};
 const workspace = { selfAddresses: ["me@corp.example"], allowlist: [], orgDomains: ["corp.example"] };
 
 describe("parseAddress", () => {
@@ -18,7 +22,18 @@ describe("parseAddress", () => {
     expect(parseAddress("a@bücher.example").domain).toBe("xn--bcher-kva.example");
   });
   it("rejects malformed, control characters, dot abuse and multiple addresses", () => {
-    for (const bad of ["nope", "a@b@c", "a@b.test\r\nBcc: x@y", "a@b.test, c@d.test", "<a@b.test", ".a@b.test", "a.@b.test", "a..b@b.test", "\"quoted\"@b.test", "a@b"]) {
+    for (const bad of [
+      "nope",
+      "a@b@c",
+      "a@b.test\r\nBcc: x@y",
+      "a@b.test, c@d.test",
+      "<a@b.test",
+      ".a@b.test",
+      "a.@b.test",
+      "a..b@b.test",
+      '"quoted"@b.test',
+      "a@b",
+    ]) {
       expect(() => parseAddress(bad), bad).toThrow(/invalid_address/);
     }
   });

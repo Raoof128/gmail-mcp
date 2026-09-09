@@ -31,9 +31,16 @@ export type PendingApprovalResult = z.infer<typeof PendingApprovalResult>;
 export const UploadIntent = z.object({
   account: AccountAlias,
   filename: z.string().min(1).max(255),
-  size: z.number().int().positive().max(25 * 1024 * 1024),
+  size: z
+    .number()
+    .int()
+    .positive()
+    .max(25 * 1024 * 1024),
   mime: z.string().min(1),
   sha256: Sha256Hex,
-  pending_id: z.string().regex(/^pa_[A-Za-z0-9_-]{22}$/).optional(),
+  pending_id: z
+    .string()
+    .regex(/^pa_[A-Za-z0-9_-]{22}$/)
+    .optional(),
 });
 export type UploadIntent = z.infer<typeof UploadIntent>;

@@ -11,6 +11,7 @@
 **Spec:** `docs/superpowers/specs/2026-09-09-gmail-mcp-design.md` (revision 3). Sections implemented here: 2.1, 2.2, 2.7, 2.8, 3.1–3.4, 3.7 (server side), 3.10, and the cron in 3.7.
 
 **Plan series:**
+
 1. Worker foundations (this plan)
 2. OAuth and identity: `workers-oauth-provider`, Google OIDC login, Flow A, Flow B, Flow C client, web sessions, CSRF, pages (spec 4.1–4.6). Acceptance criterion carried from this plan: the `DEV_STATIC_TOKEN` code path is deleted, not left dormant.
 3. Gmail tools and send pipeline: the 38 tools, MIME streaming, operations execution, reconciliation, error handling (spec 2.3, 3.5, 3.8, 3.9)
@@ -84,15 +85,18 @@ gmail/
 ### Task 1: Workspace and Worker scaffold with a smoke test
 
 **Files:**
+
 - Create: `package.json`, `tsconfig.base.json`, `shared/package.json`, `shared/tsconfig.json`, `shared/vitest.config.ts`, `worker/package.json`, `worker/tsconfig.json`, `worker/wrangler.jsonc`, `worker/vitest.config.ts`, `worker/src/env.ts`, `worker/src/index.ts`, `worker/test/setup.ts`, `worker/test/env.d.ts`, `worker/test/smoke.test.ts`, `worker/migrations/.gitkeep`
 - Modify: `.gitignore`
 
 **Interfaces:**
+
 - Produces: `Env` (= `Cloudflare.Env` augmented) with bindings `DB: D1Database`, `STAGING: R2Bucket`, `OAUTH_KV: KVNamespace`, var `WORKER_HOSTNAME`, secrets `TOKEN_KEKS`, `TOKEN_KEK_CURRENT`, `STATE_HMAC_KEY`, `CSRF_HMAC_KEY`, optional `DEV_STATIC_TOKEN`, `DEV_STATIC_USER`. Default export with `fetch` and `scheduled`.
 
 - [x] **Step 1 (RED): write the smoke test first**
 
 `worker/test/smoke.test.ts`:
+
 ```ts
 import { env, createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { describe, it, expect } from "vitest";
@@ -117,6 +121,7 @@ describe("worker smoke", () => {
 - [x] **Step 2: root and shared package files**
 
 `package.json`:
+
 ```json
 {
   "name": "gmail-mcp",
@@ -131,6 +136,7 @@ describe("worker smoke", () => {
 ```
 
 `tsconfig.base.json`:
+
 ```json
 {
   "compilerOptions": {
@@ -147,6 +153,7 @@ describe("worker smoke", () => {
 ```
 
 Append to `.gitignore`:
+
 ```
 node_modules/
 .wrangler/
@@ -155,6 +162,7 @@ dist/
 ```
 
 `shared/package.json`:
+
 ```json
 {
   "name": "@gmail-mcp/shared",
@@ -173,11 +181,13 @@ dist/
 ```
 
 `shared/tsconfig.json`:
+
 ```json
 { "extends": "../tsconfig.base.json", "include": ["src", "test"] }
 ```
 
 `shared/vitest.config.ts`:
+
 ```ts
 import { defineConfig } from "vitest/config";
 export default defineConfig({ test: { include: ["test/**/*.test.ts"] } });
@@ -186,6 +196,7 @@ export default defineConfig({ test: { include: ["test/**/*.test.ts"] } });
 - [x] **Step 3: worker package files**
 
 `worker/package.json`:
+
 ```json
 {
   "name": "@gmail-mcp/worker",
@@ -215,6 +226,7 @@ export default defineConfig({ test: { include: ["test/**/*.test.ts"] } });
 ```
 
 `worker/tsconfig.json`:
+
 ```json
 {
   "extends": "../tsconfig.base.json",
@@ -224,6 +236,7 @@ export default defineConfig({ test: { include: ["test/**/*.test.ts"] } });
 ```
 
 `worker/wrangler.jsonc`:
+
 ```jsonc
 {
   "$schema": "node_modules/wrangler/config-schema.json",
@@ -232,15 +245,18 @@ export default defineConfig({ test: { include: ["test/**/*.test.ts"] } });
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "vars": { "WORKER_HOSTNAME": "gmail-mcp.example.workers.dev" },
-  "d1_databases": [{ "binding": "DB", "database_name": "gmail-mcp", "database_id": "local-dev", "migrations_dir": "migrations" }],
+  "d1_databases": [
+    { "binding": "DB", "database_name": "gmail-mcp", "database_id": "local-dev", "migrations_dir": "migrations" },
+  ],
   "r2_buckets": [{ "binding": "STAGING", "bucket_name": "gmail-mcp-staging" }],
   "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "local-dev" }],
   "triggers": { "crons": ["*/5 * * * *"] },
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
 }
 ```
 
 `worker/vitest.config.ts` (migrations are read on the Node side and handed to the Worker as a binding, exactly as the plugin's `applyD1Migrations` docs describe):
+
 ```ts
 import path from "node:path";
 import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin";
@@ -261,17 +277,21 @@ export default defineConfig(async () => {
 ```
 
 `worker/test/env.d.ts`:
+
 ```ts
 import type { D1Migration } from "cloudflare:test";
 declare global {
   namespace Cloudflare {
-    interface Env { TEST_MIGRATIONS: D1Migration[] }
+    interface Env {
+      TEST_MIGRATIONS: D1Migration[];
+    }
   }
 }
 export {};
 ```
 
 `worker/test/setup.ts`:
+
 ```ts
 import { env, applyD1Migrations } from "cloudflare:test";
 import { beforeAll } from "vitest";
@@ -282,16 +302,17 @@ beforeAll(async () => {
 ```
 
 `worker/src/env.ts` (the generated `worker-configuration.d.ts` declares bindings and vars from `wrangler.jsonc`; secrets are declared here by interface merging so there is one `Env` for code and tests):
+
 ```ts
 declare global {
   namespace Cloudflare {
     interface Env {
-      TOKEN_KEKS: string;          // JSON { key_id: base64 32 bytes }
-      TOKEN_KEK_CURRENT: string;   // key_id
-      STATE_HMAC_KEY: string;      // base64 32 bytes
-      CSRF_HMAC_KEY: string;       // base64 32 bytes
-      DEV_STATIC_TOKEN?: string;   // dev only; Plan 2 deletes the code that reads it
-      DEV_STATIC_USER?: string;    // dev only
+      TOKEN_KEKS: string; // JSON { key_id: base64 32 bytes }
+      TOKEN_KEK_CURRENT: string; // key_id
+      STATE_HMAC_KEY: string; // base64 32 bytes
+      CSRF_HMAC_KEY: string; // base64 32 bytes
+      DEV_STATIC_TOKEN?: string; // dev only; Plan 2 deletes the code that reads it
+      DEV_STATIC_USER?: string; // dev only
     }
   }
 }
@@ -299,6 +320,7 @@ export type Env = Cloudflare.Env;
 ```
 
 `worker/src/index.ts`:
+
 ```ts
 import type { Env } from "./env";
 
@@ -315,12 +337,15 @@ Create an empty `worker/migrations/.gitkeep` so `readD1Migrations` finds the dir
 - [x] **Step 4: install, generate types, run**
 
 From the repo root:
+
 ```bash
 npm install && git add package-lock.json
 ```
+
 ```bash
 cd worker && npm run types && npx vitest run test/smoke.test.ts
 ```
+
 Expected: both tests PASS. `wrangler types` writes `worker/worker-configuration.d.ts`; commit it. If `readD1Migrations` is not exported from the package root in the installed build, import it from `@cloudflare/vitest-plugin/config` instead (the docs name that subpath); this is the only fallback in the task.
 
 - [x] **Step 5: commit**
@@ -337,14 +362,17 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 2: Shared actions, errors and strict schemas
 
 **Files:**
+
 - Create: `shared/src/actions.ts`, `shared/src/errors.ts`, `shared/src/schemas.ts`, `shared/test/actions.test.ts`
 
 **Interfaces:**
+
 - Produces: `ACTIONS`, `type Action`, `MODIFIERS`, `type Modifier`, `LEVELS`, `type Level`, `DEFAULT_POLICY`, `raise`, `JOURNALED_ACTIONS`; `GmailMcpError`, `ErrorCode`; zod `AccountAlias`, `StagingHandle`, `Sha256Hex`, `StagingHandleResponse`, `PendingApprovalResult`, `UploadIntent`.
 
 - [x] **Step 1 (RED): test**
 
 `shared/test/actions.test.ts`:
+
 ```ts
 import { describe, it, expect } from "vitest";
 import { ACTIONS, DEFAULT_POLICY, MODIFIERS, raise } from "../src/actions";
@@ -383,16 +411,43 @@ describe("strict schemas", () => {
     expect(AccountAlias.safeParse("a/b").success).toBe(false);
   });
   it("accepts a staging handle response and rejects a loose one", () => {
-    const ok = StagingHandleResponse.safeParse({ handle: H, account: "personal", filename: "a.pdf", mime: "application/pdf", size: 10, sha256: "0".repeat(64), expires_at: "2026-09-09T00:00:00Z" });
+    const ok = StagingHandleResponse.safeParse({
+      handle: H,
+      account: "personal",
+      filename: "a.pdf",
+      mime: "application/pdf",
+      size: 10,
+      sha256: "0".repeat(64),
+      expires_at: "2026-09-09T00:00:00Z",
+    });
     expect(ok.success).toBe(true);
-    const bad = StagingHandleResponse.safeParse({ handle: H, account: "personal", filename: "a.pdf", mime: "application/pdf", size: 10, sha256: "0".repeat(64), expires_at: "tomorrow" });
+    const bad = StagingHandleResponse.safeParse({
+      handle: H,
+      account: "personal",
+      filename: "a.pdf",
+      mime: "application/pdf",
+      size: 10,
+      sha256: "0".repeat(64),
+      expires_at: "tomorrow",
+    });
     expect(bad.success).toBe(false);
   });
   it("pending result requires known action and modifier names", () => {
-    const base = { status: "pending_approval", action_id: "pa_x", account: "personal", summary: "s", approval: { mode: "url", url: "https://x.test/approve/pa_x" }, expires_at: "2026-09-09T00:00:00Z" };
-    expect(PendingApprovalResult.safeParse({ ...base, action: "send.message", modifiers: ["+external"] }).success).toBe(true);
+    const base = {
+      status: "pending_approval",
+      action_id: "pa_x",
+      account: "personal",
+      summary: "s",
+      approval: { mode: "url", url: "https://x.test/approve/pa_x" },
+      expires_at: "2026-09-09T00:00:00Z",
+    };
+    expect(PendingApprovalResult.safeParse({ ...base, action: "send.message", modifiers: ["+external"] }).success).toBe(
+      true,
+    );
     expect(PendingApprovalResult.safeParse({ ...base, action: "send.anything", modifiers: [] }).success).toBe(false);
-    expect(PendingApprovalResult.safeParse({ ...base, action: "send.message", modifiers: ["+magic"] }).success).toBe(false);
+    expect(PendingApprovalResult.safeParse({ ...base, action: "send.message", modifiers: ["+magic"] }).success).toBe(
+      false,
+    );
   });
 });
 ```
@@ -404,18 +459,28 @@ Run: `cd shared && npx vitest run`
 - [x] **Step 3 (GREEN): implement**
 
 `shared/src/actions.ts`:
+
 ```ts
 export const ACTIONS = [
-  "read.search", "read.message", "read.attachment",
+  "read.search",
+  "read.message",
+  "read.attachment",
   "draft.write",
-  "send.message", "send.draft", "send.forward",
-  "label.manage", "label.apply",
-  "spam.mark", "spam.unmark",
-  "trash.move", "trash.restore",
+  "send.message",
+  "send.draft",
+  "send.forward",
+  "label.manage",
+  "label.apply",
+  "spam.mark",
+  "spam.unmark",
+  "trash.move",
+  "trash.restore",
   "attachment.stage_upload",
   "fs.save",
-  "account.read", "account.connect",
-  "policy.read", "policy.edit",
+  "account.read",
+  "account.connect",
+  "policy.read",
+  "policy.edit",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 
@@ -426,16 +491,25 @@ export const LEVELS = ["allow", "ask", "deny"] as const;
 export type Level = (typeof LEVELS)[number];
 
 export const DEFAULT_POLICY: Record<Action, Level | "browser"> = {
-  "read.search": "allow", "read.message": "allow", "read.attachment": "allow",
+  "read.search": "allow",
+  "read.message": "allow",
+  "read.attachment": "allow",
   "draft.write": "allow",
-  "send.message": "ask", "send.draft": "ask", "send.forward": "ask",
-  "label.manage": "ask", "label.apply": "allow",
-  "spam.mark": "ask", "spam.unmark": "allow",
-  "trash.move": "ask", "trash.restore": "allow",
+  "send.message": "ask",
+  "send.draft": "ask",
+  "send.forward": "ask",
+  "label.manage": "ask",
+  "label.apply": "allow",
+  "spam.mark": "ask",
+  "spam.unmark": "allow",
+  "trash.move": "ask",
+  "trash.restore": "allow",
   "attachment.stage_upload": "ask",
   "fs.save": "allow",
-  "account.read": "allow", "account.connect": "ask",
-  "policy.read": "allow", "policy.edit": "browser",
+  "account.read": "allow",
+  "account.connect": "ask",
+  "policy.read": "allow",
+  "policy.edit": "browser",
 };
 
 /** Modifiers only raise. allow -> ask; ask and deny unchanged. */
@@ -445,21 +519,45 @@ export function raise(level: Level): Level {
 
 /** Actions whose external side effect is journaled in `operations` (spec 3.5). */
 export const JOURNALED_ACTIONS: ReadonlySet<Action> = new Set<Action>([
-  "send.message", "send.draft", "send.forward", "draft.write", "label.manage",
+  "send.message",
+  "send.draft",
+  "send.forward",
+  "draft.write",
+  "label.manage",
 ]);
 ```
 
 `shared/src/errors.ts`:
+
 ```ts
 export type ErrorCode =
-  | "policy_denied" | "pending_approval" | "pending_not_approved" | "pending_expired"
-  | "pending_replayed" | "payload_mismatch" | "delivery_unknown" | "idempotency_conflict"
-  | "account_not_found" | "account_needs_reconnect" | "handle_invalid" | "handle_expired"
-  | "handle_reserved" | "limit_exceeded" | "blocked_extension" | "invalid_address" | "invalid_header"
-  | "unauthorized" | "forbidden" | "internal";
+  | "policy_denied"
+  | "pending_approval"
+  | "pending_not_approved"
+  | "pending_expired"
+  | "pending_replayed"
+  | "payload_mismatch"
+  | "delivery_unknown"
+  | "idempotency_conflict"
+  | "account_not_found"
+  | "account_needs_reconnect"
+  | "handle_invalid"
+  | "handle_expired"
+  | "handle_reserved"
+  | "limit_exceeded"
+  | "blocked_extension"
+  | "invalid_address"
+  | "invalid_header"
+  | "unauthorized"
+  | "forbidden"
+  | "internal";
 
 export class GmailMcpError extends Error {
-  constructor(public readonly code: ErrorCode, message: string, public readonly details?: Record<string, unknown>) {
+  constructor(
+    public readonly code: ErrorCode,
+    message: string,
+    public readonly details?: Record<string, unknown>,
+  ) {
     super(message);
     this.name = "GmailMcpError";
   }
@@ -467,6 +565,7 @@ export class GmailMcpError extends Error {
 ```
 
 `shared/src/schemas.ts`:
+
 ```ts
 import { z } from "zod";
 import { ACTIONS, MODIFIERS } from "./actions";
@@ -501,10 +600,17 @@ export type PendingApprovalResult = z.infer<typeof PendingApprovalResult>;
 export const UploadIntent = z.object({
   account: AccountAlias,
   filename: z.string().min(1).max(255),
-  size: z.number().int().positive().max(25 * 1024 * 1024),
+  size: z
+    .number()
+    .int()
+    .positive()
+    .max(25 * 1024 * 1024),
   mime: z.string().min(1),
   sha256: Sha256Hex,
-  pending_id: z.string().regex(/^pa_[A-Za-z0-9_-]{22}$/).optional(),
+  pending_id: z
+    .string()
+    .regex(/^pa_[A-Za-z0-9_-]{22}$/)
+    .optional(),
 });
 export type UploadIntent = z.infer<typeof UploadIntent>;
 ```
@@ -527,40 +633,73 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 3: D1 schema with ownership invariants
 
 **Files:**
+
 - Create: `worker/test/fixtures.ts`, `worker/test/schema.test.ts`, `worker/migrations/0001_init.sql`
 
 **Interfaces:**
+
 - Produces: the tables in spec 3.2 plus `execution_started_at` on `pending_actions`; `seedUserAndAccount(db, {userId, accountId, alias, isDefault?, orgDomains?, sendAs?})`.
 
 - [x] **Step 1 (RED): fixtures and tests before the migration exists**
 
 `worker/test/fixtures.ts`:
+
 ```ts
 export async function seedUserAndAccount(
   db: D1Database,
-  o: { userId: string; accountId: string; alias: string; isDefault?: boolean; orgDomains?: string[]; sendAs?: string[] },
+  o: {
+    userId: string;
+    accountId: string;
+    alias: string;
+    isDefault?: boolean;
+    orgDomains?: string[];
+    sendAs?: string[];
+  },
 ): Promise<void> {
   const now = Date.now();
-  await db.prepare("INSERT OR IGNORE INTO users (id, email, created_at) VALUES (?, ?, ?)")
-    .bind(o.userId, `${o.userId}@example.test`, now).run();
-  await db.prepare(
-    `INSERT INTO accounts (id, user_id, alias, google_sub, google_email, send_as, org_domains, scopes, status, is_default, created_at)
+  await db
+    .prepare("INSERT OR IGNORE INTO users (id, email, created_at) VALUES (?, ?, ?)")
+    .bind(o.userId, `${o.userId}@example.test`, now)
+    .run();
+  await db
+    .prepare(
+      `INSERT INTO accounts (id, user_id, alias, google_sub, google_email, send_as, org_domains, scopes, status, is_default, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
-  ).bind(
-    o.accountId, o.userId, o.alias, `sub-${o.accountId}`, `${o.alias}@example.test`,
-    JSON.stringify(o.sendAs ?? []), o.orgDomains ? JSON.stringify(o.orgDomains) : null,
-    "gmail.modify", o.isDefault ? 1 : 0, now,
-  ).run();
+    )
+    .bind(
+      o.accountId,
+      o.userId,
+      o.alias,
+      `sub-${o.accountId}`,
+      `${o.alias}@example.test`,
+      JSON.stringify(o.sendAs ?? []),
+      o.orgDomains ? JSON.stringify(o.orgDomains) : null,
+      "gmail.modify",
+      o.isDefault ? 1 : 0,
+      now,
+    )
+    .run();
 }
 
-export async function insertOperation(db: D1Database, id: string, userId: string, accountId: string, state: string, updatedAt = Date.now()): Promise<void> {
-  await db.prepare(
-    `INSERT INTO operations (id, user_id, account_id, action, state, payload_hash, created_at, updated_at) VALUES (?, ?, ?, 'send.message', ?, 'h', ?, ?)`,
-  ).bind(id, userId, accountId, state, updatedAt, updatedAt).run();
+export async function insertOperation(
+  db: D1Database,
+  id: string,
+  userId: string,
+  accountId: string,
+  state: string,
+  updatedAt = Date.now(),
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO operations (id, user_id, account_id, action, state, payload_hash, created_at, updated_at) VALUES (?, ?, ?, 'send.message', ?, 'h', ?, ?)`,
+    )
+    .bind(id, userId, accountId, state, updatedAt, updatedAt)
+    .run();
 }
 ```
 
 `worker/test/schema.test.ts`:
+
 ```ts
 import { env } from "cloudflare:test";
 import { describe, it, expect } from "vitest";
@@ -569,29 +708,36 @@ import { seedUserAndAccount, insertOperation } from "./fixtures";
 describe("schema constraints", () => {
   it("rejects duplicate global policy rows (NULL account_id)", async () => {
     await seedUserAndAccount(env.DB, { userId: "u1", accountId: "a1", alias: "personal" });
-    const ins = "INSERT INTO policies (user_id, account_id, action, level, updated_at) VALUES ('u1', NULL, 'send.message', 'ask', 1)";
+    const ins =
+      "INSERT INTO policies (user_id, account_id, action, level, updated_at) VALUES ('u1', NULL, 'send.message', 'ask', 1)";
     await env.DB.prepare(ins).run();
     await expect(env.DB.prepare(ins).run()).rejects.toThrow(/UNIQUE/);
   });
 
   it("rejects an alias with a slash or uppercase", async () => {
     await seedUserAndAccount(env.DB, { userId: "u2", accountId: "a2", alias: "ok-alias" });
-    await expect(seedUserAndAccount(env.DB, { userId: "u2", accountId: "a3", alias: "a/../x" })).rejects.toThrow(/CHECK/);
+    await expect(seedUserAndAccount(env.DB, { userId: "u2", accountId: "a3", alias: "a/../x" })).rejects.toThrow(
+      /CHECK/,
+    );
     await expect(seedUserAndAccount(env.DB, { userId: "u2", accountId: "a4", alias: "Work" })).rejects.toThrow(/CHECK/);
   });
 
   it("allows only one default account per user and only 0/1 as the flag", async () => {
     await seedUserAndAccount(env.DB, { userId: "u3", accountId: "a5", alias: "one", isDefault: true });
-    await expect(seedUserAndAccount(env.DB, { userId: "u3", accountId: "a6", alias: "two", isDefault: true })).rejects.toThrow(/UNIQUE/);
+    await expect(
+      seedUserAndAccount(env.DB, { userId: "u3", accountId: "a6", alias: "two", isDefault: true }),
+    ).rejects.toThrow(/UNIQUE/);
     await expect(env.DB.prepare("UPDATE accounts SET is_default = 2 WHERE id = 'a5'").run()).rejects.toThrow(/CHECK/);
   });
 
   it("rejects a pending action whose account belongs to another user", async () => {
     await seedUserAndAccount(env.DB, { userId: "u4", accountId: "a7", alias: "x" });
     await seedUserAndAccount(env.DB, { userId: "u5", accountId: "a8", alias: "y" });
-    await expect(env.DB.prepare(
-      `INSERT INTO pending_actions (id, user_id, account_id, action, modifiers, payload_hash, summary, state, created_at, expires_at)
-       VALUES ('p1', 'u4', 'a8', 'send.message', '[]', 'h', 's', 'pending', 1, 2)`).run(),
+    await expect(
+      env.DB.prepare(
+        `INSERT INTO pending_actions (id, user_id, account_id, action, modifiers, payload_hash, summary, state, created_at, expires_at)
+       VALUES ('p1', 'u4', 'a8', 'send.message', '[]', 'h', 's', 'pending', 1, 2)`,
+      ).run(),
     ).rejects.toThrow(/FOREIGN KEY/);
   });
 
@@ -601,11 +747,16 @@ describe("schema constraints", () => {
     await insertOperation(env.DB, "op_a9", "u6", "a9", "claimed");
     await env.DB.prepare(
       `INSERT INTO staging_objects (handle, user_id, account_id, direction, r2_key, filename, mime, size, sha256, created_at, expires_at)
-       VALUES ('sh_x', 'u6', 'a10', 'upload', 'k', 'f', 'm', 1, 'h', 1, 9999999999999)`).run();
-    await expect(env.DB.prepare("UPDATE staging_objects SET reserved_by_operation_id = 'op_a9' WHERE handle = 'sh_x'").run()).rejects.toThrow(/FOREIGN KEY/);
-    await expect(env.DB.prepare(
-      `INSERT INTO pending_actions (id, user_id, account_id, action, modifiers, payload_hash, summary, state, operation_id, created_at, expires_at)
-       VALUES ('p2', 'u6', 'a10', 'send.message', '[]', 'h', 's', 'executing', 'op_a9', 1, 2)`).run(),
+       VALUES ('sh_x', 'u6', 'a10', 'upload', 'k', 'f', 'm', 1, 'h', 1, 9999999999999)`,
+    ).run();
+    await expect(
+      env.DB.prepare("UPDATE staging_objects SET reserved_by_operation_id = 'op_a9' WHERE handle = 'sh_x'").run(),
+    ).rejects.toThrow(/FOREIGN KEY/);
+    await expect(
+      env.DB.prepare(
+        `INSERT INTO pending_actions (id, user_id, account_id, action, modifiers, payload_hash, summary, state, operation_id, created_at, expires_at)
+       VALUES ('p2', 'u6', 'a10', 'send.message', '[]', 'h', 's', 'executing', 'op_a9', 1, 2)`,
+      ).run(),
     ).rejects.toThrow(/FOREIGN KEY/);
   });
 
@@ -616,8 +767,12 @@ describe("schema constraints", () => {
 
   it("bounds send_limit_bytes", async () => {
     await seedUserAndAccount(env.DB, { userId: "u7", accountId: "a11", alias: "s" });
-    await expect(env.DB.prepare("UPDATE accounts SET send_limit_bytes = 0 WHERE id = 'a11'").run()).rejects.toThrow(/CHECK/);
-    await expect(env.DB.prepare("UPDATE accounts SET send_limit_bytes = 999999999 WHERE id = 'a11'").run()).rejects.toThrow(/CHECK/);
+    await expect(env.DB.prepare("UPDATE accounts SET send_limit_bytes = 0 WHERE id = 'a11'").run()).rejects.toThrow(
+      /CHECK/,
+    );
+    await expect(
+      env.DB.prepare("UPDATE accounts SET send_limit_bytes = 999999999 WHERE id = 'a11'").run(),
+    ).rejects.toThrow(/CHECK/);
   });
 });
 ```
@@ -629,6 +784,7 @@ Run: `cd worker && npx vitest run test/schema.test.ts`
 - [x] **Step 3 (GREEN): the migration**
 
 `worker/migrations/0001_init.sql`:
+
 ```sql
 CREATE TABLE users (
   id TEXT PRIMARY KEY,
@@ -764,14 +920,17 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 4: Keyring encryption with AAD framing
 
 **Files:**
+
 - Create: `worker/src/crypto/random.ts`, `worker/src/crypto/keyring.ts`, `worker/test/keyring.test.ts`
 
 **Interfaces:**
+
 - Produces: `Keyring.fromEnv(env)`, `keyring.encrypt(plain, aad) -> {ciphertext, keyId}`, `keyring.decrypt(ciphertext, keyId, aad) -> string`, `keyring.currentKeyId`, `type AadParts = { userId; accountId; field }`, `frameAad`, `randomId(prefix)` (16 bytes, 22 chars), `randomHandle()` (32 bytes, 43 chars), `b64url`, `fromB64url`.
 
 - [x] **Step 1 (RED): test**
 
 `worker/test/keyring.test.ts`:
+
 ```ts
 import { describe, it, expect } from "vitest";
 import { Keyring, frameAad } from "../src/crypto/keyring";
@@ -819,6 +978,7 @@ Run: `cd worker && npx vitest run test/keyring.test.ts`
 - [x] **Step 3 (GREEN): implement**
 
 `worker/src/crypto/random.ts`:
+
 ```ts
 export function b64url(bytes: Uint8Array): string {
   let s = "";
@@ -844,6 +1004,7 @@ export function randomHandle(): string {
 ```
 
 `worker/src/crypto/keyring.ts`:
+
 ```ts
 export type AadParts = { userId: string; accountId: string; field: string };
 
@@ -857,7 +1018,10 @@ function fromB64(s: string): Uint8Array {
 
 export class Keyring {
   private readonly keys = new Map<string, CryptoKey>();
-  private constructor(private readonly raw: Record<string, string>, public readonly currentKeyId: string) {}
+  private constructor(
+    private readonly raw: Record<string, string>,
+    public readonly currentKeyId: string,
+  ) {}
 
   static fromEnv(env: { TOKEN_KEKS: string; TOKEN_KEK_CURRENT: string }): Keyring {
     const raw = JSON.parse(env.TOKEN_KEKS) as Record<string, string>;
@@ -880,7 +1044,13 @@ export class Keyring {
   async encrypt(plain: string, aad: AadParts): Promise<{ ciphertext: Uint8Array; keyId: string }> {
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const k = await this.key(this.currentKeyId);
-    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: frameAad(aad) }, k, new TextEncoder().encode(plain)));
+    const ct = new Uint8Array(
+      await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv, additionalData: frameAad(aad) },
+        k,
+        new TextEncoder().encode(plain),
+      ),
+    );
     const out = new Uint8Array(12 + ct.length);
     out.set(iv, 0);
     out.set(ct, 12);
@@ -890,7 +1060,11 @@ export class Keyring {
   async decrypt(ciphertext: Uint8Array, keyId: string, aad: AadParts): Promise<string> {
     if (ciphertext.length < 12 + 16) throw new Error("ciphertext too short");
     const k = await this.key(keyId);
-    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: ciphertext.slice(0, 12), additionalData: frameAad(aad) }, k, ciphertext.slice(12));
+    const plain = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: ciphertext.slice(0, 12), additionalData: frameAad(aad) },
+      k,
+      ciphertext.slice(12),
+    );
     return new TextDecoder().decode(plain);
   }
 }
@@ -912,14 +1086,17 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 5: Strict RFC 8785 canonical JSON and payload hashing
 
 **Files:**
+
 - Create: `worker/src/crypto/canonical.ts`, `worker/test/canonical.test.ts`
 
 **Interfaces:**
+
 - Produces: `canonicalize(value: unknown): string` (throws `TypeError` on `undefined` anywhere, functions, symbols, bigint, non-finite numbers, non-plain objects, lone surrogates), `sha256Hex(bytes): Promise<string>`, `hashCanonical(canonical: string): Promise<string>` (sha256 of the UTF-8 bytes of the exact string that gets stored).
 
 - [x] **Step 1 (RED): test, including the RFC 8785 §3.2.3 example**
 
 `worker/test/canonical.test.ts`:
+
 ```ts
 import { describe, it, expect } from "vitest";
 import { canonicalize, hashCanonical } from "../src/crypto/canonical";
@@ -936,7 +1113,9 @@ describe("JCS canonicalize", () => {
     );
   });
   it("sorts keys by UTF-16 code units", () => {
-    expect(canonicalize({ b: 1, a: [true, null, "x"], "\u00e9": 0, "z": 0 })).toBe('{"a":[true,null,"x"],"b":1,"z":0,"é":0}');
+    expect(canonicalize({ b: 1, a: [true, null, "x"], "\u00e9": 0, z: 0 })).toBe(
+      '{"a":[true,null,"x"],"b":1,"z":0,"é":0}',
+    );
   });
   it("rejects non I-JSON input instead of guessing", () => {
     expect(() => canonicalize({ a: undefined })).toThrow(TypeError);
@@ -962,6 +1141,7 @@ describe("JCS canonicalize", () => {
 - [x] **Step 3 (GREEN): implement**
 
 `worker/src/crypto/canonical.ts`:
+
 ```ts
 /**
  * RFC 8785 JSON Canonicalization Scheme over I-JSON input.
@@ -986,10 +1166,16 @@ export function canonicalize(value: unknown): string {
       if (proto !== Object.prototype && proto !== null) throw new TypeError("non-plain object");
       const obj = value as Record<string, unknown>;
       const keys = Object.keys(obj).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-      return "{" + keys.map((k) => {
-        if (!k.isWellFormed()) throw new TypeError("lone surrogate in key");
-        return JSON.stringify(k) + ":" + canonicalize(obj[k]);
-      }).join(",") + "}";
+      return (
+        "{" +
+        keys
+          .map((k) => {
+            if (!k.isWellFormed()) throw new TypeError("lone surrogate in key");
+            return JSON.stringify(k) + ":" + canonicalize(obj[k]);
+          })
+          .join(",") +
+        "}"
+      );
     }
     default:
       throw new TypeError(`cannot canonicalize ${typeof value}`);
@@ -1026,9 +1212,11 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 6: Recipient grammar and trust rules
 
 **Files:**
+
 - Create: `worker/src/policy/recipients.ts`, `worker/test/recipients.test.ts`
 
 **Interfaces:**
+
 - Produces: `parseAddress(raw): ParsedAddress` (restricted grammar, throws `invalid_address`), `type ParsedAddress = { local: string; domain: string; normalized: string }`, `type TrustContext = { selfAddresses: string[]; allowlist: string[]; orgDomains: string[] }`, `isTrusted(addr, ctx)`, `recipientModifiers(all: string[], ctx): Modifier[]`, `MAX_RECIPIENTS = 500`, `BULK_THRESHOLD = 10`.
 
 Normalisation rules: domain lower-cased and converted to ASCII; local part kept case-exact except for Gmail and Googlemail, where it is lower-cased and the `+tag` removed. The grammar is deliberately restricted: no quoted local parts, no comments, no leading, trailing or consecutive dots, one address per string, display names allowed only in the `Name <addr>` form without commas. Plan 3 may swap in a full RFC 5322 parser; this module is a permission boundary and prefers false negatives.
@@ -1036,11 +1224,16 @@ Normalisation rules: domain lower-cased and converted to ASCII; local part kept 
 - [x] **Step 1 (RED): test**
 
 `worker/test/recipients.test.ts`:
+
 ```ts
 import { describe, it, expect } from "vitest";
 import { parseAddress, isTrusted, recipientModifiers } from "../src/policy/recipients";
 
-const consumer = { selfAddresses: ["raouf@gmail.com"], allowlist: ["Friend@example.com", "@uni.edu.au"], orgDomains: [] };
+const consumer = {
+  selfAddresses: ["raouf@gmail.com"],
+  allowlist: ["Friend@example.com", "@uni.edu.au"],
+  orgDomains: [],
+};
 const workspace = { selfAddresses: ["me@corp.example"], allowlist: [], orgDomains: ["corp.example"] };
 
 describe("parseAddress", () => {
@@ -1057,7 +1250,18 @@ describe("parseAddress", () => {
     expect(parseAddress("a@bücher.example").domain).toBe("xn--bcher-kva.example");
   });
   it("rejects malformed, control characters, dot abuse and multiple addresses", () => {
-    for (const bad of ["nope", "a@b@c", "a@b.test\r\nBcc: x@y", "a@b.test, c@d.test", "<a@b.test", ".a@b.test", "a.@b.test", "a..b@b.test", "\"quoted\"@b.test", "a@b"]) {
+    for (const bad of [
+      "nope",
+      "a@b@c",
+      "a@b.test\r\nBcc: x@y",
+      "a@b.test, c@d.test",
+      "<a@b.test",
+      ".a@b.test",
+      "a.@b.test",
+      "a..b@b.test",
+      '"quoted"@b.test',
+      "a@b",
+    ]) {
       expect(() => parseAddress(bad), bad).toThrow(/invalid_address/);
     }
   });
@@ -1102,6 +1306,7 @@ describe("recipientModifiers", () => {
 - [x] **Step 3 (GREEN): implement**
 
 `worker/src/policy/recipients.ts`:
+
 ```ts
 import { GmailMcpError } from "@gmail-mcp/shared/errors";
 import type { Modifier } from "@gmail-mcp/shared/actions";
@@ -1189,21 +1394,50 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 7: Argument limits, blocked extensions, filename and header safety
 
 **Files:**
+
 - Create: `worker/src/policy/limits.ts`, `worker/test/limits.test.ts`
 
 **Interfaces:**
+
 - Produces: `LIMITS`, `BLOCKED_EXTENSIONS`, `assertNotBlocked(filename)`, `sanitizeFilename(name)` (UTF-8 byte-bounded to 255, never splits a scalar, keeps the extension), `assertHeaderSafe(field, value)` (throws `invalid_header`, and `limit_exceeded` for subject over 998 bytes), `utf8Length(s)`.
 
 - [x] **Step 1 (RED): test**
 
 `worker/test/limits.test.ts`:
+
 ```ts
 import { describe, it, expect } from "vitest";
-import { BLOCKED_EXTENSIONS, assertNotBlocked, sanitizeFilename, assertHeaderSafe, LIMITS, utf8Length } from "../src/policy/limits";
+import {
+  BLOCKED_EXTENSIONS,
+  assertNotBlocked,
+  sanitizeFilename,
+  assertHeaderSafe,
+  LIMITS,
+  utf8Length,
+} from "../src/policy/limits";
 
 describe("blocked extensions", () => {
   it("contains Google's published set", () => {
-    for (const e of ["exe", "dll", "bat", "cmd", "js", "jse", "vbs", "msi", "jar", "apk", "appx", "iso", "ps1", "mjs", "msix", "lnk", "vhd", "xll"]) {
+    for (const e of [
+      "exe",
+      "dll",
+      "bat",
+      "cmd",
+      "js",
+      "jse",
+      "vbs",
+      "msi",
+      "jar",
+      "apk",
+      "appx",
+      "iso",
+      "ps1",
+      "mjs",
+      "msix",
+      "lnk",
+      "vhd",
+      "xll",
+    ]) {
       expect(BLOCKED_EXTENSIONS.has(e), e).toBe(true);
     }
   });
@@ -1257,6 +1491,7 @@ describe("headers and sizes", () => {
 - [x] **Step 3 (GREEN): implement**
 
 `worker/src/policy/limits.ts`:
+
 ```ts
 import { GmailMcpError } from "@gmail-mcp/shared/errors";
 
@@ -1271,10 +1506,60 @@ export const LIMITS = {
 
 /** Seeded from support.google.com/mail/answer/6590 on 2026-09-09. Applies to outbound uploads. */
 export const BLOCKED_EXTENSIONS: ReadonlySet<string> = new Set([
-  "ade", "adp", "apk", "appx", "appxbundle", "bat", "cab", "chm", "cmd", "com", "cpl", "diagcab", "diagcfg",
-  "diagpack", "dll", "dmg", "ex", "ex_", "exe", "hta", "img", "ins", "iso", "isp", "jar", "jnlp", "js", "jse",
-  "lib", "lnk", "mde", "mjs", "msc", "msi", "msix", "msixbundle", "msp", "mst", "nsh", "pif", "ps1", "scr",
-  "sct", "shb", "sys", "vb", "vbe", "vbs", "vhd", "vxd", "wsc", "wsf", "wsh", "xll",
+  "ade",
+  "adp",
+  "apk",
+  "appx",
+  "appxbundle",
+  "bat",
+  "cab",
+  "chm",
+  "cmd",
+  "com",
+  "cpl",
+  "diagcab",
+  "diagcfg",
+  "diagpack",
+  "dll",
+  "dmg",
+  "ex",
+  "ex_",
+  "exe",
+  "hta",
+  "img",
+  "ins",
+  "iso",
+  "isp",
+  "jar",
+  "jnlp",
+  "js",
+  "jse",
+  "lib",
+  "lnk",
+  "mde",
+  "mjs",
+  "msc",
+  "msi",
+  "msix",
+  "msixbundle",
+  "msp",
+  "mst",
+  "nsh",
+  "pif",
+  "ps1",
+  "scr",
+  "sct",
+  "shb",
+  "sys",
+  "vb",
+  "vbe",
+  "vbs",
+  "vhd",
+  "vxd",
+  "wsc",
+  "wsf",
+  "wsh",
+  "xll",
 ]);
 
 export function assertNotBlocked(filename: string): void {
@@ -1294,7 +1579,8 @@ export function utf8Length(s: string): number {
 function truncateUtf8(s: string, max: number): string {
   let out = "";
   let bytes = 0;
-  for (const ch of s) { // iterates by code point, never splits a surrogate pair
+  for (const ch of s) {
+    // iterates by code point, never splits a surrogate pair
     const n = utf8Length(ch);
     if (bytes + n > max) break;
     out += ch;
@@ -1316,7 +1602,8 @@ export function sanitizeFilename(name: string): string {
 }
 
 export function assertHeaderSafe(field: string, value: string): void {
-  if (/[\r\n\0]/.test(value)) throw new GmailMcpError("invalid_header", `invalid_header: ${field} contains control characters`);
+  if (/[\r\n\0]/.test(value))
+    throw new GmailMcpError("invalid_header", `invalid_header: ${field} contains control characters`);
   if (field === "subject" && utf8Length(value) > LIMITS.subjectBytes) {
     throw new GmailMcpError("limit_exceeded", `limit_exceeded: subject > ${LIMITS.subjectBytes} bytes`);
   }
@@ -1339,9 +1626,11 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 8: Policy engine with ownership check
 
 **Files:**
+
 - Create: `worker/src/policy/engine.ts`, `worker/test/engine.test.ts`
 
 **Interfaces:**
+
 - Produces: `assertAccount(db, userId, accountId): Promise<void>` throwing `account_not_found`, `effectiveLevel(db, userId, accountId, action): Promise<Level>`, `decide(db, {userId, accountId, action, modifiers}): Promise<Decision>`, `setPolicy(db, {userId, accountId: string | null, action, level})`.
 
 Each test seeds its own user so ordering cannot matter.
@@ -1349,6 +1638,7 @@ Each test seeds its own user so ordering cannot matter.
 - [x] **Step 1 (RED): test**
 
 `worker/test/engine.test.ts`:
+
 ```ts
 import { env } from "cloudflare:test";
 import { describe, it, expect } from "vitest";
@@ -1394,9 +1684,16 @@ describe("decide with modifiers", () => {
     await seedUserAndAccount(env.DB, { userId: "e7", accountId: "e7b", alias: "q" });
     await setPolicy(env.DB, { userId: "e7", accountId: "e7a", action: "send.message", level: "allow" });
     await setPolicy(env.DB, { userId: "e7", accountId: "e7b", action: "send.message", level: "deny" });
-    expect(await decide(env.DB, { userId: "e7", accountId: "e7a", action: "send.message", modifiers: ["+external"] })).toEqual({ base: "allow", level: "ask", modifiers: ["+external"] });
-    expect((await decide(env.DB, { userId: "e7", accountId: "e7b", action: "send.message", modifiers: ["+attachment"] })).level).toBe("deny");
-    expect((await decide(env.DB, { userId: "e7", accountId: "e7a", action: "label.apply", modifiers: [] })).level).toBe("allow");
+    expect(
+      await decide(env.DB, { userId: "e7", accountId: "e7a", action: "send.message", modifiers: ["+external"] }),
+    ).toEqual({ base: "allow", level: "ask", modifiers: ["+external"] });
+    expect(
+      (await decide(env.DB, { userId: "e7", accountId: "e7b", action: "send.message", modifiers: ["+attachment"] }))
+        .level,
+    ).toBe("deny");
+    expect((await decide(env.DB, { userId: "e7", accountId: "e7a", action: "label.apply", modifiers: [] })).level).toBe(
+      "allow",
+    );
   });
 });
 ```
@@ -1406,6 +1703,7 @@ describe("decide with modifiers", () => {
 - [x] **Step 3 (GREEN): implement**
 
 `worker/src/policy/engine.ts`:
+
 ```ts
 import { DEFAULT_POLICY, raise, type Action, type Level, type Modifier } from "@gmail-mcp/shared/actions";
 import { GmailMcpError } from "@gmail-mcp/shared/errors";
@@ -1413,40 +1711,62 @@ import { GmailMcpError } from "@gmail-mcp/shared/errors";
 export type Decision = { level: Level; base: Level; modifiers: Modifier[] };
 
 export async function assertAccount(db: D1Database, userId: string, accountId: string): Promise<void> {
-  const row = await db.prepare("SELECT id FROM accounts WHERE id = ? AND user_id = ?").bind(accountId, userId).first<{ id: string }>();
+  const row = await db
+    .prepare("SELECT id FROM accounts WHERE id = ? AND user_id = ?")
+    .bind(accountId, userId)
+    .first<{ id: string }>();
   if (!row) throw new GmailMcpError("account_not_found", "account_not_found");
 }
 
-export async function effectiveLevel(db: D1Database, userId: string, accountId: string, action: Action): Promise<Level> {
+export async function effectiveLevel(
+  db: D1Database,
+  userId: string,
+  accountId: string,
+  action: Action,
+): Promise<Level> {
   const def = DEFAULT_POLICY[action];
   if (def === "browser") throw new Error(`action ${action} is browser-only`);
   await assertAccount(db, userId, accountId);
   const row = await db
-    .prepare(`SELECT level FROM policies WHERE user_id = ? AND action = ? AND (account_id = ? OR account_id IS NULL)
-              ORDER BY account_id IS NULL ASC LIMIT 1`)
+    .prepare(
+      `SELECT level FROM policies WHERE user_id = ? AND action = ? AND (account_id = ? OR account_id IS NULL)
+              ORDER BY account_id IS NULL ASC LIMIT 1`,
+    )
     .bind(userId, action, accountId)
     .first<{ level: Level }>();
   return row?.level ?? def;
 }
 
-export async function decide(db: D1Database, o: { userId: string; accountId: string; action: Action; modifiers: Modifier[] }): Promise<Decision> {
+export async function decide(
+  db: D1Database,
+  o: { userId: string; accountId: string; action: Action; modifiers: Modifier[] },
+): Promise<Decision> {
   const base = await effectiveLevel(db, o.userId, o.accountId, o.action);
   return { base, level: o.modifiers.length > 0 ? raise(base) : base, modifiers: [...o.modifiers] };
 }
 
-export async function setPolicy(db: D1Database, o: { userId: string; accountId: string | null; action: Action; level: Level }): Promise<void> {
+export async function setPolicy(
+  db: D1Database,
+  o: { userId: string; accountId: string | null; action: Action; level: Level },
+): Promise<void> {
   const now = Date.now();
   if (o.accountId === null) {
-    await db.prepare(
-      `INSERT INTO policies (user_id, account_id, action, level, updated_at) VALUES (?, NULL, ?, ?, ?)
+    await db
+      .prepare(
+        `INSERT INTO policies (user_id, account_id, action, level, updated_at) VALUES (?, NULL, ?, ?, ?)
        ON CONFLICT(user_id, action) WHERE account_id IS NULL DO UPDATE SET level = excluded.level, updated_at = excluded.updated_at`,
-    ).bind(o.userId, o.action, o.level, now).run();
+      )
+      .bind(o.userId, o.action, o.level, now)
+      .run();
   } else {
     await assertAccount(db, o.userId, o.accountId);
-    await db.prepare(
-      `INSERT INTO policies (user_id, account_id, action, level, updated_at) VALUES (?, ?, ?, ?, ?)
+    await db
+      .prepare(
+        `INSERT INTO policies (user_id, account_id, action, level, updated_at) VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(user_id, account_id, action) WHERE account_id IS NOT NULL DO UPDATE SET level = excluded.level, updated_at = excluded.updated_at`,
-    ).bind(o.userId, o.accountId, o.action, o.level, now).run();
+      )
+      .bind(o.userId, o.accountId, o.action, o.level, now)
+      .run();
   }
 }
 ```
@@ -1467,9 +1787,11 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 9: Pending actions, atomic journal, and the claim from the approved payload
 
 **Files:**
+
 - Create: `worker/src/operations/journal.ts`, `worker/src/approval/pending.ts`, `worker/src/approval/claim.ts`, `worker/test/claim.test.ts`
 
 **Interfaces:**
+
 - `journal.acquire(db, {userId, accountId, action, idempotencyKey?, payloadHash}) -> {operationId, existing: OperationRow | null}`: atomic insert-or-return through the unique index; an existing row with a different `action` or `payload_hash` throws `idempotency_conflict`.
 - `journal.transition(db, operationId, from: OpState[], to, patch?) -> boolean`.
 - `createPending(db, {userId, accountId, action, modifiers, payload, summary, ttlMs?}) -> PendingRow`: canonicalises, stores `payload_json`, hashes the stored string.
@@ -1482,6 +1804,7 @@ Payload convention used by Plan 3's tools: a pending payload for any `send.*` or
 - [x] **Step 1 (RED): test**
 
 `worker/test/claim.test.ts`:
+
 ```ts
 import { env } from "cloudflare:test";
 import { describe, it, expect, beforeAll } from "vitest";
@@ -1499,11 +1822,21 @@ async function stageUpload(handle: string, accountId = "ca", userId = "cu") {
   await env.DB.prepare(
     `INSERT INTO staging_objects (handle, user_id, account_id, direction, r2_key, filename, mime, size, sha256, created_at, expires_at)
      VALUES (?, ?, ?, 'upload', ?, 'f.pdf', 'application/pdf', 1, 'h', ?, ?)`,
-  ).bind(handle, userId, accountId, `stg/${handle}`, Date.now(), Date.now() + 60_000).run();
+  )
+    .bind(handle, userId, accountId, `stg/${handle}`, Date.now(), Date.now() + 60_000)
+    .run();
 }
 const H = (s: string) => "sh_" + s.padEnd(43, "A");
 const mk = (payload: unknown, extra: Record<string, unknown> = {}) =>
-  createPending(env.DB, { userId: "cu", accountId: "ca", action: "send.message", modifiers: [], payload, summary: "To: someone", ...extra });
+  createPending(env.DB, {
+    userId: "cu",
+    accountId: "ca",
+    action: "send.message",
+    modifiers: [],
+    payload,
+    summary: "To: someone",
+    ...extra,
+  });
 
 describe("pending lifecycle", () => {
   it("stores canonical payload, hashes the stored string, 15 minute ttl, approves once", async () => {
@@ -1526,7 +1859,11 @@ describe("pending lifecycle", () => {
     expect(after).toMatchObject({ state: "cancelled", payload_json: null, summary: "redacted" });
     const q = await mk({ n: 2, attachments: [] });
     expect(await denyPending(env.DB, { id: q.id, userId: "cu" })).toBe(true);
-    expect(await getPending(env.DB, q.id, "cu")).toMatchObject({ state: "denied", payload_json: null, summary: "redacted" });
+    expect(await getPending(env.DB, q.id, "cu")).toMatchObject({
+      state: "denied",
+      payload_json: null,
+      summary: "redacted",
+    });
     const r = await mk({ n: 3, attachments: [] });
     await approvePending(env.DB, { id: r.id, userId: "cu", via: "browser" });
     await claimPending(env.DB, { id: r.id, userId: "cu" });
@@ -1538,13 +1875,18 @@ describe("claimPending", () => {
   it("claims an approved row exactly once under concurrency and records execution_started_at", async () => {
     const p = await mk({ n: 4, attachments: [] });
     await approvePending(env.DB, { id: p.id, userId: "cu", via: "elicitation" });
-    const results = await Promise.allSettled([claimPending(env.DB, { id: p.id, userId: "cu" }), claimPending(env.DB, { id: p.id, userId: "cu" })]);
+    const results = await Promise.allSettled([
+      claimPending(env.DB, { id: p.id, userId: "cu" }),
+      claimPending(env.DB, { id: p.id, userId: "cu" }),
+    ]);
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     const row = await getPending(env.DB, p.id, "cu");
     expect(row?.state).toBe("executing");
     expect(row?.execution_started_at).not.toBeNull();
     expect(row?.executed_at).toBeNull();
-    const ops = await env.DB.prepare("SELECT count(*) AS c FROM operations WHERE idempotency_key = ?").bind(p.id).first<{ c: number }>();
+    const ops = await env.DB.prepare("SELECT count(*) AS c FROM operations WHERE idempotency_key = ?")
+      .bind(p.id)
+      .first<{ c: number }>();
     expect(ops?.c).toBe(1);
   });
   it("rejects unapproved, cancelled and expired rows without creating an operation", async () => {
@@ -1554,7 +1896,9 @@ describe("claimPending", () => {
     await cancelPending(env.DB, { id: p1.id, userId: "cu" });
     await expect(claimPending(env.DB, { id: p1.id, userId: "cu" })).rejects.toThrow(/pending_not_approved/);
     const p2 = await mk({ n: 6, attachments: [] }, { ttlMs: -1 });
-    await expect(claimPending(env.DB, { id: p2.id, userId: "cu" })).rejects.toThrow(/pending_expired|pending_not_approved/);
+    await expect(claimPending(env.DB, { id: p2.id, userId: "cu" })).rejects.toThrow(
+      /pending_expired|pending_not_approved/,
+    );
     expect((await env.DB.prepare("SELECT count(*) AS c FROM operations").first<{ c: number }>())!.c).toBe(before);
   });
   it("reserves exactly the handles in the approved payload and nothing the caller could add", async () => {
@@ -1564,7 +1908,11 @@ describe("claimPending", () => {
     await approvePending(env.DB, { id: p.id, userId: "cu", via: "browser" });
     const r = await claimPending(env.DB, { id: p.id, userId: "cu" });
     expect(r.handles).toEqual([H("ok1")]);
-    const rows = await env.DB.prepare("SELECT handle, reserved_by_operation_id AS r FROM staging_objects WHERE handle IN (?, ?)").bind(H("ok1"), H("other")).all<{ handle: string; r: string | null }>();
+    const rows = await env.DB.prepare(
+      "SELECT handle, reserved_by_operation_id AS r FROM staging_objects WHERE handle IN (?, ?)",
+    )
+      .bind(H("ok1"), H("other"))
+      .all<{ handle: string; r: string | null }>();
     const byHandle = Object.fromEntries(rows.results.map((x) => [x.handle, x.r]));
     expect(byHandle[H("ok1")]).toBe(r.operationId);
     expect(byHandle[H("other")]).toBeNull();
@@ -1582,24 +1930,69 @@ describe("claimPending", () => {
 
 describe("operations journal", () => {
   it("returns the existing row for a repeated key with the same action and hash", async () => {
-    const a = await acquire(env.DB, { userId: "cu", accountId: "ca", action: "send.message", idempotencyKey: "k1", payloadHash: "h1" });
+    const a = await acquire(env.DB, {
+      userId: "cu",
+      accountId: "ca",
+      action: "send.message",
+      idempotencyKey: "k1",
+      payloadHash: "h1",
+    });
     expect(a.existing).toBeNull();
     await transition(env.DB, a.operationId, ["claimed"], "executed", { gmail_result_id: "m1" });
-    const b = await acquire(env.DB, { userId: "cu", accountId: "ca", action: "send.message", idempotencyKey: "k1", payloadHash: "h1" });
+    const b = await acquire(env.DB, {
+      userId: "cu",
+      accountId: "ca",
+      action: "send.message",
+      idempotencyKey: "k1",
+      payloadHash: "h1",
+    });
     expect(b.operationId).toBe(a.operationId);
     expect(b.existing).toMatchObject({ state: "executed", gmail_result_id: "m1" });
   });
   it("refuses a reused key with a different action or hash", async () => {
-    await acquire(env.DB, { userId: "cu", accountId: "ca", action: "send.message", idempotencyKey: "k2", payloadHash: "h2" });
-    await expect(acquire(env.DB, { userId: "cu", accountId: "ca", action: "send.message", idempotencyKey: "k2", payloadHash: "OTHER" })).rejects.toThrow(/idempotency_conflict/);
-    await expect(acquire(env.DB, { userId: "cu", accountId: "ca", action: "draft.write", idempotencyKey: "k2", payloadHash: "h2" })).rejects.toThrow(/idempotency_conflict/);
+    await acquire(env.DB, {
+      userId: "cu",
+      accountId: "ca",
+      action: "send.message",
+      idempotencyKey: "k2",
+      payloadHash: "h2",
+    });
+    await expect(
+      acquire(env.DB, {
+        userId: "cu",
+        accountId: "ca",
+        action: "send.message",
+        idempotencyKey: "k2",
+        payloadHash: "OTHER",
+      }),
+    ).rejects.toThrow(/idempotency_conflict/);
+    await expect(
+      acquire(env.DB, {
+        userId: "cu",
+        accountId: "ca",
+        action: "draft.write",
+        idempotencyKey: "k2",
+        payloadHash: "h2",
+      }),
+    ).rejects.toThrow(/idempotency_conflict/);
   });
   it("is atomic under concurrent acquisition of the same key", async () => {
-    const results = await Promise.all(Array.from({ length: 4 }, () =>
-      acquire(env.DB, { userId: "cu", accountId: "ca", action: "send.message", idempotencyKey: "k3", payloadHash: "h3" })));
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () =>
+        acquire(env.DB, {
+          userId: "cu",
+          accountId: "ca",
+          action: "send.message",
+          idempotencyKey: "k3",
+          payloadHash: "h3",
+        }),
+      ),
+    );
     const ids = new Set(results.map((r) => r.operationId));
     expect(ids.size).toBe(1);
-    const n = await env.DB.prepare("SELECT count(*) AS c FROM operations WHERE idempotency_key = 'k3'").first<{ c: number }>();
+    const n = await env.DB.prepare("SELECT count(*) AS c FROM operations WHERE idempotency_key = 'k3'").first<{
+      c: number;
+    }>();
     expect(n?.c).toBe(1);
   });
   it("transition only from allowed states", async () => {
@@ -1615,6 +2008,7 @@ describe("operations journal", () => {
 - [x] **Step 3 (GREEN): journal**
 
 `worker/src/operations/journal.ts`:
+
 ```ts
 import type { Action } from "@gmail-mcp/shared/actions";
 import { GmailMcpError } from "@gmail-mcp/shared/errors";
@@ -1622,9 +2016,17 @@ import { randomId } from "../crypto/random";
 
 export type OpState = "claimed" | "executing" | "delivery_unknown" | "executed" | "failed_safe";
 export type OperationRow = {
-  id: string; user_id: string; account_id: string; action: string; idempotency_key: string | null;
-  state: OpState; payload_hash: string; rfc822_message_id: string | null; gmail_result_id: string | null;
-  created_at: number; updated_at: number;
+  id: string;
+  user_id: string;
+  account_id: string;
+  action: string;
+  idempotency_key: string | null;
+  state: OpState;
+  payload_hash: string;
+  rfc822_message_id: string | null;
+  gmail_result_id: string | null;
+  created_at: number;
+  updated_at: number;
 };
 
 /**
@@ -1639,30 +2041,42 @@ export async function acquire(
   const id = randomId("op");
   const now = Date.now();
   if (!o.idempotencyKey) {
-    await db.prepare(
-      `INSERT INTO operations (id, user_id, account_id, action, idempotency_key, state, payload_hash, created_at, updated_at)
+    await db
+      .prepare(
+        `INSERT INTO operations (id, user_id, account_id, action, idempotency_key, state, payload_hash, created_at, updated_at)
        VALUES (?, ?, ?, ?, NULL, 'claimed', ?, ?, ?)`,
-    ).bind(id, o.userId, o.accountId, o.action, o.payloadHash, now, now).run();
+      )
+      .bind(id, o.userId, o.accountId, o.action, o.payloadHash, now, now)
+      .run();
     return { operationId: id, existing: null };
   }
-  await db.prepare(
-    `INSERT OR IGNORE INTO operations (id, user_id, account_id, action, idempotency_key, state, payload_hash, created_at, updated_at)
+  await db
+    .prepare(
+      `INSERT OR IGNORE INTO operations (id, user_id, account_id, action, idempotency_key, state, payload_hash, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, 'claimed', ?, ?, ?)`,
-  ).bind(id, o.userId, o.accountId, o.action, o.idempotencyKey, o.payloadHash, now, now).run();
+    )
+    .bind(id, o.userId, o.accountId, o.action, o.idempotencyKey, o.payloadHash, now, now)
+    .run();
   const row = await db
     .prepare("SELECT * FROM operations WHERE user_id = ? AND account_id = ? AND idempotency_key = ?")
     .bind(o.userId, o.accountId, o.idempotencyKey)
     .first<OperationRow>();
   if (!row) throw new GmailMcpError("internal", "acquire: row vanished after insert");
   if (row.action !== o.action || row.payload_hash !== o.payloadHash) {
-    throw new GmailMcpError("idempotency_conflict", "idempotency_conflict: key previously used for a different operation");
+    throw new GmailMcpError(
+      "idempotency_conflict",
+      "idempotency_conflict: key previously used for a different operation",
+    );
   }
   if (row.id === id) return { operationId: id, existing: null };
   return { operationId: row.id, existing: row };
 }
 
 export async function transition(
-  db: D1Database, operationId: string, from: OpState[], to: OpState,
+  db: D1Database,
+  operationId: string,
+  from: OpState[],
+  to: OpState,
   patch: { gmail_result_id?: string; rfc822_message_id?: string } = {},
 ): Promise<boolean> {
   const res = await db
@@ -1682,6 +2096,7 @@ A `failed_safe` row with a key blocks reuse of that key on purpose: the caller s
 - [x] **Step 4 (GREEN): pending**
 
 `worker/src/approval/pending.ts`:
+
 ```ts
 import type { Action, Modifier } from "@gmail-mcp/shared/actions";
 import { GmailMcpError } from "@gmail-mcp/shared/errors";
@@ -1691,18 +2106,39 @@ import { LIMITS } from "../policy/limits";
 
 export const PENDING_TTL_MS = 15 * 60_000;
 
-export type PendingState = "pending" | "approved" | "executing" | "executed" | "failed" | "denied" | "cancelled" | "expired";
+export type PendingState =
+  "pending" | "approved" | "executing" | "executed" | "failed" | "denied" | "cancelled" | "expired";
 export type PendingRow = {
-  id: string; user_id: string; account_id: string; action: Action; modifiers: string;
-  payload_json: string | null; payload_hash: string; summary: string; state: PendingState;
-  operation_id: string | null; created_at: number; expires_at: number;
-  approved_at: number | null; approved_via: string | null;
-  execution_started_at: number | null; executed_at: number | null; error: string | null;
+  id: string;
+  user_id: string;
+  account_id: string;
+  action: Action;
+  modifiers: string;
+  payload_json: string | null;
+  payload_hash: string;
+  summary: string;
+  state: PendingState;
+  operation_id: string | null;
+  created_at: number;
+  expires_at: number;
+  approved_at: number | null;
+  approved_via: string | null;
+  execution_started_at: number | null;
+  executed_at: number | null;
+  error: string | null;
 };
 
 export async function createPending(
   db: D1Database,
-  o: { userId: string; accountId: string; action: Action; modifiers: Modifier[]; payload: unknown; summary: string; ttlMs?: number },
+  o: {
+    userId: string;
+    accountId: string;
+    action: Action;
+    modifiers: Modifier[];
+    payload: unknown;
+    summary: string;
+    ttlMs?: number;
+  },
 ): Promise<PendingRow> {
   const canonical = canonicalize(o.payload);
   if (new TextEncoder().encode(canonical).length > LIMITS.canonicalPayloadBytes) {
@@ -1711,10 +2147,24 @@ export async function createPending(
   const hash = await hashCanonical(canonical);
   const id = randomId("pa");
   const now = Date.now();
-  await db.prepare(
-    `INSERT INTO pending_actions (id, user_id, account_id, action, modifiers, payload_json, payload_hash, summary, state, created_at, expires_at)
+  await db
+    .prepare(
+      `INSERT INTO pending_actions (id, user_id, account_id, action, modifiers, payload_json, payload_hash, summary, state, created_at, expires_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
-  ).bind(id, o.userId, o.accountId, o.action, JSON.stringify(o.modifiers), canonical, hash, o.summary, now, now + (o.ttlMs ?? PENDING_TTL_MS)).run();
+    )
+    .bind(
+      id,
+      o.userId,
+      o.accountId,
+      o.action,
+      JSON.stringify(o.modifiers),
+      canonical,
+      hash,
+      o.summary,
+      now,
+      now + (o.ttlMs ?? PENDING_TTL_MS),
+    )
+    .run();
   return (await getPending(db, id, o.userId))!;
 }
 
@@ -1722,36 +2172,68 @@ export async function getPending(db: D1Database, id: string, userId: string): Pr
   return db.prepare("SELECT * FROM pending_actions WHERE id = ? AND user_id = ?").bind(id, userId).first<PendingRow>();
 }
 
-async function setState(db: D1Database, id: string, userId: string, from: PendingState[], to: PendingState, extra = "", binds: unknown[] = []): Promise<boolean> {
+async function setState(
+  db: D1Database,
+  id: string,
+  userId: string,
+  from: PendingState[],
+  to: PendingState,
+  extra = "",
+  binds: unknown[] = [],
+): Promise<boolean> {
   const res = await db
-    .prepare(`UPDATE pending_actions SET state = ? ${extra} WHERE id = ? AND user_id = ? AND state IN (${from.map(() => "?").join(",")}) AND expires_at > ?`)
+    .prepare(
+      `UPDATE pending_actions SET state = ? ${extra} WHERE id = ? AND user_id = ? AND state IN (${from.map(() => "?").join(",")}) AND expires_at > ?`,
+    )
     .bind(to, ...binds, id, userId, ...from, Date.now())
     .run();
   return (res.meta.changes ?? 0) === 1;
 }
 
-export function approvePending(db: D1Database, o: { id: string; userId: string; via: "browser" | "elicitation" }): Promise<boolean> {
-  return setState(db, o.id, o.userId, ["pending"], "approved", ", approved_at = ?, approved_via = ?", [Date.now(), o.via]);
+export function approvePending(
+  db: D1Database,
+  o: { id: string; userId: string; via: "browser" | "elicitation" },
+): Promise<boolean> {
+  return setState(db, o.id, o.userId, ["pending"], "approved", ", approved_at = ?, approved_via = ?", [
+    Date.now(),
+    o.via,
+  ]);
 }
 export function denyPending(db: D1Database, o: { id: string; userId: string }): Promise<boolean> {
   return setState(db, o.id, o.userId, ["pending"], "denied", ", payload_json = NULL, summary = 'redacted'");
 }
 /** The owner may withdraw approval any time before execution starts. */
 export function cancelPending(db: D1Database, o: { id: string; userId: string }): Promise<boolean> {
-  return setState(db, o.id, o.userId, ["pending", "approved"], "cancelled", ", payload_json = NULL, summary = 'redacted'");
+  return setState(
+    db,
+    o.id,
+    o.userId,
+    ["pending", "approved"],
+    "cancelled",
+    ", payload_json = NULL, summary = 'redacted'",
+  );
 }
 
 /** Terminal purge per spec 3.4. `executed_at` is set only here, when the side effect is confirmed. */
-export async function finishPending(db: D1Database, id: string, to: "executed" | "failed", error?: string): Promise<void> {
-  await db.prepare(
-    `UPDATE pending_actions SET state = ?, payload_json = NULL, summary = 'redacted', error = ?, executed_at = ? WHERE id = ? AND state = 'executing'`,
-  ).bind(to, error ?? null, Date.now(), id).run();
+export async function finishPending(
+  db: D1Database,
+  id: string,
+  to: "executed" | "failed",
+  error?: string,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE pending_actions SET state = ?, payload_json = NULL, summary = 'redacted', error = ?, executed_at = ? WHERE id = ? AND state = 'executing'`,
+    )
+    .bind(to, error ?? null, Date.now(), id)
+    .run();
 }
 ```
 
 - [x] **Step 5 (GREEN): claim**
 
 `worker/src/approval/claim.ts`:
+
 ```ts
 import { GmailMcpError } from "@gmail-mcp/shared/errors";
 import { StagingHandle } from "@gmail-mcp/shared/schemas";
@@ -1782,35 +2264,46 @@ export async function claimPending(
   const before = await getPending(db, o.id, o.userId);
   if (!before) throw new GmailMcpError("pending_not_approved", "pending_not_approved: unknown");
   if (before.expires_at <= Date.now()) throw new GmailMcpError("pending_expired", "pending_expired");
-  if (before.state !== "approved") throw new GmailMcpError("pending_not_approved", `pending_not_approved: ${before.state}`);
+  if (before.state !== "approved")
+    throw new GmailMcpError("pending_not_approved", `pending_not_approved: ${before.state}`);
   const handles = handlesFromPayload(before.payload_json);
 
   const operationId = randomId("op");
   const now = Date.now();
   const stmts: D1PreparedStatement[] = [
-    db.prepare(
-      `INSERT INTO operations (id, user_id, account_id, action, idempotency_key, state, payload_hash, created_at, updated_at)
+    db
+      .prepare(
+        `INSERT INTO operations (id, user_id, account_id, action, idempotency_key, state, payload_hash, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, 'claimed', ?, ?, ?)`,
-    ).bind(operationId, before.user_id, before.account_id, before.action, before.id, before.payload_hash, now, now),
-    db.prepare(
-      `UPDATE pending_actions SET state = 'executing', operation_id = ?, execution_started_at = ?
+      )
+      .bind(operationId, before.user_id, before.account_id, before.action, before.id, before.payload_hash, now, now),
+    db
+      .prepare(
+        `UPDATE pending_actions SET state = 'executing', operation_id = ?, execution_started_at = ?
        WHERE id = ? AND user_id = ? AND state = 'approved' AND expires_at > ?`,
-    ).bind(operationId, now, o.id, o.userId, now),
-    db.prepare(
-      `INSERT INTO _assert (x) SELECT 1 WHERE NOT EXISTS (
+      )
+      .bind(operationId, now, o.id, o.userId, now),
+    db
+      .prepare(
+        `INSERT INTO _assert (x) SELECT 1 WHERE NOT EXISTS (
          SELECT 1 FROM pending_actions WHERE id = ? AND operation_id = ? AND state = 'executing')`,
-    ).bind(o.id, operationId),
+      )
+      .bind(o.id, operationId),
   ];
   if (handles.length > 0) {
     stmts.push(
-      db.prepare(
-        `UPDATE staging_objects SET reserved_by_operation_id = ?
+      db
+        .prepare(
+          `UPDATE staging_objects SET reserved_by_operation_id = ?
          WHERE handle IN (${handles.map(() => "?").join(",")}) AND user_id = ? AND account_id = ? AND direction = 'upload'
            AND consumed_at IS NULL AND reserved_by_operation_id IS NULL AND expires_at > ?`,
-      ).bind(operationId, ...handles, before.user_id, before.account_id, now),
-      db.prepare(
-        `INSERT INTO _assert (x) SELECT 1 WHERE (SELECT count(*) FROM staging_objects WHERE reserved_by_operation_id = ?) != ?`,
-      ).bind(operationId, handles.length),
+        )
+        .bind(operationId, ...handles, before.user_id, before.account_id, now),
+      db
+        .prepare(
+          `INSERT INTO _assert (x) SELECT 1 WHERE (SELECT count(*) FROM staging_objects WHERE reserved_by_operation_id = ?) != ?`,
+        )
+        .bind(operationId, handles.length),
     );
   }
   try {
@@ -1821,7 +2314,8 @@ export async function claimPending(
     if (after?.state === "approved" && handles.length > 0) {
       throw new GmailMcpError("handle_reserved", `handle_reserved: one or more payload handles unavailable (${msg})`);
     }
-    if (after?.state !== "approved") throw new GmailMcpError("pending_replayed", `pending_replayed: ${after?.state ?? "unknown"}`);
+    if (after?.state !== "approved")
+      throw new GmailMcpError("pending_replayed", `pending_replayed: ${after?.state ?? "unknown"}`);
     throw new GmailMcpError("internal", msg);
   }
   return { operationId, pending: (await getPending(db, o.id, o.userId))!, handles };
@@ -1846,9 +2340,11 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 10: Staging store
 
 **Files:**
+
 - Create: `worker/src/staging/store.ts`, `worker/test/staging.test.ts`
 
 **Interfaces:**
+
 - `ingest(env, {userId, accountId, direction, filename, mime, length, body, declaredSha256?, source?}) -> StagingRow`: rejects over-cap `length` before reading, `FixedLengthStream(length)`, `tee()` into R2 and `DigestStream`, all branches observed, blocked extensions enforced for uploads only, R2 object deleted if the D1 insert fails.
 - `openForRead(env, {handle, userId})`: download handles only, owner-checked, TTL-checked.
 - `ack(env, {handle, userId}) -> boolean`: TTL-checked.
@@ -1857,6 +2353,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - [x] **Step 1 (RED): test**
 
 `worker/test/staging.test.ts`:
+
 ```ts
 import { env } from "cloudflare:test";
 import { describe, it, expect, beforeAll } from "vitest";
@@ -1867,9 +2364,26 @@ import { sha256Hex } from "../src/crypto/canonical";
 const bytes = (n: number, fill = 7) => new Uint8Array(n).fill(fill);
 const stream = (b: Uint8Array) => new Response(b).body!;
 const up = (name: string, data: Uint8Array, extra: Record<string, unknown> = {}) =>
-  ingest(env, { userId: "su", accountId: "sa", direction: "upload", filename: name, mime: "application/octet-stream", length: data.byteLength, body: stream(data), ...extra });
+  ingest(env, {
+    userId: "su",
+    accountId: "sa",
+    direction: "upload",
+    filename: name,
+    mime: "application/octet-stream",
+    length: data.byteLength,
+    body: stream(data),
+    ...extra,
+  });
 const down = (name: string, data: Uint8Array) =>
-  ingest(env, { userId: "su", accountId: "sa", direction: "download", filename: name, mime: "application/octet-stream", length: data.byteLength, body: stream(data) });
+  ingest(env, {
+    userId: "su",
+    accountId: "sa",
+    direction: "download",
+    filename: name,
+    mime: "application/octet-stream",
+    length: data.byteLength,
+    body: stream(data),
+  });
 
 beforeAll(async () => {
   await seedUserAndAccount(env.DB, { userId: "su", accountId: "sa", alias: "main" });
@@ -1898,17 +2412,39 @@ describe("ingest", () => {
   it("rejects a body whose byte count differs from length, leaving no R2 object or row", async () => {
     await expect(up("short.bin", bytes(3), { length: 5 })).rejects.toThrow();
     await expect(up("long.bin", bytes(7), { length: 5 })).rejects.toThrow();
-    expect((await env.DB.prepare("SELECT count(*) AS c FROM staging_objects WHERE filename IN ('short.bin','long.bin')").first<{ c: number }>())?.c).toBe(0);
+    expect(
+      (
+        await env.DB.prepare(
+          "SELECT count(*) AS c FROM staging_objects WHERE filename IN ('short.bin','long.bin')",
+        ).first<{ c: number }>()
+      )?.c,
+    ).toBe(0);
     const listed = await env.STAGING.list({ prefix: "stg/su/" });
     expect(listed.objects.filter((o) => o.size === 3 || o.size === 7 || o.size === 5)).toHaveLength(0);
   });
   it("rejects a declared sha256 that does not match and leaves no row", async () => {
     await expect(up("a.txt", bytes(5), { declaredSha256: "0".repeat(64) })).rejects.toThrow(/handle_invalid/);
-    expect((await env.DB.prepare("SELECT count(*) AS c FROM staging_objects WHERE filename = 'a.txt'").first<{ c: number }>())?.c).toBe(0);
+    expect(
+      (
+        await env.DB.prepare("SELECT count(*) AS c FROM staging_objects WHERE filename = 'a.txt'").first<{
+          c: number;
+        }>()
+      )?.c,
+    ).toBe(0);
   });
   it("deletes the R2 object when the D1 insert fails", async () => {
     const before = (await env.STAGING.list({ prefix: "stg/ghost/" })).objects.length;
-    await expect(ingest(env, { userId: "ghost", accountId: "nope", direction: "upload", filename: "g.bin", mime: "x", length: 2, body: stream(bytes(2)) })).rejects.toThrow();
+    await expect(
+      ingest(env, {
+        userId: "ghost",
+        accountId: "nope",
+        direction: "upload",
+        filename: "g.bin",
+        mime: "x",
+        length: 2,
+        body: stream(bytes(2)),
+      }),
+    ).rejects.toThrow();
     expect((await env.STAGING.list({ prefix: "stg/ghost/" })).objects.length).toBe(before);
   });
 });
@@ -1938,9 +2474,15 @@ describe("hold, reserve, consume, release, purge", () => {
   it("consume clears the reservation so purge can collect the object", async () => {
     const c = await up("c.bin", bytes(2));
     await insertOperation(env.DB, "op_c", "su", "sa", "executing");
-    await env.DB.prepare("UPDATE staging_objects SET reserved_by_operation_id = 'op_c' WHERE handle = ?").bind(c.handle).run();
+    await env.DB.prepare("UPDATE staging_objects SET reserved_by_operation_id = 'op_c' WHERE handle = ?")
+      .bind(c.handle)
+      .run();
     await consume(env.DB, "op_c");
-    const row = await env.DB.prepare("SELECT consumed_at AS ca, reserved_by_operation_id AS r FROM staging_objects WHERE handle = ?").bind(c.handle).first<{ ca: number | null; r: string | null }>();
+    const row = await env.DB.prepare(
+      "SELECT consumed_at AS ca, reserved_by_operation_id AS r FROM staging_objects WHERE handle = ?",
+    )
+      .bind(c.handle)
+      .first<{ ca: number | null; r: string | null }>();
     expect(row?.ca).not.toBeNull();
     expect(row?.r).toBeNull();
     await purgeExpired(env, Date.now());
@@ -1950,16 +2492,28 @@ describe("hold, reserve, consume, release, purge", () => {
   it("release clears an unconsumed reservation", async () => {
     const d = await up("d.bin", bytes(2));
     await insertOperation(env.DB, "op_d", "su", "sa", "claimed");
-    await env.DB.prepare("UPDATE staging_objects SET reserved_by_operation_id = 'op_d' WHERE handle = ?").bind(d.handle).run();
+    await env.DB.prepare("UPDATE staging_objects SET reserved_by_operation_id = 'op_d' WHERE handle = ?")
+      .bind(d.handle)
+      .run();
     await release(env.DB, "op_d");
-    expect((await env.DB.prepare("SELECT reserved_by_operation_id AS r FROM staging_objects WHERE handle = ?").bind(d.handle).first<{ r: string | null }>())?.r).toBeNull();
+    expect(
+      (
+        await env.DB.prepare("SELECT reserved_by_operation_id AS r FROM staging_objects WHERE handle = ?")
+          .bind(d.handle)
+          .first<{ r: string | null }>()
+      )?.r,
+    ).toBeNull();
   });
   it("purge removes expired unreserved objects in one pass and keeps reserved ones", async () => {
     const a = await up("a.bin", bytes(2));
     const b = await up("b.bin", bytes(2));
-    await env.DB.prepare("UPDATE staging_objects SET expires_at = 1 WHERE handle IN (?, ?)").bind(a.handle, b.handle).run();
+    await env.DB.prepare("UPDATE staging_objects SET expires_at = 1 WHERE handle IN (?, ?)")
+      .bind(a.handle, b.handle)
+      .run();
     await insertOperation(env.DB, "op_x", "su", "sa", "delivery_unknown");
-    await env.DB.prepare("UPDATE staging_objects SET reserved_by_operation_id = 'op_x' WHERE handle = ?").bind(b.handle).run();
+    await env.DB.prepare("UPDATE staging_objects SET reserved_by_operation_id = 'op_x' WHERE handle = ?")
+      .bind(b.handle)
+      .run();
     const r = await purgeExpired(env, Date.now());
     expect(r.deleted).toBeGreaterThanOrEqual(1);
     expect(await env.STAGING.get(a.r2_key)).toBeNull();
@@ -1969,7 +2523,13 @@ describe("hold, reserve, consume, release, purge", () => {
     const e = await up("e.bin", bytes(2));
     await extendExpiry(env.DB, [e.handle], "su", "sa", e.expires_at + 99_000);
     await extendExpiry(env.DB, [e.handle], "su", "sa", 1);
-    expect((await env.DB.prepare("SELECT expires_at AS x FROM staging_objects WHERE handle = ?").bind(e.handle).first<{ x: number }>())?.x).toBe(e.expires_at + 99_000);
+    expect(
+      (
+        await env.DB.prepare("SELECT expires_at AS x FROM staging_objects WHERE handle = ?")
+          .bind(e.handle)
+          .first<{ x: number }>()
+      )?.x,
+    ).toBe(e.expires_at + 99_000);
   });
 });
 ```
@@ -1979,6 +2539,7 @@ describe("hold, reserve, consume, release, purge", () => {
 - [x] **Step 3 (GREEN): implement**
 
 `worker/src/staging/store.ts`:
+
 ```ts
 import { GmailMcpError } from "@gmail-mcp/shared/errors";
 import type { Env } from "../env";
@@ -1988,10 +2549,21 @@ import { LIMITS, assertNotBlocked, sanitizeFilename } from "../policy/limits";
 export const DOWNLOAD_TTL_MS = 30 * 60_000;
 
 export type StagingRow = {
-  handle: string; user_id: string; account_id: string; direction: "download" | "upload";
-  r2_key: string; filename: string; mime: string; size: number; sha256: string;
-  source_message_id: string | null; source_attachment_id: string | null;
-  reserved_by_operation_id: string | null; created_at: number; expires_at: number; consumed_at: number | null;
+  handle: string;
+  user_id: string;
+  account_id: string;
+  direction: "download" | "upload";
+  r2_key: string;
+  filename: string;
+  mime: string;
+  size: number;
+  sha256: string;
+  source_message_id: string | null;
+  source_attachment_id: string | null;
+  reserved_by_operation_id: string | null;
+  created_at: number;
+  expires_at: number;
+  consumed_at: number | null;
 };
 
 function hex(buf: ArrayBuffer): string {
@@ -2001,15 +2573,24 @@ function hex(buf: ArrayBuffer): string {
 export async function ingest(
   env: Env,
   o: {
-    userId: string; accountId: string; direction: "download" | "upload"; filename: string; mime: string;
-    length: number; body: ReadableStream<Uint8Array>; declaredSha256?: string;
+    userId: string;
+    accountId: string;
+    direction: "download" | "upload";
+    filename: string;
+    mime: string;
+    length: number;
+    body: ReadableStream<Uint8Array>;
+    declaredSha256?: string;
     source?: { messageId: string; attachmentId: string };
   },
 ): Promise<StagingRow> {
   const filename = sanitizeFilename(o.filename);
   if (o.direction === "upload") assertNotBlocked(filename);
   if (!Number.isInteger(o.length) || o.length < 0 || o.length > LIMITS.stagedFileBytes) {
-    throw new GmailMcpError("limit_exceeded", `limit_exceeded: length ${o.length} not within 0..${LIMITS.stagedFileBytes}`);
+    throw new GmailMcpError(
+      "limit_exceeded",
+      `limit_exceeded: length ${o.length} not within 0..${LIMITS.stagedFileBytes}`,
+    );
   }
   const handle = randomHandle();
   const r2Key = `stg/${o.userId}/${handle}`;
@@ -2026,7 +2607,10 @@ export async function ingest(
   if (failure) {
     await env.STAGING.delete(r2Key).catch(() => {});
     if (failure.reason instanceof GmailMcpError) throw failure.reason;
-    throw new GmailMcpError("internal", `ingest failed: ${String((failure.reason as Error)?.message ?? failure.reason)}`);
+    throw new GmailMcpError(
+      "internal",
+      `ingest failed: ${String((failure.reason as Error)?.message ?? failure.reason)}`,
+    );
   }
   const sha256 = hex(await digest.digest);
   if (o.declaredSha256 && o.declaredSha256.toLowerCase() !== sha256) {
@@ -2035,18 +2619,44 @@ export async function ingest(
   }
   const now = Date.now();
   const row: StagingRow = {
-    handle, user_id: o.userId, account_id: o.accountId, direction: o.direction, r2_key: r2Key,
-    filename, mime: o.mime, size: o.length, sha256,
-    source_message_id: o.source?.messageId ?? null, source_attachment_id: o.source?.attachmentId ?? null,
-    reserved_by_operation_id: null, created_at: now, expires_at: now + DOWNLOAD_TTL_MS, consumed_at: null,
+    handle,
+    user_id: o.userId,
+    account_id: o.accountId,
+    direction: o.direction,
+    r2_key: r2Key,
+    filename,
+    mime: o.mime,
+    size: o.length,
+    sha256,
+    source_message_id: o.source?.messageId ?? null,
+    source_attachment_id: o.source?.attachmentId ?? null,
+    reserved_by_operation_id: null,
+    created_at: now,
+    expires_at: now + DOWNLOAD_TTL_MS,
+    consumed_at: null,
   };
   try {
     await env.DB.prepare(
       `INSERT INTO staging_objects (handle, user_id, account_id, direction, r2_key, filename, mime, size, sha256,
          source_message_id, source_attachment_id, created_at, expires_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(row.handle, row.user_id, row.account_id, row.direction, row.r2_key, row.filename, row.mime, row.size, row.sha256,
-      row.source_message_id, row.source_attachment_id, row.created_at, row.expires_at).run();
+    )
+      .bind(
+        row.handle,
+        row.user_id,
+        row.account_id,
+        row.direction,
+        row.r2_key,
+        row.filename,
+        row.mime,
+        row.size,
+        row.sha256,
+        row.source_message_id,
+        row.source_attachment_id,
+        row.created_at,
+        row.expires_at,
+      )
+      .run();
   } catch (e) {
     await env.STAGING.delete(r2Key).catch(() => {});
     throw e;
@@ -2054,10 +2664,15 @@ export async function ingest(
   return row;
 }
 
-export async function openForRead(env: Env, o: { handle: string; userId: string }): Promise<{ row: StagingRow; body: ReadableStream }> {
-  const row = await env.DB
-    .prepare("SELECT * FROM staging_objects WHERE handle = ? AND user_id = ? AND direction = 'download' AND consumed_at IS NULL")
-    .bind(o.handle, o.userId).first<StagingRow>();
+export async function openForRead(
+  env: Env,
+  o: { handle: string; userId: string },
+): Promise<{ row: StagingRow; body: ReadableStream }> {
+  const row = await env.DB.prepare(
+    "SELECT * FROM staging_objects WHERE handle = ? AND user_id = ? AND direction = 'download' AND consumed_at IS NULL",
+  )
+    .bind(o.handle, o.userId)
+    .first<StagingRow>();
   if (!row) throw new GmailMcpError("handle_invalid", "handle_invalid");
   if (row.expires_at <= Date.now()) throw new GmailMcpError("handle_expired", "handle_expired");
   const obj = await env.STAGING.get(row.r2_key);
@@ -2067,38 +2682,61 @@ export async function openForRead(env: Env, o: { handle: string; userId: string 
 
 export async function ack(env: Env, o: { handle: string; userId: string }): Promise<boolean> {
   const now = Date.now();
-  const res = await env.DB
-    .prepare("UPDATE staging_objects SET consumed_at = ? WHERE handle = ? AND user_id = ? AND direction = 'download' AND consumed_at IS NULL AND expires_at > ?")
-    .bind(now, o.handle, o.userId, now).run();
+  const res = await env.DB.prepare(
+    "UPDATE staging_objects SET consumed_at = ? WHERE handle = ? AND user_id = ? AND direction = 'download' AND consumed_at IS NULL AND expires_at > ?",
+  )
+    .bind(now, o.handle, o.userId, now)
+    .run();
   return (res.meta.changes ?? 0) === 1;
 }
 
-export async function extendExpiry(db: D1Database, handles: string[], userId: string, accountId: string, until: number): Promise<void> {
+export async function extendExpiry(
+  db: D1Database,
+  handles: string[],
+  userId: string,
+  accountId: string,
+  until: number,
+): Promise<void> {
   if (handles.length === 0) return;
-  await db.prepare(
-    `UPDATE staging_objects SET expires_at = MAX(expires_at, ?) WHERE handle IN (${handles.map(() => "?").join(",")}) AND user_id = ? AND account_id = ?`,
-  ).bind(until, ...handles, userId, accountId).run();
+  await db
+    .prepare(
+      `UPDATE staging_objects SET expires_at = MAX(expires_at, ?) WHERE handle IN (${handles.map(() => "?").join(",")}) AND user_id = ? AND account_id = ?`,
+    )
+    .bind(until, ...handles, userId, accountId)
+    .run();
 }
 
 /** Marks reserved uploads used and clears the reservation so the purge can collect them. */
 export async function consume(db: D1Database, operationId: string): Promise<void> {
-  await db.prepare("UPDATE staging_objects SET consumed_at = ?, reserved_by_operation_id = NULL WHERE reserved_by_operation_id = ? AND consumed_at IS NULL")
-    .bind(Date.now(), operationId).run();
+  await db
+    .prepare(
+      "UPDATE staging_objects SET consumed_at = ?, reserved_by_operation_id = NULL WHERE reserved_by_operation_id = ? AND consumed_at IS NULL",
+    )
+    .bind(Date.now(), operationId)
+    .run();
 }
 
 export async function release(db: D1Database, operationId: string): Promise<void> {
-  await db.prepare("UPDATE staging_objects SET reserved_by_operation_id = NULL WHERE reserved_by_operation_id = ? AND consumed_at IS NULL")
-    .bind(operationId).run();
+  await db
+    .prepare(
+      "UPDATE staging_objects SET reserved_by_operation_id = NULL WHERE reserved_by_operation_id = ? AND consumed_at IS NULL",
+    )
+    .bind(operationId)
+    .run();
 }
 
 export async function purgeExpired(env: Env, now: number, limit = 200): Promise<{ deleted: number }> {
-  const rows = await env.DB
-    .prepare(`SELECT handle, r2_key FROM staging_objects
-              WHERE (expires_at <= ? OR consumed_at IS NOT NULL) AND reserved_by_operation_id IS NULL LIMIT ?`)
-    .bind(now, limit).all<{ handle: string; r2_key: string }>();
+  const rows = await env.DB.prepare(
+    `SELECT handle, r2_key FROM staging_objects
+              WHERE (expires_at <= ? OR consumed_at IS NOT NULL) AND reserved_by_operation_id IS NULL LIMIT ?`,
+  )
+    .bind(now, limit)
+    .all<{ handle: string; r2_key: string }>();
   if (rows.results.length === 0) return { deleted: 0 };
   await env.STAGING.delete(rows.results.map((r) => r.r2_key));
-  await env.DB.batch(rows.results.map((r) => env.DB.prepare("DELETE FROM staging_objects WHERE handle = ?").bind(r.handle)));
+  await env.DB.batch(
+    rows.results.map((r) => env.DB.prepare("DELETE FROM staging_objects WHERE handle = ?").bind(r.handle)),
+  );
   return { deleted: rows.results.length };
 }
 ```
@@ -2121,16 +2759,19 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 11: Structured audit and transactional cron
 
 **Files:**
+
 - Create: `worker/src/audit/log.ts`, `worker/src/cron.ts`, `worker/test/cron.test.ts`
 - Modify: `worker/src/index.ts`
 
 **Interfaces:**
+
 - `type AuditFacts = { recipients?: number; attachments?: number; ids?: string[] }`; `auditIntent(db, {userId, accountId, tool, action, modifiers, decision, pendingId?, operationId?, facts, clientHint?}) -> number`; `auditOutcome(db, {...same, gmailResultId?})`. The module renders the stored summary; there is no free-text parameter.
 - `runCron(env, now, limit = 200) -> CronReport`.
 
 - [x] **Step 1 (RED): test**
 
 `worker/test/cron.test.ts`:
+
 ```ts
 import { env } from "cloudflare:test";
 import { describe, it, expect, beforeAll } from "vitest";
@@ -2144,27 +2785,64 @@ beforeAll(async () => {
 
 describe("audit", () => {
   it("writes intent and outcome rows and renders the summary itself", async () => {
-    const id = await auditIntent(env.DB, { userId: "ku", accountId: "ka", tool: "send_message", action: "send.message", modifiers: ["+external"], decision: "ask", facts: { recipients: 2, attachments: 1 } });
+    const id = await auditIntent(env.DB, {
+      userId: "ku",
+      accountId: "ka",
+      tool: "send_message",
+      action: "send.message",
+      modifiers: ["+external"],
+      decision: "ask",
+      facts: { recipients: 2, attachments: 1 },
+    });
     expect(id).toBeGreaterThan(0);
-    await auditOutcome(env.DB, { userId: "ku", accountId: "ka", tool: "send_message", action: "send.message", modifiers: [], decision: "executed", gmailResultId: "m9", facts: { ids: ["m9"] } });
-    const rows = await env.DB.prepare("SELECT phase, summary FROM audit_log WHERE user_id = 'ku' ORDER BY id").all<{ phase: string; summary: string }>();
-    expect(rows.results).toEqual([{ phase: "intent", summary: "recipients=2 attachments=1" }, { phase: "outcome", summary: "ids=m9" }]);
+    await auditOutcome(env.DB, {
+      userId: "ku",
+      accountId: "ka",
+      tool: "send_message",
+      action: "send.message",
+      modifiers: [],
+      decision: "executed",
+      gmailResultId: "m9",
+      facts: { ids: ["m9"] },
+    });
+    const rows = await env.DB.prepare("SELECT phase, summary FROM audit_log WHERE user_id = 'ku' ORDER BY id").all<{
+      phase: string;
+      summary: string;
+    }>();
+    expect(rows.results).toEqual([
+      { phase: "intent", summary: "recipients=2 attachments=1" },
+      { phase: "outcome", summary: "ids=m9" },
+    ]);
   });
 });
 
 describe("cron", () => {
   it("expires pending, promotes stale executing, fails stale claimed transactionally, purges old audit", async () => {
     const old = Date.now() - 10 * 60_000;
-    await env.DB.prepare(`INSERT INTO pending_actions (id, user_id, account_id, action, modifiers, payload_json, payload_hash, summary, state, created_at, expires_at)
-      VALUES ('pa_old', 'ku', 'ka', 'send.message', '[]', '{"x":1}', 'h', 'To: secret', 'pending', ?, ?)`).bind(old, old + 1).run();
+    await env.DB.prepare(
+      `INSERT INTO pending_actions (id, user_id, account_id, action, modifiers, payload_json, payload_hash, summary, state, created_at, expires_at)
+      VALUES ('pa_old', 'ku', 'ka', 'send.message', '[]', '{"x":1}', 'h', 'To: secret', 'pending', ?, ?)`,
+    )
+      .bind(old, old + 1)
+      .run();
     await insertOperation(env.DB, "op_exec", "ku", "ka", "executing", old);
     await insertOperation(env.DB, "op_claim", "ku", "ka", "claimed", old);
     await insertOperation(env.DB, "op_fresh", "ku", "ka", "executing");
-    await env.DB.prepare(`INSERT INTO pending_actions (id, user_id, account_id, action, modifiers, payload_json, payload_hash, summary, state, operation_id, created_at, expires_at)
-      VALUES ('pa_claim', 'ku', 'ka', 'send.message', '[]', '{"x":2}', 'h', 'To: secret', 'executing', 'op_claim', ?, ?)`).bind(old, old + 900_000).run();
-    await env.DB.prepare(`INSERT INTO staging_objects (handle, user_id, account_id, direction, r2_key, filename, mime, size, sha256, reserved_by_operation_id, created_at, expires_at)
-      VALUES ('sh_res', 'ku', 'ka', 'upload', 'k', 'f', 'm', 1, 'h', 'op_claim', ?, ?)`).bind(old, old + 900_000).run();
-    await env.DB.prepare(`INSERT INTO audit_log (ts, phase, summary) VALUES (?, 'intent', 'ancient')`).bind(Date.now() - 91 * 86_400_000).run();
+    await env.DB.prepare(
+      `INSERT INTO pending_actions (id, user_id, account_id, action, modifiers, payload_json, payload_hash, summary, state, operation_id, created_at, expires_at)
+      VALUES ('pa_claim', 'ku', 'ka', 'send.message', '[]', '{"x":2}', 'h', 'To: secret', 'executing', 'op_claim', ?, ?)`,
+    )
+      .bind(old, old + 900_000)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO staging_objects (handle, user_id, account_id, direction, r2_key, filename, mime, size, sha256, reserved_by_operation_id, created_at, expires_at)
+      VALUES ('sh_res', 'ku', 'ka', 'upload', 'k', 'f', 'm', 1, 'h', 'op_claim', ?, ?)`,
+    )
+      .bind(old, old + 900_000)
+      .run();
+    await env.DB.prepare(`INSERT INTO audit_log (ts, phase, summary) VALUES (?, 'intent', 'ancient')`)
+      .bind(Date.now() - 91 * 86_400_000)
+      .run();
 
     const report = await runCron(env, Date.now());
     expect(report.expiredPending).toBeGreaterThanOrEqual(1);
@@ -2172,22 +2850,51 @@ describe("cron", () => {
     expect(report.failedSafe).toBeGreaterThanOrEqual(1);
     expect(report.purgedAudit).toBeGreaterThanOrEqual(1);
 
-    expect(await env.DB.prepare("SELECT state, payload_json, summary FROM pending_actions WHERE id = 'pa_old'").first()).toEqual({ state: "expired", payload_json: null, summary: "redacted" });
-    const byId = Object.fromEntries((await env.DB.prepare("SELECT id, state FROM operations WHERE id IN ('op_exec','op_claim','op_fresh')").all<{ id: string; state: string }>()).results.map((r) => [r.id, r.state]));
+    expect(
+      await env.DB.prepare("SELECT state, payload_json, summary FROM pending_actions WHERE id = 'pa_old'").first(),
+    ).toEqual({ state: "expired", payload_json: null, summary: "redacted" });
+    const byId = Object.fromEntries(
+      (
+        await env.DB.prepare("SELECT id, state FROM operations WHERE id IN ('op_exec','op_claim','op_fresh')").all<{
+          id: string;
+          state: string;
+        }>()
+      ).results.map((r) => [r.id, r.state]),
+    );
     expect(byId).toEqual({ op_exec: "delivery_unknown", op_claim: "failed_safe", op_fresh: "executing" });
-    expect(await env.DB.prepare("SELECT state, payload_json, error FROM pending_actions WHERE id = 'pa_claim'").first()).toEqual({ state: "failed", payload_json: null, error: "failed_safe" });
-    expect((await env.DB.prepare("SELECT reserved_by_operation_id AS r FROM staging_objects WHERE handle = 'sh_res'").first<{ r: string | null }>())?.r).toBeNull();
+    expect(
+      await env.DB.prepare("SELECT state, payload_json, error FROM pending_actions WHERE id = 'pa_claim'").first(),
+    ).toEqual({ state: "failed", payload_json: null, error: "failed_safe" });
+    expect(
+      (
+        await env.DB.prepare(
+          "SELECT reserved_by_operation_id AS r FROM staging_objects WHERE handle = 'sh_res'",
+        ).first<{ r: string | null }>()
+      )?.r,
+    ).toBeNull();
   });
   it("does not touch a claimed operation that progressed between select and recovery", async () => {
     const old = Date.now() - 10 * 60_000;
     await insertOperation(env.DB, "op_race", "ku", "ka", "claimed", old);
-    await env.DB.prepare(`INSERT INTO staging_objects (handle, user_id, account_id, direction, r2_key, filename, mime, size, sha256, reserved_by_operation_id, created_at, expires_at)
-      VALUES ('sh_race', 'ku', 'ka', 'upload', 'k', 'f', 'm', 1, 'h', 'op_race', ?, ?)`).bind(old, old + 900_000).run();
+    await env.DB.prepare(
+      `INSERT INTO staging_objects (handle, user_id, account_id, direction, r2_key, filename, mime, size, sha256, reserved_by_operation_id, created_at, expires_at)
+      VALUES ('sh_race', 'ku', 'ka', 'upload', 'k', 'f', 'm', 1, 'h', 'op_race', ?, ?)`,
+    )
+      .bind(old, old + 900_000)
+      .run();
     // Simulate the send worker winning: it moved the row to executing after the cron's SELECT.
     const { recoverClaimed } = await import("../src/cron");
-    await env.DB.prepare("UPDATE operations SET state = 'executing', updated_at = ? WHERE id = 'op_race'").bind(Date.now()).run();
+    await env.DB.prepare("UPDATE operations SET state = 'executing', updated_at = ? WHERE id = 'op_race'")
+      .bind(Date.now())
+      .run();
     await expect(recoverClaimed(env.DB, "op_race", Date.now())).resolves.toBe(false);
-    expect((await env.DB.prepare("SELECT reserved_by_operation_id AS r FROM staging_objects WHERE handle = 'sh_race'").first<{ r: string | null }>())?.r).toBe("op_race");
+    expect(
+      (
+        await env.DB.prepare(
+          "SELECT reserved_by_operation_id AS r FROM staging_objects WHERE handle = 'sh_race'",
+        ).first<{ r: string | null }>()
+      )?.r,
+    ).toBe("op_race");
   });
 });
 ```
@@ -2197,12 +2904,21 @@ describe("cron", () => {
 - [x] **Step 3 (GREEN): audit**
 
 `worker/src/audit/log.ts`:
+
 ```ts
 export type AuditFacts = { recipients?: number; attachments?: number; ids?: string[] };
 
 type Base = {
-  userId: string; accountId: string | null; tool: string; action: string; modifiers: string[];
-  decision: string; pendingId?: string; operationId?: string; facts: AuditFacts; clientHint?: string;
+  userId: string;
+  accountId: string | null;
+  tool: string;
+  action: string;
+  modifiers: string[];
+  decision: string;
+  pendingId?: string;
+  operationId?: string;
+  facts: AuditFacts;
+  clientHint?: string;
 };
 
 /** The only way a summary reaches the audit table. Counts and ids, never text from mail. */
@@ -2210,16 +2926,42 @@ function render(f: AuditFacts): string {
   const parts: string[] = [];
   if (f.recipients !== undefined) parts.push(`recipients=${f.recipients}`);
   if (f.attachments !== undefined) parts.push(`attachments=${f.attachments}`);
-  if (f.ids && f.ids.length > 0) parts.push(`ids=${f.ids.slice(0, 10).map((s) => s.replace(/[^A-Za-z0-9_.:-]/g, "")).join(",")}`);
+  if (f.ids && f.ids.length > 0)
+    parts.push(
+      `ids=${f.ids
+        .slice(0, 10)
+        .map((s) => s.replace(/[^A-Za-z0-9_.:-]/g, ""))
+        .join(",")}`,
+    );
   return parts.join(" ");
 }
 
-async function write(db: D1Database, phase: "intent" | "outcome", b: Base & { gmailResultId?: string }): Promise<number> {
-  const res = await db.prepare(
-    `INSERT INTO audit_log (ts, user_id, account_id, tool, action, modifiers, phase, decision, pending_id, operation_id, gmail_result_id, summary, client_hint)
+async function write(
+  db: D1Database,
+  phase: "intent" | "outcome",
+  b: Base & { gmailResultId?: string },
+): Promise<number> {
+  const res = await db
+    .prepare(
+      `INSERT INTO audit_log (ts, user_id, account_id, tool, action, modifiers, phase, decision, pending_id, operation_id, gmail_result_id, summary, client_hint)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(Date.now(), b.userId, b.accountId, b.tool, b.action, JSON.stringify(b.modifiers), phase, b.decision,
-    b.pendingId ?? null, b.operationId ?? null, b.gmailResultId ?? null, render(b.facts), b.clientHint ?? null).run();
+    )
+    .bind(
+      Date.now(),
+      b.userId,
+      b.accountId,
+      b.tool,
+      b.action,
+      JSON.stringify(b.modifiers),
+      phase,
+      b.decision,
+      b.pendingId ?? null,
+      b.operationId ?? null,
+      b.gmailResultId ?? null,
+      render(b.facts),
+      b.clientHint ?? null,
+    )
+    .run();
   return Number(res.meta.last_row_id ?? 0);
 }
 
@@ -2230,11 +2972,18 @@ export const auditOutcome = (db: D1Database, b: Base & { gmailResultId?: string 
 - [x] **Step 4 (GREEN): cron**
 
 `worker/src/cron.ts`:
+
 ```ts
 import type { Env } from "./env";
 import { purgeExpired } from "./staging/store";
 
-export type CronReport = { expiredPending: number; promotedUnknown: number; failedSafe: number; purgedStaging: number; purgedAudit: number };
+export type CronReport = {
+  expiredPending: number;
+  promotedUnknown: number;
+  failedSafe: number;
+  purgedStaging: number;
+  purgedAudit: number;
+};
 
 const STALE_MS = 2 * 60_000;
 const AUDIT_RETENTION_MS = 90 * 86_400_000;
@@ -2246,10 +2995,24 @@ const AUDIT_RETENTION_MS = 90 * 86_400_000;
 export async function recoverClaimed(db: D1Database, operationId: string, now: number): Promise<boolean> {
   try {
     await db.batch([
-      db.prepare(`UPDATE operations SET state = 'failed_safe', updated_at = ? WHERE id = ? AND state = 'claimed'`).bind(now, operationId),
-      db.prepare(`INSERT INTO _assert (x) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM operations WHERE id = ? AND state = 'failed_safe')`).bind(operationId),
-      db.prepare(`UPDATE staging_objects SET reserved_by_operation_id = NULL WHERE reserved_by_operation_id = ? AND consumed_at IS NULL`).bind(operationId),
-      db.prepare(`UPDATE pending_actions SET state = 'failed', payload_json = NULL, summary = 'redacted', error = 'failed_safe' WHERE operation_id = ? AND state = 'executing'`).bind(operationId),
+      db
+        .prepare(`UPDATE operations SET state = 'failed_safe', updated_at = ? WHERE id = ? AND state = 'claimed'`)
+        .bind(now, operationId),
+      db
+        .prepare(
+          `INSERT INTO _assert (x) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM operations WHERE id = ? AND state = 'failed_safe')`,
+        )
+        .bind(operationId),
+      db
+        .prepare(
+          `UPDATE staging_objects SET reserved_by_operation_id = NULL WHERE reserved_by_operation_id = ? AND consumed_at IS NULL`,
+        )
+        .bind(operationId),
+      db
+        .prepare(
+          `UPDATE pending_actions SET state = 'failed', payload_json = NULL, summary = 'redacted', error = 'failed_safe' WHERE operation_id = ? AND state = 'executing'`,
+        )
+        .bind(operationId),
     ]);
     return true;
   } catch {
@@ -2261,21 +3024,29 @@ export async function runCron(env: Env, now: number, limit = 200): Promise<CronR
   const expired = await env.DB.prepare(
     `UPDATE pending_actions SET state = 'expired', payload_json = NULL, summary = 'redacted'
      WHERE id IN (SELECT id FROM pending_actions WHERE state IN ('pending','approved') AND expires_at <= ? LIMIT ?)`,
-  ).bind(now, limit).run();
+  )
+    .bind(now, limit)
+    .run();
 
   const promoted = await env.DB.prepare(
     `UPDATE operations SET state = 'delivery_unknown', updated_at = ?
      WHERE id IN (SELECT id FROM operations WHERE state = 'executing' AND updated_at <= ? LIMIT ?)`,
-  ).bind(now, now - STALE_MS, limit).run();
+  )
+    .bind(now, now - STALE_MS, limit)
+    .run();
 
   const stale = await env.DB.prepare(`SELECT id FROM operations WHERE state = 'claimed' AND updated_at <= ? LIMIT ?`)
-    .bind(now - STALE_MS, limit).all<{ id: string }>();
+    .bind(now - STALE_MS, limit)
+    .all<{ id: string }>();
   let failedSafe = 0;
   for (const r of stale.results) if (await recoverClaimed(env.DB, r.id, now)) failedSafe++;
 
   const staging = await purgeExpired(env, now, limit);
-  const audit = await env.DB.prepare(`DELETE FROM audit_log WHERE id IN (SELECT id FROM audit_log WHERE ts <= ? LIMIT ?)`)
-    .bind(now - AUDIT_RETENTION_MS, limit).run();
+  const audit = await env.DB.prepare(
+    `DELETE FROM audit_log WHERE id IN (SELECT id FROM audit_log WHERE ts <= ? LIMIT ?)`,
+  )
+    .bind(now - AUDIT_RETENTION_MS, limit)
+    .run();
 
   return {
     expiredPending: expired.meta.changes ?? 0,
@@ -2288,6 +3059,7 @@ export async function runCron(env: Env, now: number, limit = 200): Promise<CronR
 ```
 
 Modify `worker/src/index.ts`:
+
 ```ts
 import type { Env } from "./env";
 import { runCron } from "./cron";
@@ -2318,10 +3090,12 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 12: Dev-gated MCP endpoint, tested at the protocol level
 
 **Files:**
+
 - Create: `worker/src/mcp/auth-dev.ts`, `worker/src/mcp/server.ts`, `worker/test/mcp-client.ts`, `worker/test/mcp.test.ts`
 - Modify: `worker/src/index.ts`
 
 **Interfaces:**
+
 - `type Principal = { userId: string; scope: "mcp" | "staging" }`; `authenticateDev(request, env): Principal | null` (requires both `DEV_STATIC_TOKEN` and `DEV_STATIC_USER`).
 - `buildServer(env, principal): McpServer` registering `list_accounts`, `get_policy`, `list_pending`, `cancel_pending` with `z.object` input schemas, the form MCP SDK v2 documents.
 - `POST /mcp` returns 401 with a `WWW-Authenticate` challenge without a valid bearer.
@@ -2330,21 +3104,44 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - [x] **Step 1 (RED): helper and tests**
 
 `worker/test/mcp-client.ts`:
+
 ```ts
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import worker from "../src/index";
 
-export async function rpc(env: unknown, token: string | null, method: string, params: unknown, id = 1): Promise<{ status: number; json: any }> {
+export async function rpc(
+  env: unknown,
+  token: string | null,
+  method: string,
+  params: unknown,
+  id = 1,
+): Promise<{ status: number; json: any }> {
   const ctx = createExecutionContext();
-  const headers: Record<string, string> = { "content-type": "application/json", accept: "application/json, text/event-stream", "mcp-protocol-version": "2025-06-18" };
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    accept: "application/json, text/event-stream",
+    "mcp-protocol-version": "2025-06-18",
+  };
   if (token) headers.authorization = `Bearer ${token}`;
-  const res = await worker.fetch(new Request("https://x.test/mcp", { method: "POST", headers, body: JSON.stringify({ jsonrpc: "2.0", id, method, params }) }), env as any, ctx);
+  const res = await worker.fetch(
+    new Request("https://x.test/mcp", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
+    }),
+    env as any,
+    ctx,
+  );
   await waitOnExecutionContext(ctx);
   const text = await res.text();
   let json: any = null;
   if (text.trim().startsWith("{")) json = JSON.parse(text);
   else {
-    const line = text.split("\n").map((l) => l.trim()).filter((l) => l.startsWith("data:")).pop();
+    const line = text
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith("data:"))
+      .pop();
     if (line) json = JSON.parse(line.slice(5));
   }
   return { status: res.status, json };
@@ -2352,6 +3149,7 @@ export async function rpc(env: unknown, token: string | null, method: string, pa
 ```
 
 `worker/test/mcp.test.ts`:
+
 ```ts
 import { env } from "cloudflare:test";
 import { describe, it, expect, beforeAll } from "vitest";
@@ -2400,6 +3198,7 @@ describe("protocol", () => {
 - [x] **Step 3 (GREEN): dev auth**
 
 `worker/src/mcp/auth-dev.ts`:
+
 ```ts
 import type { Env } from "../env";
 
@@ -2424,6 +3223,7 @@ export function authenticateDev(request: Request, env: Env): Principal | null {
 - [x] **Step 4 (GREEN): server factory**
 
 `worker/src/mcp/server.ts`:
+
 ```ts
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
@@ -2441,9 +3241,17 @@ function text(obj: unknown) {
 
 async function resolveAccount(env: Env, userId: string, alias?: string): Promise<{ id: string; alias: string }> {
   const row = alias
-    ? await env.DB.prepare("SELECT id, alias FROM accounts WHERE user_id = ? AND alias = ?").bind(userId, alias).first<{ id: string; alias: string }>()
-    : await env.DB.prepare("SELECT id, alias FROM accounts WHERE user_id = ? AND is_default = 1").bind(userId).first<{ id: string; alias: string }>();
-  if (!row) throw new GmailMcpError("account_not_found", alias ? `account_not_found: ${alias}` : "account_not_found: no default account");
+    ? await env.DB.prepare("SELECT id, alias FROM accounts WHERE user_id = ? AND alias = ?")
+        .bind(userId, alias)
+        .first<{ id: string; alias: string }>()
+    : await env.DB.prepare("SELECT id, alias FROM accounts WHERE user_id = ? AND is_default = 1")
+        .bind(userId)
+        .first<{ id: string; alias: string }>();
+  if (!row)
+    throw new GmailMcpError(
+      "account_not_found",
+      alias ? `account_not_found: ${alias}` : "account_not_found: no default account",
+    );
   return row;
 }
 
@@ -2452,45 +3260,68 @@ export function buildServer(env: Env, principal: Principal): McpServer {
 
   server.registerTool(
     "list_accounts",
-    { description: "List connected Gmail accounts: alias, email, status, default flag. Never returns tokens.",
-      inputSchema: z.object({}), annotations: { readOnlyHint: true } },
+    {
+      description: "List connected Gmail accounts: alias, email, status, default flag. Never returns tokens.",
+      inputSchema: z.object({}),
+      annotations: { readOnlyHint: true },
+    },
     async () => {
-      const rows = await env.DB.prepare("SELECT alias, google_email AS email, status, is_default, scopes FROM accounts WHERE user_id = ? ORDER BY alias").bind(principal.userId).all();
+      const rows = await env.DB.prepare(
+        "SELECT alias, google_email AS email, status, is_default, scopes FROM accounts WHERE user_id = ? ORDER BY alias",
+      )
+        .bind(principal.userId)
+        .all();
       return text({ accounts: rows.results });
     },
   );
 
   server.registerTool(
     "get_policy",
-    { description: "Effective allow/ask/deny policy for an account after overrides.",
-      inputSchema: z.object({ account: AccountAlias.optional() }), annotations: { readOnlyHint: true } },
+    {
+      description: "Effective allow/ask/deny policy for an account after overrides.",
+      inputSchema: z.object({ account: AccountAlias.optional() }),
+      annotations: { readOnlyHint: true },
+    },
     async ({ account }) => {
       const acc = await resolveAccount(env, principal.userId, account);
       const policy: Record<string, string> = {};
-      for (const a of ACTIONS) policy[a] = DEFAULT_POLICY[a] === "browser" ? "browser" : await effectiveLevel(env.DB, principal.userId, acc.id, a as Action);
+      for (const a of ACTIONS)
+        policy[a] =
+          DEFAULT_POLICY[a] === "browser"
+            ? "browser"
+            : await effectiveLevel(env.DB, principal.userId, acc.id, a as Action);
       return text({ account: acc.alias, policy });
     },
   );
 
   server.registerTool(
     "list_pending",
-    { description: "List pending and approved-but-unexecuted approvals for the caller.",
-      inputSchema: z.object({}), annotations: { readOnlyHint: true } },
+    {
+      description: "List pending and approved-but-unexecuted approvals for the caller.",
+      inputSchema: z.object({}),
+      annotations: { readOnlyHint: true },
+    },
     async () => {
       const rows = await env.DB.prepare(
         `SELECT p.id, a.alias AS account, p.action, p.modifiers, p.summary, p.state, p.expires_at
          FROM pending_actions p JOIN accounts a ON a.id = p.account_id AND a.user_id = p.user_id
          WHERE p.user_id = ? AND p.state IN ('pending','approved') ORDER BY p.created_at DESC LIMIT 50`,
-      ).bind(principal.userId).all();
+      )
+        .bind(principal.userId)
+        .all();
       return text({ pending: rows.results });
     },
   );
 
   server.registerTool(
     "cancel_pending",
-    { description: "Withdraw a pending or approved action before it executes.",
-      inputSchema: z.object({ action_id: z.string().regex(/^pa_[A-Za-z0-9_-]{22}$/) }), annotations: { readOnlyHint: false, destructiveHint: false } },
-    async ({ action_id }) => text({ cancelled: await cancelPending(env.DB, { id: action_id, userId: principal.userId }) }),
+    {
+      description: "Withdraw a pending or approved action before it executes.",
+      inputSchema: z.object({ action_id: z.string().regex(/^pa_[A-Za-z0-9_-]{22}$/) }),
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+    async ({ action_id }) =>
+      text({ cancelled: await cancelPending(env.DB, { id: action_id, userId: principal.userId }) }),
   );
 
   return server;
@@ -2500,6 +3331,7 @@ export function buildServer(env: Env, principal: Principal): McpServer {
 - [x] **Step 5 (GREEN): wire `/mcp`**
 
 `worker/src/index.ts`:
+
 ```ts
 import { createMcpHandler } from "agents/mcp/server";
 import type { Env } from "./env";
@@ -2515,7 +3347,9 @@ export default {
       if (!principal || principal.scope !== "mcp") {
         return new Response("unauthorized", {
           status: 401,
-          headers: { "www-authenticate": `Bearer resource_metadata="https://${env.WORKER_HOSTNAME}/.well-known/oauth-protected-resource"` },
+          headers: {
+            "www-authenticate": `Bearer resource_metadata="https://${env.WORKER_HOSTNAME}/.well-known/oauth-protected-resource"`,
+          },
         });
       }
       return createMcpHandler(() => buildServer(env, principal))(request, env, ctx);
@@ -2535,6 +3369,7 @@ Run: `cd worker && npx vitest run test/mcp.test.ts`. The stateless handler accep
 - [x] **Step 7: manual check with MCP Inspector**
 
 Create `worker/.dev.vars` (git-ignored):
+
 ```
 DEV_STATIC_TOKEN=dev-token
 DEV_STATIC_USER=mu
@@ -2543,13 +3378,17 @@ TOKEN_KEK_CURRENT=k1
 STATE_HMAC_KEY=AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
 CSRF_HMAC_KEY=AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
 ```
+
 ```bash
 cd worker && npm run migrate:local && npx wrangler d1 execute gmail-mcp --local --command "INSERT INTO users (id,email,created_at) VALUES ('mu','mu@example.test',0); INSERT INTO accounts (id,user_id,alias,google_sub,google_email,scopes,status,is_default,created_at) VALUES ('ma','mu','personal','s','p@example.test','gmail.modify','active',1,0);"
 ```
+
 In one terminal `npm run dev`; in another:
+
 ```bash
 npx @modelcontextprotocol/inspector@2.5.0 --cli http://localhost:8787/mcp --transport http --header "Authorization: Bearer dev-token" --method tools/list
 ```
+
 Expected: the four tool names.
 
 - [x] **Step 8: full suite and typecheck**
@@ -2557,6 +3396,7 @@ Expected: the four tool names.
 ```bash
 npm run typecheck && npm test
 ```
+
 Expected: all green, then `git add package-lock.json worker/worker-configuration.d.ts` if either changed.
 
 - [x] **Step 9: commit**
@@ -2574,20 +3414,20 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Spec coverage for this plan's scope**
 
-| Spec item | Task |
-|---|---|
-| 2.1 actions and defaults | 2 |
-| 2.2 modifiers raise only, `+external`, `+bulk` | 2, 6, 8 |
-| 2.7 caps, blocked set (uploads) | 7, 9 (payload cap), 10 (file cap) |
-| 2.8 recipient trust rules, case handling | 6 |
-| 3.1 identity root | 12 (principal from auth, never from args); 8 (ownership verified in the engine) |
-| 3.2 schema, ownership FKs incl. operation references, partial indexes, `_assert` | 3 |
-| 3.3 keyring, AAD framing | 4 |
-| 3.4 strict JCS, stored-bytes hash, state machine, atomic claim from approved payload, terminal purge | 5, 9, 11 |
-| 3.5 journal rows, payload-bound atomic idempotency | 9 (execution itself is Plan 3) |
-| 3.7 handles, hold, reservation, consume clears reservation, ack TTL, purge | 9, 10, 11 |
-| 3.10 structured audit, redaction enforced by the module | 11 |
-| cron, bounded and transactional | 11 |
+| Spec item                                                                                            | Task                                                                            |
+| ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| 2.1 actions and defaults                                                                             | 2                                                                               |
+| 2.2 modifiers raise only, `+external`, `+bulk`                                                       | 2, 6, 8                                                                         |
+| 2.7 caps, blocked set (uploads)                                                                      | 7, 9 (payload cap), 10 (file cap)                                               |
+| 2.8 recipient trust rules, case handling                                                             | 6                                                                               |
+| 3.1 identity root                                                                                    | 12 (principal from auth, never from args); 8 (ownership verified in the engine) |
+| 3.2 schema, ownership FKs incl. operation references, partial indexes, `_assert`                     | 3                                                                               |
+| 3.3 keyring, AAD framing                                                                             | 4                                                                               |
+| 3.4 strict JCS, stored-bytes hash, state machine, atomic claim from approved payload, terminal purge | 5, 9, 11                                                                        |
+| 3.5 journal rows, payload-bound atomic idempotency                                                   | 9 (execution itself is Plan 3)                                                  |
+| 3.7 handles, hold, reservation, consume clears reservation, ack TTL, purge                           | 9, 10, 11                                                                       |
+| 3.10 structured audit, redaction enforced by the module                                              | 11                                                                              |
+| cron, bounded and transactional                                                                      | 11                                                                              |
 
 Not in this plan by design: 2.3 Gmail tools, 3.5 send pipeline, 3.6 upload intent endpoint, 3.8 MIME, 3.9 Google error handling, all of section 4, the companion. `extendExpiry`, `finishPending`, `JOURNALED_ACTIONS` and `handlesFromPayload` are consumed by Plan 3's tool layer.
 

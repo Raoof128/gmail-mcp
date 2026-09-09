@@ -14,10 +14,60 @@ export const LIMITS = {
  * Describes what Gmail refuses to send, so it gates uploads only, never downloads to disk.
  */
 export const BLOCKED_EXTENSIONS: ReadonlySet<string> = new Set([
-  "ade", "adp", "apk", "appx", "appxbundle", "bat", "cab", "chm", "cmd", "com", "cpl", "diagcab", "diagcfg",
-  "diagpack", "dll", "dmg", "ex", "ex_", "exe", "hta", "img", "ins", "iso", "isp", "jar", "jnlp", "js", "jse",
-  "lib", "lnk", "mde", "mjs", "msc", "msi", "msix", "msixbundle", "msp", "mst", "nsh", "pif", "ps1", "scr",
-  "sct", "shb", "sys", "vb", "vbe", "vbs", "vhd", "vxd", "wsc", "wsf", "wsh", "xll",
+  "ade",
+  "adp",
+  "apk",
+  "appx",
+  "appxbundle",
+  "bat",
+  "cab",
+  "chm",
+  "cmd",
+  "com",
+  "cpl",
+  "diagcab",
+  "diagcfg",
+  "diagpack",
+  "dll",
+  "dmg",
+  "ex",
+  "ex_",
+  "exe",
+  "hta",
+  "img",
+  "ins",
+  "iso",
+  "isp",
+  "jar",
+  "jnlp",
+  "js",
+  "jse",
+  "lib",
+  "lnk",
+  "mde",
+  "mjs",
+  "msc",
+  "msi",
+  "msix",
+  "msixbundle",
+  "msp",
+  "mst",
+  "nsh",
+  "pif",
+  "ps1",
+  "scr",
+  "sct",
+  "shb",
+  "sys",
+  "vb",
+  "vbe",
+  "vbs",
+  "vhd",
+  "vxd",
+  "wsc",
+  "wsf",
+  "wsh",
+  "xll",
 ]);
 
 export function assertNotBlocked(filename: string): void {
@@ -27,6 +77,9 @@ export function assertNotBlocked(filename: string): void {
   if (BLOCKED_EXTENSIONS.has(ext)) throw new GmailMcpError("blocked_extension", `blocked_extension: .${ext}`);
 }
 
+// Matching control and bidirectional-override characters is the point of this pattern: they are
+// what a hostile filename uses to hide its real extension.
+// eslint-disable-next-line no-control-regex
 const CONTROL_OR_BIDI = /[\u0000-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
 
 export function utf8Length(s: string): number {

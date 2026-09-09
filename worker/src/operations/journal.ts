@@ -4,9 +4,17 @@ import { randomId } from "../crypto/random";
 
 export type OpState = "claimed" | "executing" | "delivery_unknown" | "executed" | "failed_safe";
 export type OperationRow = {
-  id: string; user_id: string; account_id: string; action: string; idempotency_key: string | null;
-  state: OpState; payload_hash: string; rfc822_message_id: string | null; gmail_result_id: string | null;
-  created_at: number; updated_at: number;
+  id: string;
+  user_id: string;
+  account_id: string;
+  action: string;
+  idempotency_key: string | null;
+  state: OpState;
+  payload_hash: string;
+  rfc822_message_id: string | null;
+  gmail_result_id: string | null;
+  created_at: number;
+  updated_at: number;
 };
 
 /**
@@ -21,30 +29,42 @@ export async function acquire(
   const id = randomId("op");
   const now = Date.now();
   if (!o.idempotencyKey) {
-    await db.prepare(
-      `INSERT INTO operations (id, user_id, account_id, action, idempotency_key, state, payload_hash, created_at, updated_at)
+    await db
+      .prepare(
+        `INSERT INTO operations (id, user_id, account_id, action, idempotency_key, state, payload_hash, created_at, updated_at)
        VALUES (?, ?, ?, ?, NULL, 'claimed', ?, ?, ?)`,
-    ).bind(id, o.userId, o.accountId, o.action, o.payloadHash, now, now).run();
+      )
+      .bind(id, o.userId, o.accountId, o.action, o.payloadHash, now, now)
+      .run();
     return { operationId: id, existing: null };
   }
-  await db.prepare(
-    `INSERT OR IGNORE INTO operations (id, user_id, account_id, action, idempotency_key, state, payload_hash, created_at, updated_at)
+  await db
+    .prepare(
+      `INSERT OR IGNORE INTO operations (id, user_id, account_id, action, idempotency_key, state, payload_hash, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, 'claimed', ?, ?, ?)`,
-  ).bind(id, o.userId, o.accountId, o.action, o.idempotencyKey, o.payloadHash, now, now).run();
+    )
+    .bind(id, o.userId, o.accountId, o.action, o.idempotencyKey, o.payloadHash, now, now)
+    .run();
   const row = await db
     .prepare("SELECT * FROM operations WHERE user_id = ? AND account_id = ? AND idempotency_key = ?")
     .bind(o.userId, o.accountId, o.idempotencyKey)
     .first<OperationRow>();
   if (!row) throw new GmailMcpError("internal", "acquire: row vanished after insert");
   if (row.action !== o.action || row.payload_hash !== o.payloadHash) {
-    throw new GmailMcpError("idempotency_conflict", "idempotency_conflict: key previously used for a different operation");
+    throw new GmailMcpError(
+      "idempotency_conflict",
+      "idempotency_conflict: key previously used for a different operation",
+    );
   }
   if (row.id === id) return { operationId: id, existing: null };
   return { operationId: row.id, existing: row };
 }
 
 export async function transition(
-  db: D1Database, operationId: string, from: OpState[], to: OpState,
+  db: D1Database,
+  operationId: string,
+  from: OpState[],
+  to: OpState,
   patch: { gmail_result_id?: string; rfc822_message_id?: string } = {},
 ): Promise<boolean> {
   const res = await db

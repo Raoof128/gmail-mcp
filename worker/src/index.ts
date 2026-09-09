@@ -12,14 +12,17 @@ export default {
       if (!principal || principal.scope !== "mcp") {
         return new Response("unauthorized", {
           status: 401,
-          headers: { "www-authenticate": `Bearer resource_metadata="https://${env.WORKER_HOSTNAME}/.well-known/oauth-protected-resource"` },
+          headers: {
+            "www-authenticate": `Bearer resource_metadata="https://${env.WORKER_HOSTNAME}/.well-known/oauth-protected-resource"`,
+          },
         });
       }
       return createMcpHandler(() => buildServer(env, principal))(request, env, ctx);
     }
     return new Response("not found", { status: 404 });
   },
-  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+  scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): void {
+    // Handed to the runtime rather than awaited, so a slow purge cannot delay the trigger.
     ctx.waitUntil(runCron(env, Date.now()));
   },
 } satisfies ExportedHandler<Env>;

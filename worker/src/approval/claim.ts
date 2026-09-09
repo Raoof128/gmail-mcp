@@ -27,35 +27,46 @@ export async function claimPending(
   const before = await getPending(db, o.id, o.userId);
   if (!before) throw new GmailMcpError("pending_not_approved", "pending_not_approved: unknown");
   if (before.expires_at <= Date.now()) throw new GmailMcpError("pending_expired", "pending_expired");
-  if (before.state !== "approved") throw new GmailMcpError("pending_not_approved", `pending_not_approved: ${before.state}`);
+  if (before.state !== "approved")
+    throw new GmailMcpError("pending_not_approved", `pending_not_approved: ${before.state}`);
   const handles = handlesFromPayload(before.payload_json);
 
   const operationId = randomId("op");
   const now = Date.now();
   const stmts: D1PreparedStatement[] = [
-    db.prepare(
-      `INSERT INTO operations (id, user_id, account_id, action, idempotency_key, state, payload_hash, created_at, updated_at)
+    db
+      .prepare(
+        `INSERT INTO operations (id, user_id, account_id, action, idempotency_key, state, payload_hash, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, 'claimed', ?, ?, ?)`,
-    ).bind(operationId, before.user_id, before.account_id, before.action, before.id, before.payload_hash, now, now),
-    db.prepare(
-      `UPDATE pending_actions SET state = 'executing', operation_id = ?, execution_started_at = ?
+      )
+      .bind(operationId, before.user_id, before.account_id, before.action, before.id, before.payload_hash, now, now),
+    db
+      .prepare(
+        `UPDATE pending_actions SET state = 'executing', operation_id = ?, execution_started_at = ?
        WHERE id = ? AND user_id = ? AND state = 'approved' AND expires_at > ?`,
-    ).bind(operationId, now, o.id, o.userId, now),
-    db.prepare(
-      `INSERT INTO _assert (x) SELECT 1 WHERE NOT EXISTS (
+      )
+      .bind(operationId, now, o.id, o.userId, now),
+    db
+      .prepare(
+        `INSERT INTO _assert (x) SELECT 1 WHERE NOT EXISTS (
          SELECT 1 FROM pending_actions WHERE id = ? AND operation_id = ? AND state = 'executing')`,
-    ).bind(o.id, operationId),
+      )
+      .bind(o.id, operationId),
   ];
   if (handles.length > 0) {
     stmts.push(
-      db.prepare(
-        `UPDATE staging_objects SET reserved_by_operation_id = ?
+      db
+        .prepare(
+          `UPDATE staging_objects SET reserved_by_operation_id = ?
          WHERE handle IN (${handles.map(() => "?").join(",")}) AND user_id = ? AND account_id = ? AND direction = 'upload'
            AND consumed_at IS NULL AND reserved_by_operation_id IS NULL AND expires_at > ?`,
-      ).bind(operationId, ...handles, before.user_id, before.account_id, now),
-      db.prepare(
-        `INSERT INTO _assert (x) SELECT 1 WHERE (SELECT count(*) FROM staging_objects WHERE reserved_by_operation_id = ?) != ?`,
-      ).bind(operationId, handles.length),
+        )
+        .bind(operationId, ...handles, before.user_id, before.account_id, now),
+      db
+        .prepare(
+          `INSERT INTO _assert (x) SELECT 1 WHERE (SELECT count(*) FROM staging_objects WHERE reserved_by_operation_id = ?) != ?`,
+        )
+        .bind(operationId, handles.length),
     );
   }
   try {
@@ -66,7 +77,8 @@ export async function claimPending(
     if (after?.state === "approved" && handles.length > 0) {
       throw new GmailMcpError("handle_reserved", `handle_reserved: one or more payload handles unavailable (${msg})`);
     }
-    if (after?.state !== "approved") throw new GmailMcpError("pending_replayed", `pending_replayed: ${after?.state ?? "unknown"}`);
+    if (after?.state !== "approved")
+      throw new GmailMcpError("pending_replayed", `pending_replayed: ${after?.state ?? "unknown"}`);
     throw new GmailMcpError("internal", msg);
   }
   return { operationId, pending: (await getPending(db, o.id, o.userId))!, handles };

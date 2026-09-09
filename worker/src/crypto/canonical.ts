@@ -17,7 +17,7 @@ export function canonicalize(value: unknown): string {
       if (Array.isArray(value)) {
         return "[" + value.map((v) => canonicalize(v)).join(",") + "]";
       }
-      const proto = Object.getPrototypeOf(value);
+      const proto: unknown = Object.getPrototypeOf(value);
       if (proto !== Object.prototype && proto !== null) throw new TypeError("non-plain object");
       const obj = value as Record<string, unknown>;
       const keys = Object.keys(obj).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));

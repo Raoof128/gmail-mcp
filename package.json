@@ -7,14 +7,29 @@
   ],
   "scripts": {
     "test": "npm run test --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "verify": "npm run format:check && npm run lint && npm run typecheck && npm test"
   },
   "devDependencies": {
-    "typescript": "5.9.3"
+    "@eslint/js": "10.0.1",
+    "eslint": "10.10.0",
+    "eslint-config-prettier": "10.1.8",
+    "prettier": "3.9.6",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.70.0"
   },
   "allowScripts": {
     "workerd@1.20260908.1": true,
     "esbuild@0.28.1": true,
     "core-js-pure@3.50.0": true
+  },
+  "description": "A Gmail MCP server for Claude with attachment support and a server-enforced permission model.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
   }
 }
