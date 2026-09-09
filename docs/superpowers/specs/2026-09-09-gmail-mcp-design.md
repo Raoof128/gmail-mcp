@@ -76,7 +76,7 @@ Rules:
 | `createMcpHandler()` from Cloudflare's MCP package | Cloudflare marks `McpAgent` deprecated and feature-frozen | developers.cloudflare.com/agents/model-context-protocol/guides/remote-mcp-server |
 | `@cloudflare/workers-oauth-provider` >= 0.10.2 | Supports CIMD (`clientIdMetadataDocumentEnabled: true`, requires `global_fetch_strictly_public` compatibility flag), always emits RFC 9207 `iss`, serves RFC 9728 metadata, accepts RFC 8707 `resource`, S256 PKCE by default. Does **not** enforce per-client scopes or operation-level scope policy | github.com/cloudflare/workers-oauth-provider |
 | Workers Paid plan | Free plan allows 10 ms CPU per request. Request body limit 100 MB, isolate memory 128 MB | developers.cloudflare.com/workers/platform/limits |
-| D1 for structured state | 2 MB row, string and BLOB limit; foreign keys enforced | developers.cloudflare.com/d1/platform/limits, developers.cloudflare.com/d1/sql-api/foreign-keys |
+| D1 for structured state | 2 MB row, string and BLOB limit; foreign keys enforced; `batch()` is a transaction that rolls back on any statement error, and there are no interactive transactions | developers.cloudflare.com/d1/platform/limits, developers.cloudflare.com/d1/sql-api/foreign-keys, developers.cloudflare.com/d1/worker-api/d1-database |
 | SQLite partial unique indexes for nullable keys | Ordinary-table PRIMARY KEY columns may contain NULL; NULLs are distinct for uniqueness | sqlite.org/quirks.html, sqlite.org/partialindex.html |
 | Attachments via `users.messages.attachments.get` | Returns JSON `MessagePartBody` with `data` as base64url, not raw bytes. Needs `gmail.readonly`, `gmail.modify` or `mail.google.com` | developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages.attachments |
 | Sending via media or resumable upload of `message/rfc822` | `/upload/gmail/v1/users/me/messages/send`; resumable recommended for larger data | developers.google.com/workspace/gmail/api/guides/uploads |
@@ -97,7 +97,7 @@ Each Google account gets an owner-chosen alias (`personal`, `university`, `work`
 
 `ask` never means "do it and tell the user". It creates a pending action and returns without touching Gmail. Approval happens one of two ways:
 
-1. **URL-mode elicitation** when the negotiated client capabilities include `elicitation.url`. The client opens the approval page; the retried `tools/call` resumes with the result.
+1. **URL-mode elicitation** when the negotiated client capabilities include `elicitation.url`. The client opens the approval page and immediately retries the `tools/call` with an accept response. Per the spec the server may then block until the out-of-band approval completes: the Worker polls the pending row every 2 seconds for up to 120 seconds. If the row becomes `approved`, the Worker claims and executes in that same request and returns the real result. If it is still `pending` at the deadline, the Worker returns the ordinary `pending_approval` result (2.6) so the owner can finish in the browser and Claude can call `execute_pending` later. Declined or expired rows return an error.
 2. **Approval URL in the tool result** otherwise. The owner opens it, approves in the browser, then Claude calls `execute_pending(id)`.
 
 Both paths land on the same Worker page, which requires a browser session whose identity matches the pending row's owner. A model-relayed confirmation code is not an accepted approval path for any write.
@@ -175,7 +175,7 @@ Names mirror the hosted connector baseline (Appendix A) where one exists.
 | `list_drafts`, `get_draft`, `list_labels` | read.message | paginated |
 | `download_attachment` | read.attachment | returns staging handle with filename, mime, size, sha256, `expires_at`, `account`. Bytes never enter a tool result. 25 MB ceiling |
 | `create_draft`, `update_draft` | draft.write | `attachments: [handle]`; `inline_attachments` converted to staging handles before any row is written, 1 MB decoded total |
-| `send_message` | send.message | new mail, or reply when `reply_to_message_id` is given; optional `idempotency_key`. No `draftId` |
+| `send_message` | send.message | new mail only; optional `idempotency_key`. No `draftId`, no thread parameters: replies go through `reply` |
 | `reply` | send.message | canonical reply: `account`, `message_id`, body, optional extra recipients. The Worker derives `threadId`, `Subject`, `In-Reply-To`, `References` from the target message |
 | `send_draft` | send.draft | `account`, `draft_id`; see 3.5 |
 | `forward` | send.forward | `include_original_attachments` defaults to `false`; approval summary lists filenames and sizes |
@@ -274,7 +274,7 @@ users (
 accounts (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id),
-  alias TEXT NOT NULL CHECK (alias = lower(alias) AND alias GLOB '[a-z0-9_-]*'),
+  alias TEXT NOT NULL CHECK (length(alias) BETWEEN 1 AND 32 AND alias NOT GLOB '*[^a-z0-9_-]*'),
   google_sub TEXT NOT NULL,
   google_email TEXT NOT NULL,
   send_as TEXT NOT NULL DEFAULT '[]', -- JSON array of verified send-as addresses
@@ -353,6 +353,8 @@ staging_objects (
   FOREIGN KEY (user_id, account_id) REFERENCES accounts(user_id, id)
 );
 
+_assert (x INTEGER NOT NULL CHECK (x = 0));   -- never holds rows; see 3.4
+
 web_sessions (
   id_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id),
   created_at INTEGER NOT NULL, authenticated_at INTEGER NOT NULL,
@@ -398,7 +400,7 @@ Invariants:
 - **Payload is server-held.** The `ask`-hit call stores canonical arguments as `payload_json`. The approval page renders from the row. Later model output cannot change what executes.
 - **Approval binds identity.** Browser approval requires a `web_sessions` row whose `user_id` equals the pending row's. Elicitation approval carries an HMAC-signed `requestState` (secret `STATE_HMAC_KEY`) with `version="gmail-mcp:approval:v1"`, `pending_id`, `user_id`, `account_id`, `payload_hash`, `expires_at`, `nonce`, verified against the bearer token on the retried call.
 - **Resume re-hashes.** The retried `tools/call` arguments are canonicalised and compared to `payload_hash`. Mismatch is denied and audited.
-- **Claim is one atomic batch.** In a single D1 batch: `INSERT INTO operations (id, …, state='claimed', payload_hash)`, then `UPDATE pending_actions SET state='executing', operation_id=?, executed_at=? WHERE id=? AND user_id=? AND state='approved' AND expires_at > ?`, then reserve staging handles (3.7). If the update touches zero rows the batch is rolled back: replayed, expired or never approved.
+- **Claim is one atomic batch.** D1 `batch()` runs its statements as one transaction and rolls back the whole sequence if any statement errors, but it does not roll back on a zero-row update. The claim therefore uses an assertion table `_assert (x INTEGER NOT NULL CHECK (x = 0))` to convert a failed precondition into an error. Statement order, all in one batch: (1) `INSERT INTO operations (id, …, state='claimed', payload_hash)`; (2) `UPDATE pending_actions SET state='executing', operation_id=?, executed_at=? WHERE id=? AND user_id=? AND state='approved' AND expires_at > ?`; (3) `INSERT INTO _assert SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM pending_actions WHERE id=? AND operation_id=? AND state='executing')`; (4) reserve staging handles (3.7); (5) `INSERT INTO _assert SELECT 1 WHERE (SELECT count(*) FROM staging_objects WHERE reserved_by_operation_id=?) != ?`. Statements 3 and 5 insert a row only when the precondition failed, the CHECK rejects it, and the batch rolls back including the operation row. Zero rows in statement 2 means replayed, expired or never approved. Foreign keys are immediate, which is why the operation row is inserted before the pending row references it.
 - **Policy is re-evaluated at claim.** A tighter policy saved between approval and execution wins.
 - **One approval covers one action.**
 - **Terminal purge.** On any terminal state `payload_json` is set to NULL and `summary` replaced by a redacted form. The linked operation, not the pending row, carries delivery state from here on.
@@ -413,10 +415,10 @@ Execution of a journaled action:
 
 1. **Acquire.** If an `idempotency_key` is present and a row already exists: `executed` returns the stored result without calling Gmail; `executing`, `claimed` or `delivery_unknown` returns `delivery_unknown` without calling Gmail; `failed_safe` allows a fresh operation. `ask` actions use the pending id as the key. Otherwise insert a new `claimed` row.
 2. **Reserve** attachments (3.7), move to `executing`.
-3. **Send.** For new messages and replies: generate `rfc822_message_id` (`<op_…@gmail-mcp.invalid>`), set `Message-ID`, build MIME as a stream (3.8), upload via media upload when the MIME is 5 MB or smaller, resumable upload otherwise. For `send_draft`: read the draft's message id and thread id, then call `drafts.send`.
+3. **Send.** For new messages and replies: generate `rfc822_message_id` (`<op_…@<worker hostname>>`), set `Message-ID`, build MIME as a stream (3.8). Set the operation to `executing` immediately before the request to Google is opened, not earlier, so a stale `claimed` row is provably free of side effects. Upload via media upload when the MIME is 5 MB or smaller, resumable upload otherwise. For `send_draft`: read the draft's message id and thread id, then call `drafts.send`.
 4. **Record.** On success write `gmail_result_id`, state `executed`, consume reserved handles.
-5. **Crash or ambiguity.** If Gmail may have received the request body and no definitive response was recorded, the row stays `executing`. The cron promotes `executing` rows older than 2 minutes to `delivery_unknown`. Reserved handles stay reserved.
-6. **Reconciliation.** For messages sent with our `Message-ID`, search `rfc822msgid:<id>`; if found, mark `executed`. For `send_draft`, list `SENT` messages in the recorded thread newer than the operation start. Automatic reconciliation is enabled only after the Message-ID preservation test (4.7) passes. Until then `delivery_unknown` is surfaced to the owner and never auto-retried:
+5. **Crash or ambiguity.** If Gmail may have received the request body and no definitive response was recorded, the row stays `executing`. The cron promotes `executing` rows older than 2 minutes to `delivery_unknown` and `claimed` rows older than 2 minutes to `failed_safe` (no request was ever opened). Reserved handles stay reserved on `delivery_unknown` and are released on `failed_safe`.
+6. **Reconciliation.** For messages sent with our `Message-ID`, search `rfc822msgid:<id>`; if found, mark `executed`. For `send_draft`, list `SENT` messages in the recorded thread newer than the operation start. Gmail search indexing can lag, so the cron retries reconciliation on each run for up to 24 hours before leaving the row `delivery_unknown` for the owner. Automatic reconciliation is enabled only after the Message-ID preservation test (4.7) passes. Until then `delivery_unknown` is surfaced to the owner and never auto-retried:
 
 ```json
 { "status": "delivery_unknown", "operation_id": "op_…",
@@ -430,14 +432,18 @@ There is no content-based dedupe. Identical content sent twice on purpose is two
 `stage_file(account, path)` does not upload first. The companion reads filename, size and mime, then:
 
 1. `POST /staging/intent` with `{account, filename, size, mime, sha256}`. The Worker runs the policy engine for `attachment.stage_upload`.
-2. `allow`: response carries a one-time upload ticket (60 s TTL, bound to the metadata hash). `deny`: 403 with the audited reason. `ask`: response is the standard pending action; the companion surfaces it as a URL-mode elicitation when advertised, else returns the approval URL as text. After approval the companion retries the intent with the pending id and receives the ticket.
+2. `allow`: response carries a one-time upload ticket (60 s TTL, bound to the metadata hash). `deny`: 403 with the audited reason. `ask`: response is the standard pending action; the companion surfaces it as a URL-mode elicitation when advertised, else returns the approval URL as text. After approval the companion calls `POST /staging/intent` again with the pending id; ticket issuance is the same atomic `approved → executing` claim as 3.4, so a pending stage action yields exactly one ticket. A `PUT` whose computed sha256 differs from the ticket's declared hash is rejected and the ticket is void.
+
+The companion must speak both elicitation wire forms: the 2026-07-28 `InputRequiredResult` and the 2025 server-initiated `elicitation/create`, because Claude Code negotiates the new revision with stdio servers only when `MCP_PROTOCOL_NEGOTIATION=auto`.
 3. `PUT /staging/<ticket>` streams the bytes. The Worker enforces the 25 MB ceiling by `Content-Length` and by counting, rejects blocked extensions, computes sha256 with `tee()` into `R2.put` and `crypto.DigestStream("SHA-256")`, verifies it matches the declared hash, writes the account-bound row.
 
 ### 3.7 Staging handle lifecycle
 
 Handle: `sh_` plus 32 random bytes base64url. Non-enumerable, carries no Google identifiers.
 
-Download: `download_attachment` calls `attachments.get`, which returns JSON with base64url `data`. V1 buffers the response (at most about 34 MB of text plus 25 MB decoded, within the 128 MB isolate), decodes, streams the bytes with `tee()` into R2 and the digest, writes the row with `expires_at = now + 30 min`. The 25 MB Worker round-trip test in 4.7 is an implementation gate for this choice. The companion fetches `GET /staging/<handle>` with its `staging` bearer; the Worker checks `user_id` in the query and expiry, streams from R2. Re-fetch before ACK is allowed. After temp write, sha256 verify and atomic rename, the companion `POST /staging/<handle>/ack` sets `consumed_at`.
+Download: `download_attachment` first reads the part's `size` from message metadata and refuses anything above 25 MB before any bytes move. It then calls `attachments.get`, which returns JSON with base64url `data`. V1 buffers the response (at most about 34 MB of text plus 25 MB decoded, within the 128 MB isolate), decodes, streams the bytes with `tee()` into R2 and the digest, writes the row with `expires_at = now + 30 min`. The 25 MB Worker round-trip test in 4.7 is an implementation gate for this choice. The companion fetches `GET /staging/<handle>` with its `staging` bearer; the Worker checks `user_id` in the query and expiry, streams from R2. Re-fetch before ACK is allowed. After temp write, sha256 verify and atomic rename, the companion `POST /staging/<handle>/ack` sets `consumed_at`.
+
+Hold at pending creation: when an `ask` action references upload handles, the same request extends each referenced handle's `expires_at` to the pending row's `expires_at` plus 5 minutes, so a handle staged 29 minutes earlier cannot expire between approval and execution.
 
 Reservation at send: inside the claim batch, `UPDATE staging_objects SET reserved_by_operation_id=? WHERE handle IN (…) AND user_id=? AND account_id=? AND direction='upload' AND consumed_at IS NULL AND reserved_by_operation_id IS NULL AND expires_at > ?`; the batch fails unless the row count equals the handle count. `executed` consumes; `failed_safe` releases; `delivery_unknown` keeps the reservation until reconciled or expired.
 
@@ -464,7 +470,7 @@ Purge: cron every 5 minutes expires stale pending rows, promotes stuck `executin
 
 ### 3.10 Audit semantics
 
-Two rows per mutating call: an `intent` row before any external side effect (tool, action, modifiers, decision), and an `outcome` row after. The operation journal, not the audit log, is authoritative for delivery. If the outcome write fails after Gmail succeeded, the tool still returns `executed` and the failure is reported to telemetry. Metadata only: no bodies, no full subjects, no tokens. Readable through `/audit`, never through an MCP tool.
+Two rows per mutating call: an `intent` row before any external side effect (tool, action, modifiers, decision), and an `outcome` row after. Read calls and denials write one `intent` row only. The operation journal, not the audit log, is authoritative for delivery. If the outcome write fails after Gmail succeeded, the tool still returns `executed` and the failure is reported to telemetry. Metadata only: no bodies, no full subjects, no tokens. Readable through `/audit`, never through an MCP tool.
 
 ## 4. OAuth flows, web UI, session security, testing
 
@@ -498,7 +504,7 @@ Per-client allowed scopes are enforced by our authorization handler, since the l
 
 | Project | Publishing status | Used by |
 |---|---|---|
-| `gmail-mcp-dev` | Testing | scratch Gmail account, integration tests. 7-day refresh expiry accepted, so the protected suite is manual only, or scheduled weekly after an explicit credential refresh |
+| `gmail-mcp-dev` | Testing | scratch Gmail account, integration tests. 7-day refresh expiry accepted, so the protected suite is manual only, run after a fresh consent |
 | `gmail-mcp-personal` | In production, unverified, personal-use exemption | the owner's real accounts |
 
 The verification and CASA exclusion holds only while this remains a personal-use system under 100 users known to the owner. General distribution changes the requirement: server-side storage of restricted-scope data then requires a third-party security assessment.
@@ -513,7 +519,8 @@ Server-rendered HTML forms, no client JavaScript, no third-party assets.
 
 | Page | Purpose | Guards |
 |---|---|---|
-| `/approve/<id>` | structured block (action, account, recipients, attachments with sizes) then a visibly delimited "untrusted email content" block with a plain-text body preview capped at 2 KB, no links; Approve and Deny | session match, CSRF, `Origin` check, POST is the claim batch |
+| `/approve/<id>` | structured block (action, account, recipients, attachments with sizes) then a visibly delimited "untrusted email content" block with a plain-text body preview capped at 2 KB, no links; Approve and Deny | session match, CSRF, `Origin` check, POST is the atomic `pending → approved` transition (`WHERE state='pending' AND expires_at > now`); execution happens only through the claim in 3.4 |
+| `/reauth` | re-run Google OIDC and update `authenticated_at` on the current session | session, CSRF |
 | `/accounts` | list, connect, reconnect, revoke, set default, allowlist, send limit, org domains | session, CSRF, recent-auth for revoke |
 | `/policy` | action × level matrix, per-account overrides, blocked-extension set | session, CSRF, recent-auth, audited as `policy.edit` |
 | `/audit` | 90-day metadata log with filters | session |
@@ -549,7 +556,7 @@ X-Content-Type-Options: nosniff
 - **Fault injection** at each checkpoint, killing or throwing deliberately: operation inserted; pending action claimed; attachments reserved; MIME construction begins; Google request headers sent; Google request body partially sent; Google response received; before D1 success write; after D1 success write; before audit outcome write. For each, assert either no duplicate external side effect or `delivery_unknown` with no automatic retry.
 - OAuth and web adversarial: redirect_uri substitution, authorization-code replay, `state` replay, `nonce` replay, issuer mix-up, wrong audience, expired `id_token`, session fixation, CSRF token from another pending action, open-redirect attempts, CIMD metadata tampering, a DCR client requesting `staging`, `mcp` token to `/staging`, `staging` token to `/mcp`, `execute_pending` replay, `requestState` field tampering one field at a time, retried elicitation call with changed recipients, approval URL opened under a different session, `last_seen_at` alone attempting a recent-auth action.
 
-**Protected Gmail integration (manual pre-release; optional weekly workflow after explicit credential refresh; never on forks)**
+**Protected Gmail integration (manual pre-release only; never on forks)**
 
 - Dedicated scratch Gmail account in `gmail-mcp-dev`, secret only in the protected environment, mailbox holds no real mail.
 - Send with a staged attachment, fetch it back, sha256 matches.
@@ -622,8 +629,8 @@ Tool names observed on the hosted Claude Gmail connector this date. Input and ou
 |---|---|---|
 | `search_threads`, `get_thread`, `get_message`, `list_drafts`, `get_draft`, `list_labels` | same | parity, plus pagination and size parameters |
 | `create_draft`, `update_draft` | same | parity; attachments become handles, inline capped |
-| `send_message` | same | parity except `draftId` removed (see `send_draft`) |
-| `reply` | same | parity; Worker derives threading headers |
+| `send_message` | same | new mail only: `draftId` moved to `send_draft`, `replyThreadId` and `replyToMessageId` moved to `reply` |
+| `reply` | same | parity; Worker derives threading headers from the target message |
 | `forward` | same | parity except original attachments excluded by default |
 | `create_label`, `update_label`, `delete_label` | same | parity |
 | `label_message`, `unlabel_message`, `label_thread`, `unlabel_thread`, `update_message_labels` | same | parity |
