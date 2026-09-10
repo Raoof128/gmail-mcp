@@ -5743,7 +5743,7 @@ Claude-Session: https://claude.ai/code/session_01NBfkjWcEGDFghet3APnUjU"
   - `sendDraft(env, deps, o: { userId; accountId; operationId; draftId; rfc822MessageId: string | null })`: `POST drafts/send` with `{ id }`; `beginOperation` carries the draft's own `Message-ID` header so Plan 5's reconciliation has one to search for.
   - `collect(stream, length): Promise<Uint8Array>`: reads a stream of known length into exactly `length` bytes, erroring on any other count.
 
-- [ ] **Step 1 (RED): tests**
+- [x] **Step 1 (RED): tests**
 
 `worker/test/send-pipeline.test.ts`:
 
@@ -5987,12 +5987,12 @@ describe("drafts and send_draft", () => {
 
 The "failed PUT" test uses a fake hook `afterSession: Fault | null` that applies to the first request after a session was created; the fault queue cannot express "let the session succeed, fail the PUT" because the session POST consumes the first fault.
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
 Run: `cd worker && npx vitest run test/send-pipeline.test.ts`
 Expected: FAIL, module not found.
 
-- [ ] **Step 3 (GREEN): client and fake changes**
+- [x] **Step 3 (GREEN): client and fake changes**
 
 `worker/src/google/gmail.ts`: replace the `Upload` type, delete the `resumable` function and its branch in `gmailFetch`, and add:
 
@@ -6107,7 +6107,7 @@ export async function putResumable(
 
 `latin1` decoding keeps byte offsets equal to character offsets, which the split relies on. The session map type becomes `{ path: string; contentType: string; threadId: string | null }`; `upload(path, method, bytes, via, threadId)` forwards it to `storeSent(bytes, via, threadId)` and `createDraftFromRaw(bytes, threadId, keepId?)`.
 
-- [ ] **Step 4 (GREEN): the pipeline**
+- [x] **Step 4 (GREEN): the pipeline**
 
 `worker/src/operations/send.ts`:
 
@@ -6227,12 +6227,12 @@ export async function sendDraft(
 
 The 401 refresh-and-retry inside `gmailFetch` stays for the small path: a 401 answers before Gmail accepts a body.
 
-- [ ] **Step 5: run, expect pass**
+- [x] **Step 5: run, expect pass**
 
 Run: `cd worker && npx vitest run test/send-pipeline.test.ts test/gmail-client.test.ts test/mime.test.ts` then `npm run verify`.
 Expected: PASS. First-run fact: `FixedLengthStream` piping inside the vitest workerd pool. If the fake receives a body of the wrong length, the fault is in `collect` or the transform, never in the fake.
 
-- [ ] **Step 6: commit**
+- [x] **Step 6: commit**
 
 ```bash
 git add worker/src/google/gmail.ts worker/src/operations/send.ts worker/test
