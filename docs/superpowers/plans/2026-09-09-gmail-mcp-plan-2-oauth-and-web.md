@@ -111,12 +111,16 @@ describe("plan 2 scaffold", () => {
     await env.DB.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('k', 'v', 1)").run();
     const row = await env.DB.prepare("SELECT value FROM settings WHERE key = 'k'").first<{ value: string }>();
     expect(row?.value).toBe("v");
-    await env.DB.prepare("INSERT INTO oauth_states (id, kind, payload, created_at, expires_at) VALUES ('st_x', 'login', '{}', 1, 2)").run();
+    await env.DB.prepare(
+      "INSERT INTO oauth_states (id, kind, payload, created_at, expires_at) VALUES ('st_x', 'login', '{}', 1, 2)",
+    ).run();
     const consumed = await env.DB.prepare(
       "UPDATE oauth_states SET consumed_at = 3 WHERE id = 'st_x' AND consumed_at IS NULL AND expires_at > 1 RETURNING payload",
     ).first<{ payload: string }>();
     expect(consumed?.payload).toBe("{}");
-    const cols = (await env.DB.prepare("PRAGMA table_info(accounts)").all<{ name: string }>()).results.map((c) => c.name);
+    const cols = (await env.DB.prepare("PRAGMA table_info(accounts)").all<{ name: string }>()).results.map(
+      (c) => c.name,
+    );
     expect(cols).toContain("credential_version");
   });
 
@@ -344,7 +348,9 @@ describe("html primitives", () => {
   it("page responses carry the security headers and no-store", async () => {
     const res = htmlResponse("T", "<p>x</p>");
     const withClient = htmlResponse("T", "<p>x</p>", 200, ["http://localhost:5555"]);
-    expect(withClient.headers.get("content-security-policy")).toContain("form-action 'self' https://accounts.google.com http://localhost:5555");
+    expect(withClient.headers.get("content-security-policy")).toContain(
+      "form-action 'self' https://accounts.google.com http://localhost:5555",
+    );
     expect(res.status).toBe(200);
     for (const [k, v] of Object.entries(PAGE_HEADERS)) expect(res.headers.get(k)).toBe(v);
     expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8");
@@ -537,8 +543,7 @@ import {
 } from "../src/web/session";
 import { seedUserAndAccount } from "./fixtures";
 
-const req = (cookie: string | null) =>
-  new Request("https://x.test/accounts", { headers: cookie ? { cookie } : {} });
+const req = (cookie: string | null) => new Request("https://x.test/accounts", { headers: cookie ? { cookie } : {} });
 
 beforeAll(async () => {
   await seedUserAndAccount(env.DB, { userId: "su", accountId: "sa", alias: "personal", isDefault: true });
@@ -547,8 +552,12 @@ beforeAll(async () => {
 describe("sessions", () => {
   it("creates a __Host- cookie with the required attributes and stores only a hash", async () => {
     const s = await createSession(env.DB, "su");
-    expect(s.cookie).toMatch(new RegExp(`^${SESSION_COOKIE}=[A-Za-z0-9_-]{43}; Path=/; HttpOnly; Secure; SameSite=Lax$`));
-    const row = await env.DB.prepare("SELECT id_hash FROM web_sessions WHERE user_id = 'su'").first<{ id_hash: string }>();
+    expect(s.cookie).toMatch(
+      new RegExp(`^${SESSION_COOKIE}=[A-Za-z0-9_-]{43}; Path=/; HttpOnly; Secure; SameSite=Lax$`),
+    );
+    const row = await env.DB.prepare("SELECT id_hash FROM web_sessions WHERE user_id = 'su'").first<{
+      id_hash: string;
+    }>();
     expect(row?.id_hash).not.toBe(s.id);
     expect(row?.id_hash).toMatch(/^[0-9a-f]{64}$/);
   });
@@ -810,7 +819,12 @@ function keyBytes(b64: string): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 }
 
-async function mac(keyB64: string, purpose: string, fields: string[], expiresAt: number): Promise<Uint8Array<ArrayBuffer>> {
+async function mac(
+  keyB64: string,
+  purpose: string,
+  fields: string[],
+  expiresAt: number,
+): Promise<Uint8Array<ArrayBuffer>> {
   // Length-prefixed framing: every value is preceded by its byte length, so no content, NUL included,
   // can move a boundary. The purpose comes first so a token minted for one use cannot be replayed as another.
   const enc = new TextEncoder();
@@ -906,19 +920,28 @@ export function layout(title: string, body: string, chrome: Chrome): string {
 The header becomes:
 
 ```html
-<header><a href="/accounts">Accounts</a> <a href="/policy">Policy</a> <a href="/audit">Audit</a>
-${
-  chrome
-    ? `<form method="post" action="/reauth" class="inline"><input type="hidden" name="csrf" value="${escapeHtml(chrome.reauthCsrf)}"><button>Re-authenticate</button></form>
-<form method="post" action="/logout" class="inline"><input type="hidden" name="csrf" value="${escapeHtml(chrome.logoutCsrf)}"><button>Log out</button></form>`
-    : ""
-}</header>
+<header>
+  <a href="/accounts">Accounts</a> <a href="/policy">Policy</a> <a href="/audit">Audit</a> ${ chrome ? `
+  <form method="post" action="/reauth" class="inline">
+    <input type="hidden" name="csrf" value="${escapeHtml(chrome.reauthCsrf)}" /><button>Re-authenticate</button>
+  </form>
+  <form method="post" action="/logout" class="inline">
+    <input type="hidden" name="csrf" value="${escapeHtml(chrome.logoutCsrf)}" /><button>Log out</button>
+  </form>
+  ` : "" }
+</header>
 ```
 
 and:
 
 ```ts
-export function htmlResponse(title: string, body: string, chrome: Chrome, status = 200, extraFormActions: string[] = []): Response {
+export function htmlResponse(
+  title: string,
+  body: string,
+  chrome: Chrome,
+  status = 200,
+  extraFormActions: string[] = [],
+): Response {
   return new Response(layout(title, body, chrome), {
     status,
     headers: { ...pageHeaders(extraFormActions), "content-type": "text/html; charset=utf-8" },
@@ -1101,13 +1124,29 @@ const deps = () => ({ googleFetch: g.fetch });
 
 describe("oidc client", () => {
   it("builds the login and connect URLs with the right parameters", () => {
-    const login = new URL(buildAuthUrl(env, { redirectUri: "https://h/oidc/callback", scope: LOGIN_SCOPES, state: "s", nonce: "n", offline: false }));
+    const login = new URL(
+      buildAuthUrl(env, {
+        redirectUri: "https://h/oidc/callback",
+        scope: LOGIN_SCOPES,
+        state: "s",
+        nonce: "n",
+        offline: false,
+      }),
+    );
     expect(login.origin + login.pathname).toBe("https://accounts.google.com/o/oauth2/v2/auth");
     expect(login.searchParams.get("client_id")).toBe(env.GOOGLE_CLIENT_ID);
     expect(login.searchParams.get("response_type")).toBe("code");
     expect(login.searchParams.get("scope")).toBe("openid email profile");
     expect(login.searchParams.get("access_type")).toBeNull();
-    const connect = new URL(buildAuthUrl(env, { redirectUri: "https://h/connect/callback", scope: CONNECT_SCOPES, state: "s", nonce: "n", offline: true }));
+    const connect = new URL(
+      buildAuthUrl(env, {
+        redirectUri: "https://h/connect/callback",
+        scope: CONNECT_SCOPES,
+        state: "s",
+        nonce: "n",
+        offline: true,
+      }),
+    );
     expect(connect.searchParams.get("access_type")).toBe("offline");
     expect(connect.searchParams.get("prompt")).toBe("consent");
     expect(connect.searchParams.get("scope")).not.toContain("mail.google.com");
@@ -1124,7 +1163,11 @@ describe("oidc client", () => {
       ["wrong issuer", await g.issue({ sub: "s1", email: "a@x.test", nonce: "n1", iss: "https://evil.test" }), "n1"],
       ["wrong audience", await g.issue({ sub: "s1", email: "a@x.test", nonce: "n1", aud: "other" }), "n1"],
       ["expired", await g.issue({ sub: "s1", email: "a@x.test", nonce: "n1", expSeconds: -120 }), "n1"],
-      ["stale iat", await g.issue({ sub: "s1", email: "a@x.test", nonce: "n1", iatOffsetSeconds: -900, expSeconds: 300 }), "n1"],
+      [
+        "stale iat",
+        await g.issue({ sub: "s1", email: "a@x.test", nonce: "n1", iatOffsetSeconds: -900, expSeconds: 300 }),
+        "n1",
+      ],
       ["future iat", await g.issue({ sub: "s1", email: "a@x.test", nonce: "n1", iatOffsetSeconds: 300 }), "n1"],
       ["unverified email", await g.issue({ sub: "s1", email: "a@x.test", nonce: "n1", emailVerified: false }), "n1"],
       ["garbage", "a.b.c", "n1"],
@@ -1140,8 +1183,12 @@ describe("oidc client", () => {
     expect(t.refresh_token).toMatch(/^rt-/);
     g.malformedNext = true;
     const bad = g.grantCode({ sub: "s1", email: "a@x.test", nonce: "n1" });
-    await expect(exchangeCode(env, deps(), { code: bad, redirectUri: "https://h/cb" })).rejects.toMatchObject({ code: "internal" });
-    await expect(exchangeCode(env, deps(), { code, redirectUri: "https://h/cb" })).rejects.toMatchObject({ code: "internal" });
+    await expect(exchangeCode(env, deps(), { code: bad, redirectUri: "https://h/cb" })).rejects.toMatchObject({
+      code: "internal",
+    });
+    await expect(exchangeCode(env, deps(), { code, redirectUri: "https://h/cb" })).rejects.toMatchObject({
+      code: "internal",
+    });
     expect(await refreshAccessToken(env, deps(), t.refresh_token!)).toMatchObject({ expires_in: 3599 });
     g.refreshTokens.set(t.refresh_token!, "invalid_grant");
     expect(await refreshAccessToken(env, deps(), t.refresh_token!)).toBe("invalid_grant");
@@ -1230,7 +1277,11 @@ export async function exchangeCode(
   deps: Deps,
   o: { code: string; redirectUri: string },
 ): Promise<TokenResponse> {
-  const res = await tokenPost(env, deps, { grant_type: "authorization_code", code: o.code, redirect_uri: o.redirectUri });
+  const res = await tokenPost(env, deps, {
+    grant_type: "authorization_code",
+    code: o.code,
+    redirect_uri: o.redirectUri,
+  });
   if (!res.ok) throw new GmailMcpError("internal", `google token endpoint ${res.status}`);
   const parsed = TokenResponse.safeParse(await res.json().catch(() => null));
   if (!parsed.success) throw new GmailMcpError("internal", "google token endpoint returned an unexpected body");
@@ -1354,8 +1405,7 @@ export class Browser {
 
   async fetch(path: string, init: RequestInit = {}): Promise<Response> {
     const headers = new Headers(init.headers);
-    if (this.cookies.size > 0)
-      headers.set("cookie", [...this.cookies].map(([k, v]) => `${k}=${v}`).join("; "));
+    if (this.cookies.size > 0) headers.set("cookie", [...this.cookies].map(([k, v]) => `${k}=${v}`).join("; "));
     if (init.method === "POST" && !headers.has("origin")) headers.set("origin", HOST);
     const ctx = createExecutionContext();
     // A fresh spread per request: the provider assigns env.OAUTH_PROVIDER, and the shared env must not carry it between tests.
@@ -1395,9 +1445,7 @@ export class Browser {
 }
 
 export function csrfFrom(html: string, formAction?: string): string {
-  const scope = formAction
-    ? (html.split(`action="${formAction}"`)[1] ?? "")
-    : html;
+  const scope = formAction ? (html.split(`action="${formAction}"`)[1] ?? "") : html;
   const m = /name="csrf" value="([^"]+)"/.exec(scope);
   if (!m) throw new Error("no csrf token in page");
   return m[1]!;
@@ -1447,7 +1495,11 @@ describe("owner login", () => {
     const evil = new Browser(worker, E());
     const start = await evil.get("/login?return=https://evil.test/");
     const google = new URL(start.headers.get("location")!);
-    const code = g.grantCode({ sub: "owner-sub", email: "owner@example.test", nonce: google.searchParams.get("nonce")! });
+    const code = g.grantCode({
+      sub: "owner-sub",
+      email: "owner@example.test",
+      nonce: google.searchParams.get("nonce")!,
+    });
     const cb = await evil.get(`/oidc/callback?state=${google.searchParams.get("state")}&code=${code}`);
     expect(cb.headers.get("location")).toBe("/accounts");
   });
@@ -1494,7 +1546,9 @@ describe("owner login", () => {
     const res = await b.login(g, { sub: "stranger", email: "stranger@example.test" });
     expect(res.status).toBe(403);
     expect(b.cookies.has(SESSION_COOKIE)).toBe(false);
-    expect(await env.DB.prepare("SELECT count(*) AS n FROM users WHERE id = 'stranger'").first<{ n: number }>()).toEqual({ n: 0 });
+    expect(
+      await env.DB.prepare("SELECT count(*) AS n FROM users WHERE id = 'stranger'").first<{ n: number }>(),
+    ).toEqual({ n: 0 });
   });
 
   it("bootstrap: with OWNER_GOOGLE_SUBS empty, an OWNER_EMAILS address sees its sub and gets no session", async () => {
@@ -1519,15 +1573,23 @@ describe("owner login", () => {
     const start = await b.post("/reauth", { csrf: reauthCsrf, return: "/policy" });
     expect(start.status).toBe(303);
     const google = new URL(start.headers.get("location")!);
-    const code = g.grantCode({ sub: "owner-sub", email: "owner@example.test", nonce: google.searchParams.get("nonce")! });
+    const code = g.grantCode({
+      sub: "owner-sub",
+      email: "owner@example.test",
+      nonce: google.searchParams.get("nonce")!,
+    });
     const cb = await b.get(`/oidc/callback?state=${google.searchParams.get("state")}&code=${code}`);
     expect(cb.headers.get("location")).toBe("/policy");
     expect(b.cookies.get(SESSION_COOKIE)).toBe(sid);
-    const row = await env.DB.prepare("SELECT authenticated_at FROM web_sessions WHERE revoked_at IS NULL ORDER BY authenticated_at DESC LIMIT 1").first<{ authenticated_at: number }>();
+    const row = await env.DB.prepare(
+      "SELECT authenticated_at FROM web_sessions WHERE revoked_at IS NULL ORDER BY authenticated_at DESC LIMIT 1",
+    ).first<{ authenticated_at: number }>();
     expect(row!.authenticated_at).toBeGreaterThan(Date.now() - 10_000);
 
     // reauth as a different Google identity must not upgrade this session
-    const start2 = new URL((await b.post("/reauth", { csrf: reauthCsrf, return: "https://evil.test/" })).headers.get("location")!);
+    const start2 = new URL(
+      (await b.post("/reauth", { csrf: reauthCsrf, return: "https://evil.test/" })).headers.get("location")!,
+    );
     const wrong = g.grantCode({ sub: "stranger", email: "s@example.test", nonce: start2.searchParams.get("nonce")! });
     expect((await b.get(`/oidc/callback?state=${start2.searchParams.get("state")}&code=${wrong}`)).status).toBe(403);
 
@@ -1555,7 +1617,13 @@ Expected: FAIL, `createWorker` is not exported.
 ```ts
 export type StateKind = "login" | "reauth" | "connect" | "authreq";
 
-export async function putState(db: D1Database, kind: StateKind, id: string, payload: object, ttlMs: number): Promise<void> {
+export async function putState(
+  db: D1Database,
+  kind: StateKind,
+  id: string,
+  payload: object,
+  ttlMs: number,
+): Promise<void> {
   const now = Date.now();
   await db
     .prepare("INSERT INTO oauth_states (id, kind, payload, created_at, expires_at) VALUES (?, ?, ?, ?, ?)")
@@ -1749,7 +1817,13 @@ export async function startLogin(
   const rec: OidcState = { nonce, returnTo: o.returnTo };
   if (o.sessionIdHash) rec.sessionIdHash = o.sessionIdHash;
   await putState(env.DB, o.purpose, state, rec, OIDC_TTL_MS);
-  const url = buildAuthUrl(env, { redirectUri: loginRedirectUri(env), scope: LOGIN_SCOPES, state, nonce, offline: false });
+  const url = buildAuthUrl(env, {
+    redirectUri: loginRedirectUri(env),
+    scope: LOGIN_SCOPES,
+    state,
+    nonce,
+    offline: false,
+  });
   // Not redirect(): this one leaves the origin on purpose, to Google, from a URL we built ourselves.
   return new Response(null, { status: 303, headers: { location: url, "cache-control": "no-store" } });
 }
@@ -1765,8 +1839,15 @@ async function oidcCallback(ctx: Ctx): Promise<Response> {
     st = await consumeState<OidcState>(env.DB, "reauth", stateId);
     purpose = "reauth";
   }
-  if (!st) return htmlResponse("Login failed", "<p>Login state is missing or was already used. Start again.</p>", null, 400);
-  if (url.searchParams.get("error")) return htmlResponse("Login failed", `<p>Google refused: ${escapeHtml(url.searchParams.get("error")!)}</p>`, null, 400);
+  if (!st)
+    return htmlResponse("Login failed", "<p>Login state is missing or was already used. Start again.</p>", null, 400);
+  if (url.searchParams.get("error"))
+    return htmlResponse(
+      "Login failed",
+      `<p>Google refused: ${escapeHtml(url.searchParams.get("error")!)}</p>`,
+      null,
+      400,
+    );
   const code = url.searchParams.get("code");
   if (!code) return htmlResponse("Login failed", "<p>No code.</p>", null, 400);
 
@@ -1786,19 +1867,32 @@ Workspace mailbox, Google verifies that the address was confirmed once, not that
         null,
       );
     }
-    return htmlResponse("Not the owner", "<p>This deployment has no owner yet and your address is not in the bootstrap list.</p>", null, 403);
+    return htmlResponse(
+      "Not the owner",
+      "<p>This deployment has no owner yet and your address is not in the bootstrap list.</p>",
+      null,
+      403,
+    );
   }
-  if (!subs.includes(id.sub)) return htmlResponse("Not the owner", "<p>This deployment belongs to someone else.</p>", null, 403);
+  if (!subs.includes(id.sub))
+    return htmlResponse("Not the owner", "<p>This deployment belongs to someone else.</p>", null, 403);
 
   const now = Date.now();
-  await env.DB.prepare("INSERT INTO users (id, email, created_at) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET email = excluded.email")
+  await env.DB.prepare(
+    "INSERT INTO users (id, email, created_at) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET email = excluded.email",
+  )
     .bind(id.sub, id.email, now)
     .run();
 
   if (purpose === "reauth") {
     const current = await readSession(env.DB, request);
     if (!current || current.idHash !== st.sessionIdHash || current.userId !== id.sub) {
-      return htmlResponse("Reauthentication failed", "<p>The session changed or a different Google account was used.</p>", null, 403);
+      return htmlResponse(
+        "Reauthentication failed",
+        "<p>The session changed or a different Google account was used.</p>",
+        null,
+        403,
+      );
     }
     await markReauthenticated(env.DB, current.idHash);
     return redirect(st.returnTo);
@@ -1822,11 +1916,21 @@ export const loginRoutes: Route[] = [
     pattern: /^\/$/,
     handler: async ({ env, request }) => {
       const s = await readSession(env.DB, request);
-      if (s) return page(env, s, "gmail-mcp", `<p><a href="/accounts">Accounts</a> · <a href="/policy">Policy</a> · <a href="/audit">Audit</a></p>`);
+      if (s)
+        return page(
+          env,
+          s,
+          "gmail-mcp",
+          `<p><a href="/accounts">Accounts</a> · <a href="/policy">Policy</a> · <a href="/audit">Audit</a></p>`,
+        );
       return htmlResponse("gmail-mcp", `<p><a href="/login">Log in with Google</a></p>`, null);
     },
   },
-  { method: "GET", pattern: /^\/login$/, handler: ({ env, url }) => startLogin(env, { returnTo: returnPath(url), purpose: "login" }) },
+  {
+    method: "GET",
+    pattern: /^\/login$/,
+    handler: ({ env, url }) => startLogin(env, { returnTo: returnPath(url), purpose: "login" }),
+  },
   { method: "GET", pattern: /^\/oidc\/callback$/, handler: oidcCallback },
   {
     method: "POST",
@@ -1838,7 +1942,11 @@ export const loginRoutes: Route[] = [
       const refused = await guardPost(env, request, s, form, "/reauth", "");
       if (refused) return refused;
       const back = form.get("return") ?? "";
-      return startLogin(env, { returnTo: isInternalPath(back) ? back : "/accounts", purpose: "reauth", sessionIdHash: s.idHash });
+      return startLogin(env, {
+        returnTo: isInternalPath(back) ? back : "/accounts",
+        purpose: "reauth",
+        sessionIdHash: s.idHash,
+      });
     },
   },
   {
@@ -1857,7 +1965,6 @@ export const loginRoutes: Route[] = [
     },
   },
 ];
-
 ```
 
 Temporary `worker/src/index.ts` (Task 7 replaces this whole file):
@@ -1957,7 +2064,11 @@ export async function rpc(
   let json: any = null;
   if (text.trim().startsWith("{")) json = JSON.parse(text);
   else {
-    const line = text.split("\n").map((l) => l.trim()).filter((l) => l.startsWith("data:")).pop();
+    const line = text
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith("data:"))
+      .pop();
     if (line) json = JSON.parse(line.slice(5));
   }
   return { status: res.status, json, headers: res.headers };
@@ -2012,7 +2123,14 @@ export async function mintToken(
     email?: string;
     decision?: "approve" | "deny";
   },
-): Promise<{ accessToken: string; refreshToken?: string; clientId: string; browser: Browser; authorizeStatus: number; location: string | null }> {
+): Promise<{
+  accessToken: string;
+  refreshToken?: string;
+  clientId: string;
+  browser: Browser;
+  authorizeStatus: number;
+  location: string | null;
+}> {
   const redirectUri = o.redirectUri ?? "http://localhost:5555/callback";
   const clientId = o.clientId ?? (await registerClient(worker, env, redirectUri));
   const b = o.browser ?? new Browser(worker, env);
@@ -2050,11 +2168,24 @@ export async function mintToken(
   const tok = await b.fetch("/token", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: redirectUri, client_id: clientId, code_verifier: verifier }).toString(),
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: redirectUri,
+      client_id: clientId,
+      code_verifier: verifier,
+    }).toString(),
   });
   if (tok.status !== 200) throw new Error(`token ${tok.status} ${await tok.text()}`);
   const body = (await tok.json()) as { access_token: string; refresh_token?: string };
-  return { accessToken: body.access_token, refreshToken: body.refresh_token, clientId, browser: b, authorizeStatus, location };
+  return {
+    accessToken: body.access_token,
+    refreshToken: body.refresh_token,
+    clientId,
+    browser: b,
+    authorizeStatus,
+    location,
+  };
 }
 ```
 
@@ -2167,9 +2298,19 @@ describe("scope policy at /authorize", () => {
     const b = new Browser(worker, e);
     await b.login(g, { sub: "owner-sub", email: "owner@example.test" });
     const companionId = await registerCompanionClient({ ...e, OAUTH_PROVIDER: undefined as never }, worker);
-    const st = await mintToken(worker, e, g, { scope: "staging", clientId: companionId, redirectUri: "http://127.0.0.1:61234/callback", browser: b });
+    const st = await mintToken(worker, e, g, {
+      scope: "staging",
+      clientId: companionId,
+      redirectUri: "http://127.0.0.1:61234/callback",
+      browser: b,
+    });
     expect(st.accessToken).not.toBe("");
-    const mcp = await mintToken(worker, e, g, { scope: "mcp", clientId: companionId, redirectUri: "http://127.0.0.1:9/callback", browser: b });
+    const mcp = await mintToken(worker, e, g, {
+      scope: "mcp",
+      clientId: companionId,
+      redirectUri: "http://127.0.0.1:9/callback",
+      browser: b,
+    });
     expect(mcp.location).toContain("error=invalid_scope");
   });
   it("an empty scope request receives the client's one allowed scope", async () => {
@@ -2190,7 +2331,12 @@ describe("tokens at the routes", () => {
     await b.login(g, { sub: "owner-sub", email: "owner@example.test" });
     const companionId = await registerCompanionClient({ ...e, OAUTH_PROVIDER: undefined as never }, worker);
     const mcp = await mintToken(worker, e, g, { scope: "mcp", browser: b });
-    const st = await mintToken(worker, e, g, { scope: "staging", clientId: companionId, redirectUri: "http://127.0.0.1:5/callback", browser: b });
+    const st = await mintToken(worker, e, g, {
+      scope: "staging",
+      clientId: companionId,
+      redirectUri: "http://127.0.0.1:5/callback",
+      browser: b,
+    });
     const cross1 = await b.fetch("/staging/sh_x", { headers: { authorization: `Bearer ${mcp.accessToken}` } });
     expect(cross1.status).toBe(401);
     const cross2 = await rpc(worker, e, st.accessToken, "initialize", INIT);
@@ -2201,7 +2347,14 @@ describe("tokens at the routes", () => {
   it("requireScope refuses a token whose scope does not include the route's, and whose props disagree with the token owner", async () => {
     const stub = (scope: string[], sub: string) =>
       ({
-        OAUTH_PROVIDER: { unwrapToken: async () => ({ userId: "owner-sub", scope, audience: `${HOST}/mcp`, grant: { clientId: "c", props: { sub, email: "o@x" } } }) },
+        OAUTH_PROVIDER: {
+          unwrapToken: async () => ({
+            userId: "owner-sub",
+            scope,
+            audience: `${HOST}/mcp`,
+            grant: { clientId: "c", props: { sub, email: "o@x" } },
+          }),
+        },
         WORKER_HOSTNAME: "gmail-mcp.example.workers.dev",
       }) as never;
     const req = new Request(`${HOST}/mcp`, { headers: { authorization: "Bearer a:b:c" } });
@@ -2219,7 +2372,9 @@ describe("authorization endpoint hardening", () => {
     const clientId = await registerClient(worker, testEnv(), "http://localhost:5555/callback");
     const b = new Browser(worker, testEnv());
     await b.login(g, { sub: "owner-sub", email: "owner@example.test" });
-    const res = await b.get(`/authorize?response_type=code&client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent("https://evil.test/cb")}&scope=mcp&state=s&code_challenge=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&code_challenge_method=S256`);
+    const res = await b.get(
+      `/authorize?response_type=code&client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent("https://evil.test/cb")}&scope=mcp&state=s&code_challenge=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&code_challenge_method=S256`,
+    );
     expect(res.status).toBe(400);
     expect(res.headers.get("location")).toBeNull();
   });
@@ -2230,7 +2385,13 @@ describe("authorization endpoint hardening", () => {
     const replay = await t.browser.fetch("/token", {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: "http://localhost:5555/callback", client_id: t.clientId, code_verifier: "x".repeat(43) }).toString(),
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: "http://localhost:5555/callback",
+        client_id: t.clientId,
+        code_verifier: "x".repeat(43),
+      }).toString(),
     });
     expect(replay.status).toBe(400);
   });
@@ -2247,11 +2408,15 @@ describe("authorization endpoint hardening", () => {
     await anon.login(g, { sub: "owner-sub", email: "owner@example.test" });
     const consent = await anon.get(consentPath);
     expect(consent.status).toBe(200);
-    expect(consent.headers.get("content-security-policy")).toContain("form-action 'self' https://accounts.google.com http://localhost:5555");
+    expect(consent.headers.get("content-security-policy")).toContain(
+      "form-action 'self' https://accounts.google.com http://localhost:5555",
+    );
     const html = await consent.text();
     expect(html).toContain("test client");
     expect((await anon.post(consentPath, { decision: "approve", csrf: "wrong" })).status).toBe(403);
-    expect((await anon.post(consentPath, { decision: "approve", csrf: "wrong" }, { origin: "https://evil.test" })).status).toBe(403);
+    expect(
+      (await anon.post(consentPath, { decision: "approve", csrf: "wrong" }, { origin: "https://evil.test" })).status,
+    ).toBe(403);
     const denied = await mintToken(worker, e, g, { scope: "mcp", clientId, browser: anon, decision: "deny" });
     expect(denied.location).toContain("error=access_denied");
     expect(denied.location).toContain("state=client-state");
@@ -2266,7 +2431,15 @@ describe("authorization endpoint hardening", () => {
     // Same browser, different owner: the cookie names owner-sub, so owner-two must see the consent page.
     await first.browser.login(g, { sub: "owner-two", email: "two@example.test" });
     expect(first.browser.cookies.has("__Host-approved")).toBe(false);
-    const q = new URLSearchParams({ response_type: "code", client_id: first.clientId, redirect_uri: "http://localhost:5555/callback", scope: "mcp", state: "s", code_challenge: "a".repeat(43), code_challenge_method: "S256" });
+    const q = new URLSearchParams({
+      response_type: "code",
+      client_id: first.clientId,
+      redirect_uri: "http://localhost:5555/callback",
+      scope: "mcp",
+      state: "s",
+      code_challenge: "a".repeat(43),
+      code_challenge_method: "S256",
+    });
     const start = await first.browser.get(`/authorize?${q.toString()}`);
     const consent = await first.browser.get(start.headers.get("location")!);
     expect(consent.status).toBe(200);
@@ -2278,7 +2451,15 @@ describe("authorization endpoint hardening", () => {
     const clientId = await registerClient(worker, e, "http://localhost:5555/callback");
     const b = new Browser(worker, e);
     await b.login(g, { sub: "owner-sub", email: "owner@example.test" });
-    const q = new URLSearchParams({ response_type: "code", client_id: clientId, redirect_uri: "http://localhost:5555/callback", scope: "mcp", state: "s", code_challenge: "a".repeat(43), code_challenge_method: "S256" });
+    const q = new URLSearchParams({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: "http://localhost:5555/callback",
+      scope: "mcp",
+      state: "s",
+      code_challenge: "a".repeat(43),
+      code_challenge_method: "S256",
+    });
     const consentPath = (await b.get(`/authorize?${q.toString()}`)).headers.get("location")!;
     const csrf = csrfFrom(await (await b.get(consentPath)).text(), consentPath);
     const [r1, r2] = await Promise.all([
@@ -2296,7 +2477,9 @@ describe("authorization endpoint hardening", () => {
       registerCompanionClient({ ...e, OAUTH_PROVIDER: undefined as never }, worker),
     ]);
     expect(ids[0]).toBe(ids[1]);
-    const row = await env.DB.prepare("SELECT value FROM settings WHERE key = 'companion_client_id'").first<{ value: string }>();
+    const row = await env.DB.prepare("SELECT value FROM settings WHERE key = 'companion_client_id'").first<{
+      value: string;
+    }>();
     expect(row?.value).toBe(ids[0]);
   });
 });
@@ -2349,7 +2532,10 @@ export const COMPANION_KEY = "companion_client_id";
 const PENDING = "pending";
 
 export async function getCompanionClientId(db: D1Database): Promise<string | null> {
-  const row = await db.prepare("SELECT value FROM settings WHERE key = ?").bind(COMPANION_KEY).first<{ value: string }>();
+  const row = await db
+    .prepare("SELECT value FROM settings WHERE key = ?")
+    .bind(COMPANION_KEY)
+    .first<{ value: string }>();
   return row && row.value !== PENDING ? row.value : null;
 }
 
@@ -2409,7 +2595,10 @@ import { audienceFor, type Scope } from "./scopes";
 export type Principal = { userId: string; email: string; scope: Scope };
 
 function challenge(env: Env, scope: Scope, error?: string): string {
-  const parts = [`Bearer realm="OAuth"`, `resource_metadata="https://${env.WORKER_HOSTNAME}/.well-known/oauth-protected-resource/${scope}"`];
+  const parts = [
+    `Bearer realm="OAuth"`,
+    `resource_metadata="https://${env.WORKER_HOSTNAME}/.well-known/oauth-protected-resource/${scope}"`,
+  ];
   if (error) parts.push(`error="${error}"`, `scope="${scope}"`);
   return parts.join(", ");
 }
@@ -2422,9 +2611,13 @@ function challenge(env: Env, scope: Scope, error?: string): string {
 export async function requireScope(request: Request, env: Env, scope: Scope): Promise<Principal | Response> {
   const m = /^Bearer\s+(.+)$/i.exec(request.headers.get("authorization") ?? "");
   const token = m ? await env.OAUTH_PROVIDER.unwrapToken<{ sub?: string; email?: string }>(m[1]!) : null;
-  if (!token) return new Response(null, { status: 401, headers: { "www-authenticate": challenge(env, scope, "invalid_token") } });
+  if (!token)
+    return new Response(null, { status: 401, headers: { "www-authenticate": challenge(env, scope, "invalid_token") } });
   if (!token.scope.includes(scope)) {
-    return new Response(null, { status: 403, headers: { "www-authenticate": challenge(env, scope, "insufficient_scope") } });
+    return new Response(null, {
+      status: 403,
+      headers: { "www-authenticate": challenge(env, scope, "insufficient_scope") },
+    });
   }
   const aud = Array.isArray(token.audience) ? token.audience : token.audience ? [token.audience] : [];
   if (!aud.includes(audienceFor(env, scope))) {
@@ -2461,7 +2654,11 @@ const APPROVED_TTL_MS = 30 * 86_400_000;
 type Stored = { request: AuthRequest; clientName: string; redirectUri: string; scope: Scope };
 type Remembered = { sub: string; clients: string[] };
 
-function clientError(req: AuthRequest | { redirectUri: string; state?: string; issuer?: string }, code: string, description: string): Response {
+function clientError(
+  req: AuthRequest | { redirectUri: string; state?: string; issuer?: string },
+  code: string,
+  description: string,
+): Response {
   const u = new URL(req.redirectUri);
   u.searchParams.set("error", code);
   u.searchParams.set("error_description", description);
@@ -2474,14 +2671,18 @@ function clientError(req: AuthRequest | { redirectUri: string; state?: string; i
 
 /** Remembered clients for this owner only. A cookie signed for another sub is treated as absent. */
 async function readApproved(env: Env, request: Request, userId: string): Promise<string[]> {
-  const raw = (request.headers.get("cookie") ?? "").split(";").map((c) => c.trim()).find((c) => c.startsWith(`${APPROVED_COOKIE}=`));
+  const raw = (request.headers.get("cookie") ?? "")
+    .split(";")
+    .map((c) => c.trim())
+    .find((c) => c.startsWith(`${APPROVED_COOKIE}=`));
   if (!raw) return [];
   const [payload, exp, sig] = raw.slice(APPROVED_COOKIE.length + 1).split(".");
   if (!payload || !exp || !sig) return [];
   if (!(await verifyToken(env.STATE_HMAC_KEY, APPROVED_PURPOSE, [payload], `${exp}.${sig}`))) return [];
   try {
     const rec = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/"))) as Partial<Remembered>;
-    if (rec.sub !== userId || !Array.isArray(rec.clients) || !rec.clients.every((x) => typeof x === "string")) return [];
+    if (rec.sub !== userId || !Array.isArray(rec.clients) || !rec.clients.every((x) => typeof x === "string"))
+      return [];
     return rec.clients;
   } catch {
     return [];
@@ -2506,7 +2707,8 @@ export function clearApprovedCookie(): string {
  */
 async function complete(env: Env, request: Request, userId: string, email: string, id: string): Promise<Response> {
   const s = await consumeState<Stored>(env.DB, "authreq", id);
-  if (!s) return htmlResponse("Expired", "<p>This authorization request expired or was already decided.</p>", null, 410);
+  if (!s)
+    return htmlResponse("Expired", "<p>This authorization request expired or was already decided.</p>", null, 410);
   const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
     request: { ...s.request, resource: audienceFor(env, s.scope) },
     userId,
@@ -2523,7 +2725,9 @@ async function complete(env: Env, request: Request, userId: string, email: strin
 }
 
 async function readStored(env: Env, id: string): Promise<Stored | null> {
-  const row = await env.DB.prepare("SELECT payload FROM oauth_states WHERE id = ? AND kind = 'authreq' AND consumed_at IS NULL AND expires_at > ?")
+  const row = await env.DB.prepare(
+    "SELECT payload FROM oauth_states WHERE id = ? AND kind = 'authreq' AND consumed_at IS NULL AND expires_at > ?",
+  )
     .bind(id, Date.now())
     .first<{ payload: string }>();
   return row ? (JSON.parse(row.payload) as Stored) : null;
@@ -2538,10 +2742,17 @@ export const authorizeRoutes: Route[] = [
       try {
         req = await env.OAUTH_PROVIDER.parseAuthRequest(request);
       } catch (e) {
-        if (e instanceof CimdFetchError) return htmlResponse("Authorization refused", "<p>The client's metadata document could not be fetched.</p>", null, 400);
+        if (e instanceof CimdFetchError)
+          return htmlResponse(
+            "Authorization refused",
+            "<p>The client's metadata document could not be fetched.</p>",
+            null,
+            400,
+          );
         if (!(e instanceof AuthorizationError)) throw e;
         // Without redirectUri the client or its redirect never validated: render here, never redirect.
-        if (!e.redirectUri) return htmlResponse("Authorization refused", `<p>${escapeHtml(e.description)}</p>`, null, 400);
+        if (!e.redirectUri)
+          return htmlResponse("Authorization refused", `<p>${escapeHtml(e.description)}</p>`, null, 400);
         return clientError({ redirectUri: e.redirectUri, state: e.state, issuer: e.issuer }, e.code, e.description);
       }
       const client = await env.OAUTH_PROVIDER.lookupClient(req.clientId);
@@ -2555,7 +2766,12 @@ export const authorizeRoutes: Route[] = [
       }
       const id = randomId("ar");
       // A DCR client names itself. Cap it so the consent page cannot be flooded, and render it visibly.
-      const stored: Stored = { request: req, clientName: (client.clientName ?? req.clientId).slice(0, 100), redirectUri: req.redirectUri, scope };
+      const stored: Stored = {
+        request: req,
+        clientName: (client.clientName ?? req.clientId).slice(0, 100),
+        redirectUri: req.redirectUri,
+        scope,
+      };
       await putState(env.DB, "authreq", id, stored, AUTHREQ_TTL_MS);
       return redirect(`/authorize/${id}`);
     },
@@ -2567,8 +2783,16 @@ export const authorizeRoutes: Route[] = [
       const s = await requireSession(env, request);
       if (s instanceof Response) return s;
       const stored = await readStored(env, params[0]!);
-      if (!stored) return htmlResponse("Expired", "<p>This authorization request expired. Start again from the client.</p>", null, 410);
-      const email = (await env.DB.prepare("SELECT email FROM users WHERE id = ?").bind(s.userId).first<{ email: string }>())?.email ?? "";
+      if (!stored)
+        return htmlResponse(
+          "Expired",
+          "<p>This authorization request expired. Start again from the client.</p>",
+          null,
+          410,
+        );
+      const email =
+        (await env.DB.prepare("SELECT email FROM users WHERE id = ?").bind(s.userId).first<{ email: string }>())
+          ?.email ?? "";
       if ((await readApproved(env, request, s.userId)).includes(stored.request.clientId)) {
         return complete(env, request, s.userId, email, params[0]!);
       }
@@ -2607,10 +2831,18 @@ export const authorizeRoutes: Route[] = [
       if (refused) return refused;
       if (form.get("decision") !== "approve") {
         const stored = await consumeState<Stored>(env.DB, "authreq", params[0]!);
-        if (!stored) return htmlResponse("Expired", "<p>This authorization request expired or was already decided.</p>", null, 410);
+        if (!stored)
+          return htmlResponse(
+            "Expired",
+            "<p>This authorization request expired or was already decided.</p>",
+            null,
+            410,
+          );
         return clientError(stored.request, "access_denied", "the owner declined");
       }
-      const email = (await env.DB.prepare("SELECT email FROM users WHERE id = ?").bind(s.userId).first<{ email: string }>())?.email ?? "";
+      const email =
+        (await env.DB.prepare("SELECT email FROM users WHERE id = ?").bind(s.userId).first<{ email: string }>())
+          ?.email ?? "";
       return complete(env, request, s.userId, email, params[0]!);
     },
   },
@@ -2757,7 +2989,10 @@ export function createWorker(deps: Deps = defaultDeps): Worker {
     fetch: (request, env, ctx) => providerFor(env, deps).provider.fetch(request, env, ctx),
     scheduled(_controller, env, ctx) {
       ctx.waitUntil(
-        Promise.all([runCron(env, Date.now()), providerFor(env, deps).provider.purgeExpiredData(env, { batchSize: 100 })]),
+        Promise.all([
+          runCron(env, Date.now()),
+          providerFor(env, deps).provider.purgeExpiredData(env, { batchSize: 100 }),
+        ]),
       );
     },
     oauthOptions: (env) => providerFor(env, deps).options,
@@ -2828,13 +3063,22 @@ beforeAll(async () => {
   worker = createWorker({ googleFetch: g.fetch });
 });
 
-async function connect(b: Browser, alias: string, o: { sub: string; email: string; e?: string; withRefresh?: boolean }) {
+async function connect(
+  b: Browser,
+  alias: string,
+  o: { sub: string; email: string; e?: string; withRefresh?: boolean },
+) {
   const start = await b.get(`/connect?alias=${alias}${o.e ? `&e=${o.e}` : ""}`);
   if (start.status !== 303) return start;
   const google = new URL(start.headers.get("location")!);
   expect(google.searchParams.get("access_type")).toBe("offline");
   expect(google.searchParams.get("scope")).toContain("gmail.modify");
-  const code = g.grantCode({ sub: o.sub, email: o.email, nonce: google.searchParams.get("nonce")!, scope: "https://www.googleapis.com/auth/gmail.modify openid email" });
+  const code = g.grantCode({
+    sub: o.sub,
+    email: o.email,
+    nonce: google.searchParams.get("nonce")!,
+    scope: "https://www.googleapis.com/auth/gmail.modify openid email",
+  });
   if (o.withRefresh === false) g.codes.get(code)!.refresh = "";
   return b.get(`/connect/callback?state=${google.searchParams.get("state")}&code=${code}`);
 }
@@ -2847,7 +3091,9 @@ describe("connect an account", () => {
     const done = await connect(b, "personal", { sub: "gsub-1", email: "me@gmail.test" });
     expect(done.status).toBe(303);
     expect(done.headers.get("location")).toBe("/accounts");
-    const row = await env.DB.prepare("SELECT * FROM accounts WHERE user_id = 'owner-sub' AND google_sub = 'gsub-1'").first<any>();
+    const row = await env.DB.prepare(
+      "SELECT * FROM accounts WHERE user_id = 'owner-sub' AND google_sub = 'gsub-1'",
+    ).first<any>();
     expect(row.alias).toBe("personal");
     expect(row.is_default).toBe(1);
     expect(row.status).toBe("active");
@@ -2855,10 +3101,22 @@ describe("connect an account", () => {
     expect(JSON.parse(row.send_as)).toEqual(["owner@example.test", "alias@example.test"]);
     expect(row.scopes).toContain("gmail.modify");
     const ring = Keyring.fromEnv(e);
-    const rt = await ring.decrypt(new Uint8Array(row.refresh_token_enc), row.refresh_token_key_id, { userId: "owner-sub", accountId: row.id, field: "refresh_token" });
+    const rt = await ring.decrypt(new Uint8Array(row.refresh_token_enc), row.refresh_token_key_id, {
+      userId: "owner-sub",
+      accountId: row.id,
+      field: "refresh_token",
+    });
     expect(rt).toMatch(/^rt-/);
-    await expect(ring.decrypt(new Uint8Array(row.refresh_token_enc), row.refresh_token_key_id, { userId: "owner-sub", accountId: "other", field: "refresh_token" })).rejects.toThrow();
-    const audit = await env.DB.prepare("SELECT action, decision FROM audit_log WHERE user_id = 'owner-sub' AND action = 'account.connect' ORDER BY id DESC LIMIT 1").first<any>();
+    await expect(
+      ring.decrypt(new Uint8Array(row.refresh_token_enc), row.refresh_token_key_id, {
+        userId: "owner-sub",
+        accountId: "other",
+        field: "refresh_token",
+      }),
+    ).rejects.toThrow();
+    const audit = await env.DB.prepare(
+      "SELECT action, decision FROM audit_log WHERE user_id = 'owner-sub' AND action = 'account.connect' ORDER BY id DESC LIMIT 1",
+    ).first<any>();
     expect(audit.decision).toBe("connected");
   });
 
@@ -2867,10 +3125,14 @@ describe("connect an account", () => {
     const b = new Browser(worker, e);
     await b.login(g, { sub: "owner-sub", email: "owner@example.test" });
     await connect(b, "first", { sub: "gsub-2", email: "two@gmail.test" });
-    const before = await env.DB.prepare("SELECT id, refresh_token_enc FROM accounts WHERE google_sub = 'gsub-2'").first<any>();
+    const before = await env.DB.prepare(
+      "SELECT id, refresh_token_enc FROM accounts WHERE google_sub = 'gsub-2'",
+    ).first<any>();
     await env.DB.prepare("UPDATE accounts SET status = 'needs_reconnect' WHERE google_sub = 'gsub-2'").run();
     expect((await connect(b, "renamed", { sub: "gsub-2", email: "two@gmail.test" })).status).toBe(303);
-    const after = await env.DB.prepare("SELECT id, alias, status, credential_version, refresh_token_enc FROM accounts WHERE google_sub = 'gsub-2'").first<any>();
+    const after = await env.DB.prepare(
+      "SELECT id, alias, status, credential_version, refresh_token_enc FROM accounts WHERE google_sub = 'gsub-2'",
+    ).first<any>();
     expect(after.id).toBe(before.id);
     expect(after.alias).toBe("first");
     expect(after.status).toBe("active");
@@ -2885,15 +3147,27 @@ describe("connect an account", () => {
     await connect(b, "taken2", { sub: "gsub-30", email: "thirty@gmail.test" });
     const start = await b.get("/connect?alias=taken2");
     const google = new URL(start.headers.get("location")!);
-    const code = g.grantCode({ sub: "gsub-31", email: "thirtyone@gmail.test", nonce: google.searchParams.get("nonce")!, scope: "https://www.googleapis.com/auth/gmail.modify openid email" });
+    const code = g.grantCode({
+      sub: "gsub-31",
+      email: "thirtyone@gmail.test",
+      nonce: google.searchParams.get("nonce")!,
+      scope: "https://www.googleapis.com/auth/gmail.modify openid email",
+    });
     const refresh = g.codes.get(code)!.refresh;
     const res = await b.get(`/connect/callback?state=${google.searchParams.get("state")}&code=${code}`);
     expect(res.status).toBe(409);
     expect(g.revoked.has(refresh)).toBe(true);
-    expect(await env.DB.prepare("SELECT count(*) AS n FROM accounts WHERE google_sub = 'gsub-31'").first<{ n: number }>()).toEqual({ n: 0 });
+    expect(
+      await env.DB.prepare("SELECT count(*) AS n FROM accounts WHERE google_sub = 'gsub-31'").first<{ n: number }>(),
+    ).toEqual({ n: 0 });
 
     const start2 = new URL((await b.get("/connect?alias=narrow")).headers.get("location")!);
-    const narrow = g.grantCode({ sub: "gsub-32", email: "n@gmail.test", nonce: start2.searchParams.get("nonce")!, scope: "openid email" });
+    const narrow = g.grantCode({
+      sub: "gsub-32",
+      email: "n@gmail.test",
+      nonce: start2.searchParams.get("nonce")!,
+      scope: "openid email",
+    });
     const refresh2 = g.codes.get(narrow)!.refresh;
     const res2 = await b.get(`/connect/callback?state=${start2.searchParams.get("state")}&code=${narrow}`);
     expect(res2.status).toBe(400);
@@ -2909,26 +3183,50 @@ describe("connect an account", () => {
     await b2.login(g, { sub: "racer", email: "racer@example.test" });
     const s1 = new URL((await b1.get("/connect?alias=one")).headers.get("location")!);
     const s2 = new URL((await b2.get("/connect?alias=two")).headers.get("location")!);
-    const c1 = g.grantCode({ sub: "gsub-40", email: "a@gmail.test", nonce: s1.searchParams.get("nonce")!, scope: "https://www.googleapis.com/auth/gmail.modify openid email" });
-    const c2 = g.grantCode({ sub: "gsub-41", email: "b@gmail.test", nonce: s2.searchParams.get("nonce")!, scope: "https://www.googleapis.com/auth/gmail.modify openid email" });
+    const c1 = g.grantCode({
+      sub: "gsub-40",
+      email: "a@gmail.test",
+      nonce: s1.searchParams.get("nonce")!,
+      scope: "https://www.googleapis.com/auth/gmail.modify openid email",
+    });
+    const c2 = g.grantCode({
+      sub: "gsub-41",
+      email: "b@gmail.test",
+      nonce: s2.searchParams.get("nonce")!,
+      scope: "https://www.googleapis.com/auth/gmail.modify openid email",
+    });
     const [r1, r2] = await Promise.all([
       b1.get(`/connect/callback?state=${s1.searchParams.get("state")}&code=${c1}`),
       b2.get(`/connect/callback?state=${s2.searchParams.get("state")}&code=${c2}`),
     ]);
     expect([r1.status, r2.status]).toEqual([303, 303]);
-    const defaults = await env.DB.prepare("SELECT count(*) AS n FROM accounts WHERE user_id = 'racer' AND is_default = 1").first<{ n: number }>();
+    const defaults = await env.DB.prepare(
+      "SELECT count(*) AS n FROM accounts WHERE user_id = 'racer' AND is_default = 1",
+    ).first<{ n: number }>();
     expect(defaults).toEqual({ n: 1 });
 
     const s3 = new URL((await b1.get("/connect?alias=one")).headers.get("location")!);
     const s4 = new URL((await b2.get("/connect?alias=one")).headers.get("location")!);
-    const c3 = g.grantCode({ sub: "gsub-40", email: "a@gmail.test", nonce: s3.searchParams.get("nonce")!, scope: "https://www.googleapis.com/auth/gmail.modify openid email" });
-    const c4 = g.grantCode({ sub: "gsub-40", email: "a@gmail.test", nonce: s4.searchParams.get("nonce")!, scope: "https://www.googleapis.com/auth/gmail.modify openid email" });
+    const c3 = g.grantCode({
+      sub: "gsub-40",
+      email: "a@gmail.test",
+      nonce: s3.searchParams.get("nonce")!,
+      scope: "https://www.googleapis.com/auth/gmail.modify openid email",
+    });
+    const c4 = g.grantCode({
+      sub: "gsub-40",
+      email: "a@gmail.test",
+      nonce: s4.searchParams.get("nonce")!,
+      scope: "https://www.googleapis.com/auth/gmail.modify openid email",
+    });
     const [r3, r4] = await Promise.all([
       b1.get(`/connect/callback?state=${s3.searchParams.get("state")}&code=${c3}`),
       b2.get(`/connect/callback?state=${s4.searchParams.get("state")}&code=${c4}`),
     ]);
     expect([r3.status, r4.status]).toEqual([303, 303]);
-    const rows = await env.DB.prepare("SELECT credential_version FROM accounts WHERE google_sub = 'gsub-40'").all<{ credential_version: number }>();
+    const rows = await env.DB.prepare("SELECT credential_version FROM accounts WHERE google_sub = 'gsub-40'").all<{
+      credential_version: number;
+    }>();
     expect(rows.results).toHaveLength(1);
     expect(rows.results[0]!.credential_version).toBe(2);
   });
@@ -2943,14 +3241,18 @@ describe("connect an account", () => {
     const noRefresh = await connect(b, "five", { sub: "gsub-5", email: "five@gmail.test", withRefresh: false });
     expect(noRefresh.status).toBe(400);
     expect(await noRefresh.text()).toContain("refresh token");
-    expect(await env.DB.prepare("SELECT count(*) AS n FROM accounts WHERE google_sub = 'gsub-5'").first<{ n: number }>()).toEqual({ n: 0 });
+    expect(
+      await env.DB.prepare("SELECT count(*) AS n FROM accounts WHERE google_sub = 'gsub-5'").first<{ n: number }>(),
+    ).toEqual({ n: 0 });
 
     const start = await b.get("/connect?alias=six");
     const google = new URL(start.headers.get("location")!);
     const code = g.grantCode({ sub: "gsub-6", email: "six@gmail.test", nonce: google.searchParams.get("nonce")! });
     const other = new Browser(worker, e);
     await other.login(g, { sub: "owner-sub", email: "owner@example.test" });
-    expect((await other.get(`/connect/callback?state=${google.searchParams.get("state")}&code=${code}`)).status).toBe(403);
+    expect((await other.get(`/connect/callback?state=${google.searchParams.get("state")}&code=${code}`)).status).toBe(
+      403,
+    );
 
     const foreign = await connectElicitationId(e, "someone-else", "seven");
     expect((await b.get(`/connect?alias=seven&e=${foreign}`)).status).toBe(403);
@@ -2961,14 +3263,28 @@ describe("connect an account", () => {
   it("connect_account and open_policy_editor return page URLs and audit an intent", async () => {
     const e = testEnv();
     const t = await mintToken(worker, e, g, { scope: "mcp" });
-    const call = await rpc(worker, e, t.accessToken, "tools/call", { name: "connect_account", arguments: { alias: "work" } }, 5);
+    const call = await rpc(
+      worker,
+      e,
+      t.accessToken,
+      "tools/call",
+      { name: "connect_account", arguments: { alias: "work" } },
+      5,
+    );
     const parsed = JSON.parse(call.json.result.content[0].text);
     expect(parsed.status).toBe("connect_required");
-    expect(parsed.url).toMatch(/^https:\/\/gmail-mcp\.example\.workers\.dev\/connect\?alias=work&e=\d+\.[A-Za-z0-9_-]{43}$/);
+    expect(parsed.url).toMatch(
+      /^https:\/\/gmail-mcp\.example\.workers\.dev\/connect\?alias=work&e=\d+\.[A-Za-z0-9_-]{43}$/,
+    );
     const pol = await rpc(worker, e, t.accessToken, "tools/call", { name: "open_policy_editor", arguments: {} }, 6);
     expect(JSON.parse(pol.json.result.content[0].text).url).toBe("https://gmail-mcp.example.workers.dev/policy");
-    const rows = await env.DB.prepare("SELECT tool, action, decision FROM audit_log WHERE user_id = 'owner-sub' AND tool IN ('connect_account','open_policy_editor')").all<any>();
-    expect(rows.results.map((r) => `${r.tool}:${r.action}:${r.decision}`).sort()).toEqual(["connect_account:account.connect:browser", "open_policy_editor:policy.read:browser"]);
+    const rows = await env.DB.prepare(
+      "SELECT tool, action, decision FROM audit_log WHERE user_id = 'owner-sub' AND tool IN ('connect_account','open_policy_editor')",
+    ).all<any>();
+    expect(rows.results.map((r) => `${r.tool}:${r.action}:${r.decision}`).sort()).toEqual([
+      "connect_account:account.connect:browser",
+      "open_policy_editor:policy.read:browser",
+    ]);
   });
 });
 ```
@@ -3041,7 +3357,19 @@ export async function upsertAccount(
          refresh_token_enc = ?, refresh_token_key_id = ?, access_token_enc = ?, access_token_key_id = ?, access_expires_at = ?, last_refresh_at = ?
        WHERE id = ? AND user_id = ?`,
     )
-      .bind(o.email, JSON.stringify(o.sendAs), o.scopes, rt.ciphertext, rt.keyId, at.ciphertext, at.keyId, o.accessExpiresAt, now, existing.id, o.userId)
+      .bind(
+        o.email,
+        JSON.stringify(o.sendAs),
+        o.scopes,
+        rt.ciphertext,
+        rt.keyId,
+        at.ciphertext,
+        at.keyId,
+        o.accessExpiresAt,
+        now,
+        existing.id,
+        o.userId,
+      )
       .run();
     return { id: existing.id, created: false };
   }
@@ -3059,12 +3387,29 @@ export async function upsertAccount(
          (SELECT CASE WHEN EXISTS (SELECT 1 FROM accounts WHERE user_id = ? AND is_default = 1) THEN 0 ELSE 1 END),
          ?, ?, ?, ?, ?, ?, ?)`,
     )
-      .bind(id, o.userId, o.alias, o.googleSub, o.email, JSON.stringify(o.sendAs), o.scopes, o.userId, rt.ciphertext, rt.keyId, at.ciphertext, at.keyId, o.accessExpiresAt, now, now)
+      .bind(
+        id,
+        o.userId,
+        o.alias,
+        o.googleSub,
+        o.email,
+        JSON.stringify(o.sendAs),
+        o.scopes,
+        o.userId,
+        rt.ciphertext,
+        rt.keyId,
+        at.ciphertext,
+        at.keyId,
+        o.accessExpiresAt,
+        now,
+        now,
+      )
       .run();
     return { id, created: true };
   } catch (e) {
     const msg = String((e as Error).message);
-    if (/accounts\.user_id, accounts\.alias/.test(msg)) throw new GmailMcpError("invalid_address", `alias in use: ${o.alias}`);
+    if (/accounts\.user_id, accounts\.alias/.test(msg))
+      throw new GmailMcpError("invalid_address", `alias in use: ${o.alias}`);
     // Lost a race with a concurrent connect of the same Google account or the same default slot:
     // the row now exists, so this becomes a reconnect; a lost default slot becomes a non-default insert.
     if (/accounts\.user_id, accounts\.google_sub/.test(msg)) return upsertAccount(env, o);
@@ -3074,7 +3419,22 @@ export async function upsertAccount(
            refresh_token_enc, refresh_token_key_id, access_token_enc, access_token_key_id, access_expires_at, created_at, last_refresh_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, 'active', 0, ?, ?, ?, ?, ?, ?, ?)`,
       )
-        .bind(id, o.userId, o.alias, o.googleSub, o.email, JSON.stringify(o.sendAs), o.scopes, rt.ciphertext, rt.keyId, at.ciphertext, at.keyId, o.accessExpiresAt, now, now)
+        .bind(
+          id,
+          o.userId,
+          o.alias,
+          o.googleSub,
+          o.email,
+          JSON.stringify(o.sendAs),
+          o.scopes,
+          rt.ciphertext,
+          rt.keyId,
+          at.ciphertext,
+          at.keyId,
+          o.accessExpiresAt,
+          now,
+          now,
+        )
         .run();
       return { id, created: true };
     }
@@ -3090,16 +3450,34 @@ export const connectRoutes: Route[] = [
       const s = await requireSession(env, request);
       if (s instanceof Response) return s;
       const alias = AccountAlias.safeParse(url.searchParams.get("alias"));
-      if (!alias.success) return htmlResponse("Bad alias", "<p>An alias is 1 to 32 characters of a-z, 0-9, _ or -.</p>", null, 400);
+      if (!alias.success)
+        return htmlResponse("Bad alias", "<p>An alias is 1 to 32 characters of a-z, 0-9, _ or -.</p>", null, 400);
       const e = url.searchParams.get("e");
       if (e !== null && !(await verifyToken(env.STATE_HMAC_KEY, E_PURPOSE, [s.userId, alias.data], e))) {
-        return htmlResponse("Refused", "<p>This connect link was made for a different owner or has expired.</p>", null, 403);
+        return htmlResponse(
+          "Refused",
+          "<p>This connect link was made for a different owner or has expired.</p>",
+          null,
+          403,
+        );
       }
       const state = randomId("st");
       const nonce = randomId("nc");
-      const rec: OidcState = { nonce, returnTo: "/accounts", alias: alias.data, userId: s.userId, sessionIdHash: s.idHash };
+      const rec: OidcState = {
+        nonce,
+        returnTo: "/accounts",
+        alias: alias.data,
+        userId: s.userId,
+        sessionIdHash: s.idHash,
+      };
       await putState(env.DB, "connect", state, rec, OIDC_TTL_MS);
-      const target = buildAuthUrl(env, { redirectUri: connectRedirectUri(env), scope: CONNECT_SCOPES, state, nonce, offline: true });
+      const target = buildAuthUrl(env, {
+        redirectUri: connectRedirectUri(env),
+        scope: CONNECT_SCOPES,
+        state,
+        nonce,
+        offline: true,
+      });
       return new Response(null, { status: 303, headers: { location: target, "cache-control": "no-store" } });
     },
   },
@@ -3112,9 +3490,20 @@ export const connectRoutes: Route[] = [
       const st = await consumeState<OidcState>(env.DB, "connect", url.searchParams.get("state"));
       if (!st) return htmlResponse("Connect failed", "<p>State missing or already used.</p>", null, 400);
       if (st.sessionIdHash !== s.idHash || st.userId !== s.userId) {
-        return htmlResponse("Refused", "<p>This connection was started from a different browser session.</p>", null, 403);
+        return htmlResponse(
+          "Refused",
+          "<p>This connection was started from a different browser session.</p>",
+          null,
+          403,
+        );
       }
-      if (url.searchParams.get("error")) return htmlResponse("Connect failed", `<p>Google refused: ${escapeHtml(url.searchParams.get("error")!)}</p>`, null, 400);
+      if (url.searchParams.get("error"))
+        return htmlResponse(
+          "Connect failed",
+          `<p>Google refused: ${escapeHtml(url.searchParams.get("error")!)}</p>`,
+          null,
+          400,
+        );
       const code = url.searchParams.get("code");
       if (!code) return htmlResponse("Connect failed", "<p>No code.</p>", null, 400);
       const tokens = await exchangeCode(env, deps, { code, redirectUri: connectRedirectUri(env) });
@@ -3136,10 +3525,22 @@ export const connectRoutes: Route[] = [
       try {
         const id = await verifyIdToken(env, deps, tokens.id_token, { nonce: st.nonce });
         if (!tokens.scope.split(" ").includes("https://www.googleapis.com/auth/gmail.modify")) {
-          return fail("Scope refused", "<p>Google did not grant gmail.modify, so this account cannot be used. Connect again and accept the Gmail permission.</p>", 400);
+          return fail(
+            "Scope refused",
+            "<p>Google did not grant gmail.modify, so this account cannot be used. Connect again and accept the Gmail permission.</p>",
+            400,
+          );
         }
         const sendAs = await fetchSendAs(deps, tokens.access_token);
-        await auditIntent(env.DB, { userId: s.userId, accountId: null, tool: "connect_page", action: "account.connect", modifiers: [], decision: "browser", facts: {} });
+        await auditIntent(env.DB, {
+          userId: s.userId,
+          accountId: null,
+          tool: "connect_page",
+          action: "account.connect",
+          modifiers: [],
+          decision: "browser",
+          facts: {},
+        });
         let result: { id: string; created: boolean };
         try {
           result = await upsertAccount(env, {
@@ -3155,11 +3556,23 @@ export const connectRoutes: Route[] = [
           });
         } catch (e) {
           if (e instanceof GmailMcpError && e.message.startsWith("alias in use")) {
-            return fail("Alias in use", `<p>The alias <code>${escapeHtml(st.alias!)}</code> already names a different Google account. Pick another.</p>`, 409);
+            return fail(
+              "Alias in use",
+              `<p>The alias <code>${escapeHtml(st.alias!)}</code> already names a different Google account. Pick another.</p>`,
+              409,
+            );
           }
           throw e;
         }
-        await auditOutcome(env.DB, { userId: s.userId, accountId: result.id, tool: "connect_page", action: "account.connect", modifiers: [], decision: "connected", facts: { ids: [result.id] } });
+        await auditOutcome(env.DB, {
+          userId: s.userId,
+          accountId: result.id,
+          tool: "connect_page",
+          action: "account.connect",
+          modifiers: [],
+          decision: "connected",
+          facts: { ids: [result.id] },
+        });
         return redirect("/accounts");
       } catch (e) {
         await revokeToken(deps, tokens.refresh_token);
@@ -3177,32 +3590,48 @@ The page CSP has `default-src 'none'`, which does not block a plain anchor to Go
 In `worker/src/mcp/server.ts` add, before `return server;`:
 
 ```ts
-  server.registerTool(
-    "connect_account",
-    {
-      description:
-        "Connect or reconnect a Google account under an alias. Completes in the owner's browser; returns the page URL.",
-      inputSchema: z.object({ alias: AccountAlias }),
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-    },
-    async ({ alias }) => {
-      await auditIntent(env.DB, { userId: principal.userId, accountId: null, tool: "connect_account", action: "account.connect", modifiers: [], decision: "browser", facts: {} });
-      return text({ status: "connect_required", account: alias, url: await connectUrl(env, principal.userId, alias) });
-    },
-  );
+server.registerTool(
+  "connect_account",
+  {
+    description:
+      "Connect or reconnect a Google account under an alias. Completes in the owner's browser; returns the page URL.",
+    inputSchema: z.object({ alias: AccountAlias }),
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+  },
+  async ({ alias }) => {
+    await auditIntent(env.DB, {
+      userId: principal.userId,
+      accountId: null,
+      tool: "connect_account",
+      action: "account.connect",
+      modifiers: [],
+      decision: "browser",
+      facts: {},
+    });
+    return text({ status: "connect_required", account: alias, url: await connectUrl(env, principal.userId, alias) });
+  },
+);
 
-  server.registerTool(
-    "open_policy_editor",
-    {
-      description: "Policy is edited in the browser only. Returns the policy page URL.",
-      inputSchema: z.object({}),
-      annotations: { readOnlyHint: true },
-    },
-    async () => {
-      await auditIntent(env.DB, { userId: principal.userId, accountId: null, tool: "open_policy_editor", action: "policy.read", modifiers: [], decision: "browser", facts: {} });
-      return text({ url: `https://${env.WORKER_HOSTNAME}/policy` });
-    },
-  );
+server.registerTool(
+  "open_policy_editor",
+  {
+    description: "Policy is edited in the browser only. Returns the policy page URL.",
+    inputSchema: z.object({}),
+    annotations: { readOnlyHint: true },
+  },
+  async () => {
+    await auditIntent(env.DB, {
+      userId: principal.userId,
+      accountId: null,
+      tool: "open_policy_editor",
+      action: "policy.read",
+      modifiers: [],
+      decision: "browser",
+      facts: {},
+    });
+    return text({ url: `https://${env.WORKER_HOSTNAME}/policy` });
+  },
+);
 ```
 
 with imports `import { auditIntent } from "../audit/log";` and `import { connectUrl } from "../google/connect";`. Plan 3 upgrades `connect_account` to URL-mode elicitation when the client advertises it; the text URL stays as the fallback.
@@ -3256,7 +3685,11 @@ beforeAll(async () => {
   await seedUserAndAccount(env.DB, { userId: "tv", accountId: "tc", alias: "personal", isDefault: true });
 });
 
-async function seedTokens(e: ReturnType<typeof testEnv>, accountId: string, o: { refresh: string; access?: string; expiresAt?: number }) {
+async function seedTokens(
+  e: ReturnType<typeof testEnv>,
+  accountId: string,
+  o: { refresh: string; access?: string; expiresAt?: number },
+) {
   const ring = Keyring.fromEnv(e);
   const rt = await ring.encrypt(o.refresh, { userId: "tu", accountId, field: "refresh_token" });
   const at = o.access ? await ring.encrypt(o.access, { userId: "tu", accountId, field: "access_token" }) : null;
@@ -3279,7 +3712,9 @@ describe("access tokens", () => {
     const fresh = await getAccessToken(e, { googleFetch: g.fetch }, "tu", "ta");
     expect(fresh).toMatch(/^at-/);
     expect(g.tokenCalls).toBe(calls + 1);
-    const row = await env.DB.prepare("SELECT access_expires_at, last_refresh_at FROM accounts WHERE id = 'ta'").first<any>();
+    const row = await env.DB.prepare(
+      "SELECT access_expires_at, last_refresh_at FROM accounts WHERE id = 'ta'",
+    ).first<any>();
     expect(row.access_expires_at).toBeGreaterThan(Date.now() + 3000 * 1000);
     expect(row.last_refresh_at).toBeGreaterThan(Date.now() - 5000);
   });
@@ -3288,11 +3723,15 @@ describe("access tokens", () => {
     const e = testEnv();
     g.refreshTokens.set("rt-dead", "invalid_grant");
     await seedTokens(e, "tb", { refresh: "rt-dead" });
-    await expect(getAccessToken(e, { googleFetch: g.fetch }, "tu", "tb")).rejects.toMatchObject({ code: "account_needs_reconnect" });
+    await expect(getAccessToken(e, { googleFetch: g.fetch }, "tu", "tb")).rejects.toMatchObject({
+      code: "account_needs_reconnect",
+    });
     const row = await env.DB.prepare("SELECT status, access_token_enc FROM accounts WHERE id = 'tb'").first<any>();
     expect(row.status).toBe("needs_reconnect");
     expect(row.access_token_enc).toBeNull();
-    await expect(getAccessToken(e, { googleFetch: g.fetch }, "tu", "tb")).rejects.toMatchObject({ code: "account_needs_reconnect" });
+    await expect(getAccessToken(e, { googleFetch: g.fetch }, "tu", "tb")).rejects.toMatchObject({
+      code: "account_needs_reconnect",
+    });
   });
 
   it("re-encrypts lazily under the current key after a rotation", async () => {
@@ -3301,10 +3740,20 @@ describe("access tokens", () => {
     await seedTokens(old, "ta", { refresh: "rt-rot", access: "cached", expiresAt: Date.now() + 10 * 60_000 });
     const rotated = testEnv({ TOKEN_KEKS: JSON.stringify({ k1: K1, k2: K2 }), TOKEN_KEK_CURRENT: "k2" });
     expect(await getAccessToken(rotated, { googleFetch: g.fetch }, "tu", "ta")).toBe("cached");
-    const row = await env.DB.prepare("SELECT refresh_token_key_id, access_token_key_id FROM accounts WHERE id = 'ta'").first<any>();
+    const row = await env.DB.prepare(
+      "SELECT refresh_token_key_id, access_token_key_id FROM accounts WHERE id = 'ta'",
+    ).first<any>();
     expect(row.refresh_token_key_id).toBe("k2");
     expect(row.access_token_key_id).toBe("k2");
-    expect(await Keyring.fromEnv(rotated).decrypt(new Uint8Array((await env.DB.prepare("SELECT refresh_token_enc AS c FROM accounts WHERE id = 'ta'").first<any>()).c), "k2", { userId: "tu", accountId: "ta", field: "refresh_token" })).toBe("rt-rot");
+    expect(
+      await Keyring.fromEnv(rotated).decrypt(
+        new Uint8Array(
+          (await env.DB.prepare("SELECT refresh_token_enc AS c FROM accounts WHERE id = 'ta'").first<any>()).c,
+        ),
+        "k2",
+        { userId: "tu", accountId: "ta", field: "refresh_token" },
+      ),
+    ).toBe("rt-rot");
   });
 
   it("a revoke that lands while a refresh is in flight wins: the refresh result is discarded", async () => {
@@ -3315,11 +3764,15 @@ describe("access tokens", () => {
       await revokeAccount(e, { googleFetch: g.fetch }, "tu", "ta");
     };
     try {
-      await expect(getAccessToken(e, { googleFetch: g.fetch }, "tu", "ta")).rejects.toMatchObject({ code: "account_needs_reconnect" });
+      await expect(getAccessToken(e, { googleFetch: g.fetch }, "tu", "ta")).rejects.toMatchObject({
+        code: "account_needs_reconnect",
+      });
     } finally {
       g.beforeRefresh = null;
     }
-    const row = await env.DB.prepare("SELECT status, access_token_enc, refresh_token_enc FROM accounts WHERE id = 'ta'").first<any>();
+    const row = await env.DB.prepare(
+      "SELECT status, access_token_enc, refresh_token_enc FROM accounts WHERE id = 'ta'",
+    ).first<any>();
     expect(row).toEqual({ status: "revoked", access_token_enc: null, refresh_token_enc: null });
   });
 
@@ -3330,22 +3783,40 @@ describe("access tokens", () => {
     await seedTokens(old, "tb", { refresh: "rt-rot2", access: "cached", expiresAt: Date.now() + 10 * 60_000 });
     const rotated = testEnv({ TOKEN_KEKS: JSON.stringify({ k1: K1, k2: K2 }), TOKEN_KEK_CURRENT: "k2" });
     // Bump the version between the read and the write by revoking directly in D1, as a concurrent request would.
-    await env.DB.prepare("UPDATE accounts SET status = 'revoked', credential_version = credential_version + 1, refresh_token_enc = NULL, refresh_token_key_id = NULL, access_token_enc = NULL, access_token_key_id = NULL WHERE id = 'tb'").run();
-    await expect(getAccessToken(rotated, { googleFetch: g.fetch }, "tu", "tb")).rejects.toMatchObject({ code: "account_needs_reconnect" });
-    const row = await env.DB.prepare("SELECT refresh_token_enc, access_token_enc FROM accounts WHERE id = 'tb'").first<any>();
+    await env.DB.prepare(
+      "UPDATE accounts SET status = 'revoked', credential_version = credential_version + 1, refresh_token_enc = NULL, refresh_token_key_id = NULL, access_token_enc = NULL, access_token_key_id = NULL WHERE id = 'tb'",
+    ).run();
+    await expect(getAccessToken(rotated, { googleFetch: g.fetch }, "tu", "tb")).rejects.toMatchObject({
+      code: "account_needs_reconnect",
+    });
+    const row = await env.DB.prepare(
+      "SELECT refresh_token_enc, access_token_enc FROM accounts WHERE id = 'tb'",
+    ).first<any>();
     expect(row).toEqual({ refresh_token_enc: null, access_token_enc: null });
   });
 
   it("ownership is in the query, and revoke wipes ciphertexts before telling Google", async () => {
     const e = testEnv();
-    await expect(getAccessToken(e, { googleFetch: g.fetch }, "tv", "ta")).rejects.toMatchObject({ code: "account_not_found" });
+    await expect(getAccessToken(e, { googleFetch: g.fetch }, "tv", "ta")).rejects.toMatchObject({
+      code: "account_not_found",
+    });
     g.refreshTokens.set("rt-rev", "ok");
     await seedTokens(e, "ta", { refresh: "rt-rev", access: "x", expiresAt: Date.now() + 600_000 });
-    const before = (await env.DB.prepare("SELECT credential_version AS v FROM accounts WHERE id = 'ta'").first<any>()).v;
+    const before = (await env.DB.prepare("SELECT credential_version AS v FROM accounts WHERE id = 'ta'").first<any>())
+      .v;
     await revokeAccount(e, { googleFetch: g.fetch }, "tu", "ta");
     expect(g.revoked.has("rt-rev")).toBe(true);
-    const row = await env.DB.prepare("SELECT status, is_default, credential_version, refresh_token_enc, access_token_enc, refresh_token_key_id FROM accounts WHERE id = 'ta'").first<any>();
-    expect(row).toMatchObject({ status: "revoked", is_default: 0, credential_version: before + 1, refresh_token_enc: null, access_token_enc: null, refresh_token_key_id: null });
+    const row = await env.DB.prepare(
+      "SELECT status, is_default, credential_version, refresh_token_enc, access_token_enc, refresh_token_key_id FROM accounts WHERE id = 'ta'",
+    ).first<any>();
+    expect(row).toMatchObject({
+      status: "revoked",
+      is_default: 0,
+      credential_version: before + 1,
+      refresh_token_enc: null,
+      access_token_enc: null,
+      refresh_token_key_id: null,
+    });
   });
 });
 ```
@@ -3398,7 +3869,9 @@ const reconnect = (why: string) => new GmailMcpError("account_needs_reconnect", 
  * caller gets needs_reconnect rather than a token the owner has just withdrawn.
  */
 async function guardedWrite(env: Env, sql: string, binds: unknown[], row: TokenRow, userId: string): Promise<void> {
-  const res = await env.DB.prepare(`${sql} WHERE id = ? AND user_id = ? AND status = 'active' AND credential_version = ?`)
+  const res = await env.DB.prepare(
+    `${sql} WHERE id = ? AND user_id = ? AND status = 'active' AND credential_version = ?`,
+  )
     .bind(...binds, row.id, userId, row.credential_version)
     .run();
   if ((res.meta.changes ?? 0) !== 1) throw reconnect("credentials changed during refresh");
@@ -3415,12 +3888,25 @@ export async function getAccessToken(env: Env, deps: Deps, userId: string, accou
   const ring = Keyring.fromEnv(env);
   const now = Date.now();
 
-  if (row.access_token_enc && row.access_token_key_id && row.access_expires_at && row.access_expires_at - now > EXPIRY_MARGIN_MS) {
-    const token = await ring.decrypt(new Uint8Array(row.access_token_enc), row.access_token_key_id, { userId, accountId, field: "access_token" });
+  if (
+    row.access_token_enc &&
+    row.access_token_key_id &&
+    row.access_expires_at &&
+    row.access_expires_at - now > EXPIRY_MARGIN_MS
+  ) {
+    const token = await ring.decrypt(new Uint8Array(row.access_token_enc), row.access_token_key_id, {
+      userId,
+      accountId,
+      field: "access_token",
+    });
     if (row.access_token_key_id !== ring.currentKeyId || row.refresh_token_key_id !== ring.currentKeyId) {
       const refresh =
         row.refresh_token_enc && row.refresh_token_key_id
-          ? await ring.decrypt(new Uint8Array(row.refresh_token_enc), row.refresh_token_key_id, { userId, accountId, field: "refresh_token" })
+          ? await ring.decrypt(new Uint8Array(row.refresh_token_enc), row.refresh_token_key_id, {
+              userId,
+              accountId,
+              field: "refresh_token",
+            })
           : null;
       const at = await ring.encrypt(token, { userId, accountId, field: "access_token" });
       const rt = refresh === null ? null : await ring.encrypt(refresh, { userId, accountId, field: "refresh_token" });
@@ -3437,7 +3923,11 @@ export async function getAccessToken(env: Env, deps: Deps, userId: string, accou
   }
 
   if (!row.refresh_token_enc || !row.refresh_token_key_id) throw reconnect("no refresh token");
-  const refresh = await ring.decrypt(new Uint8Array(row.refresh_token_enc), row.refresh_token_key_id, { userId, accountId, field: "refresh_token" });
+  const refresh = await ring.decrypt(new Uint8Array(row.refresh_token_enc), row.refresh_token_key_id, {
+    userId,
+    accountId,
+    field: "refresh_token",
+  });
   const result = await refreshAccessToken(env, deps, refresh);
   if (result === "invalid_grant") {
     // Same guard: if the account was revoked meanwhile, leave the revoked row exactly as it is.
@@ -3450,7 +3940,10 @@ export async function getAccessToken(env: Env, deps: Deps, userId: string, accou
     throw reconnect("refresh token rejected");
   }
   const at = await ring.encrypt(result.access_token, { userId, accountId, field: "access_token" });
-  const rt = row.refresh_token_key_id === ring.currentKeyId ? null : await ring.encrypt(refresh, { userId, accountId, field: "refresh_token" });
+  const rt =
+    row.refresh_token_key_id === ring.currentKeyId
+      ? null
+      : await ring.encrypt(refresh, { userId, accountId, field: "refresh_token" });
   await guardedWrite(
     env,
     `UPDATE accounts SET access_token_enc = ?, access_token_key_id = ?, access_expires_at = ?, last_refresh_at = ?,
@@ -3482,7 +3975,11 @@ export async function revokeAccount(env: Env, deps: Deps, userId: string, accoun
     if ((res.meta.changes ?? 0) !== 1) continue;
     if (row.refresh_token_enc && row.refresh_token_key_id) {
       const ring = Keyring.fromEnv(env);
-      const refresh = await ring.decrypt(new Uint8Array(row.refresh_token_enc), row.refresh_token_key_id, { userId, accountId, field: "refresh_token" });
+      const refresh = await ring.decrypt(new Uint8Array(row.refresh_token_enc), row.refresh_token_key_id, {
+        userId,
+        accountId,
+        field: "refresh_token",
+      });
       await revokeToken(deps, refresh);
     }
     return;
@@ -3561,7 +4058,7 @@ const payload = {
   cc: ["cc@uni.edu.au"],
   bcc: ["hidden@example.test"],
   subject: "Thesis draft \u202Efdp.exe",
-  body: "Hello <a href=\"https://evil.test\">click</a>\n" + "x".repeat(5000),
+  body: 'Hello <a href="https://evil.test">click</a>\n' + "x".repeat(5000),
   attachments: ["sh_" + "a".repeat(43)],
 };
 
@@ -3578,9 +4075,17 @@ describe("approval views", () => {
     expect(trash).toMatchObject({ kind: "targets", messageIds: ["m1", "m2"], count: 2 });
     const label = approvalView("label.apply", { thread_ids: ["t1"], add: ["Label_3"], remove: ["INBOX"] });
     expect(label).toMatchObject({ kind: "targets", threadIds: ["t1"], add: ["Label_3"], remove: ["INBOX"], count: 1 });
-    expect(approvalView("label.manage", { op: "delete", label_id: "Label_9" })).toMatchObject({ kind: "label", op: "delete", labelId: "Label_9" });
-    expect(approvalView("attachment.stage_upload", { filename: "a.pdf", size: 10, mime: "application/pdf" })).toMatchObject({ kind: "upload", filename: "a.pdf" });
-    expect(approvalView("send.forward", { message_id: "m9", to: ["x@y.test"], include_original_attachments: true })).toMatchObject({ kind: "send", messageId: "m9", includeOriginalAttachments: true });
+    expect(approvalView("label.manage", { op: "delete", label_id: "Label_9" })).toMatchObject({
+      kind: "label",
+      op: "delete",
+      labelId: "Label_9",
+    });
+    expect(
+      approvalView("attachment.stage_upload", { filename: "a.pdf", size: 10, mime: "application/pdf" }),
+    ).toMatchObject({ kind: "upload", filename: "a.pdf" });
+    expect(
+      approvalView("send.forward", { message_id: "m9", to: ["x@y.test"], include_original_attachments: true }),
+    ).toMatchObject({ kind: "send", messageId: "m9", includeOriginalAttachments: true });
     expect(approvalView("trash.move", { weird: 1 })).toMatchObject({ kind: "raw" });
     expect(approvalView("something.new", { a: 1 })).toMatchObject({ kind: "raw" });
   });
@@ -3589,22 +4094,50 @@ describe("approval views", () => {
 describe("approval page", () => {
   it("shows what a trash, label and forward action would touch, and the whole payload for an unknown shape", async () => {
     const b = await owner();
-    const trash = await createPending(env.DB, { userId: "owner-sub", accountId: "apa", action: "trash.move", modifiers: [], payload: { message_ids: ["18fa<b>", "18fb"] }, summary: "s" });
+    const trash = await createPending(env.DB, {
+      userId: "owner-sub",
+      accountId: "apa",
+      action: "trash.move",
+      modifiers: [],
+      payload: { message_ids: ["18fa<b>", "18fb"] },
+      summary: "s",
+    });
     const t = await (await b.get(`/approve/${trash.id}`)).text();
     expect(t).toContain("2 message(s)");
     expect(t).toContain("18fa&lt;b&gt;");
     expect(t).toContain("18fb");
-    const label = await createPending(env.DB, { userId: "owner-sub", accountId: "apa", action: "label.apply", modifiers: ["+sensitive"], payload: { thread_ids: ["t1"], add: ["Label_3"] }, summary: "s" });
+    const label = await createPending(env.DB, {
+      userId: "owner-sub",
+      accountId: "apa",
+      action: "label.apply",
+      modifiers: ["+sensitive"],
+      payload: { thread_ids: ["t1"], add: ["Label_3"] },
+      summary: "s",
+    });
     const l = await (await b.get(`/approve/${label.id}`)).text();
     expect(l).toContain("Label_3");
     expect(l).toContain("1 thread(s)");
-    const fwd = await createPending(env.DB, { userId: "owner-sub", accountId: "apa", action: "send.forward", modifiers: [], payload: { message_id: "m9", to: ["a@x.test"], bcc: ["b@x.test"], include_original_attachments: true }, summary: "s" });
+    const fwd = await createPending(env.DB, {
+      userId: "owner-sub",
+      accountId: "apa",
+      action: "send.forward",
+      modifiers: [],
+      payload: { message_id: "m9", to: ["a@x.test"], bcc: ["b@x.test"], include_original_attachments: true },
+      summary: "s",
+    });
     const f = await (await b.get(`/approve/${fwd.id}`)).text();
     expect(f).toContain("<th>To</th>");
     expect(f).toContain("<th>Bcc</th>");
     expect(f).toContain("b@x.test");
     expect(f).toContain("<th>Original attachments included</th><td>yes</td>");
-    const odd = await createPending(env.DB, { userId: "owner-sub", accountId: "apa", action: "spam.mark", modifiers: [], payload: { unexpected: "shape<" }, summary: "s" });
+    const odd = await createPending(env.DB, {
+      userId: "owner-sub",
+      accountId: "apa",
+      action: "spam.mark",
+      modifiers: [],
+      payload: { unexpected: "shape<" },
+      summary: "s",
+    });
     const o = await (await b.get(`/approve/${odd.id}`)).text();
     expect(o).toContain("could not be summarised");
     expect(o).toContain("&quot;unexpected&quot;");
@@ -3612,7 +4145,14 @@ describe("approval page", () => {
   });
 
   it("renders the send block with To, Cc and Bcc apart, attachments with sizes, and an escaped untrusted preview capped at 2 KB", async () => {
-    const p = await createPending(env.DB, { userId: "owner-sub", accountId: "apa", action: "send.message", modifiers: ["+external", "+attachment"], payload, summary: "To: prof@uni.edu.au" });
+    const p = await createPending(env.DB, {
+      userId: "owner-sub",
+      accountId: "apa",
+      action: "send.message",
+      modifiers: ["+external", "+attachment"],
+      payload,
+      summary: "To: prof@uni.edu.au",
+    });
     const b = await owner();
     const res = await b.get(`/approve/${p.id}`);
     expect(res.status).toBe(200);
@@ -3635,7 +4175,14 @@ describe("approval page", () => {
   });
 
   it("is 404 for another owner's action and for an unknown id", async () => {
-    const p = await createPending(env.DB, { userId: "other-owner", accountId: "apb", action: "trash.move", modifiers: [], payload: { message_id: "m" }, summary: "s" });
+    const p = await createPending(env.DB, {
+      userId: "other-owner",
+      accountId: "apb",
+      action: "trash.move",
+      modifiers: [],
+      payload: { message_id: "m" },
+      summary: "s",
+    });
     const b = await owner();
     expect((await b.get(`/approve/${p.id}`)).status).toBe(404);
     expect((await b.get(`/approve/pa_${"z".repeat(22)}`)).status).toBe(404);
@@ -3643,39 +4190,92 @@ describe("approval page", () => {
   });
 
   it("approve is the pending->approved transition, guarded by Origin and a CSRF token bound to this id", async () => {
-    const a = await createPending(env.DB, { userId: "owner-sub", accountId: "apa", action: "send.message", modifiers: [], payload, summary: "s" });
-    const bpend = await createPending(env.DB, { userId: "owner-sub", accountId: "apa", action: "send.message", modifiers: [], payload, summary: "s" });
+    const a = await createPending(env.DB, {
+      userId: "owner-sub",
+      accountId: "apa",
+      action: "send.message",
+      modifiers: [],
+      payload,
+      summary: "s",
+    });
+    const bpend = await createPending(env.DB, {
+      userId: "owner-sub",
+      accountId: "apa",
+      action: "send.message",
+      modifiers: [],
+      payload,
+      summary: "s",
+    });
     const b = await owner();
     const csrfA = csrfFrom(await (await b.get(`/approve/${a.id}`)).text(), `/approve/${a.id}`);
     expect((await b.post(`/approve/${bpend.id}`, { decision: "approve", csrf: csrfA })).status).toBe(403);
-    expect((await b.post(`/approve/${a.id}`, { decision: "approve", csrf: csrfA }, { origin: "https://evil.test" })).status).toBe(403);
-    expect((await b.fetch(`/approve/${a.id}`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", origin: "" }, body: `decision=approve&csrf=${csrfA}` })).status).toBe(403);
+    expect(
+      (await b.post(`/approve/${a.id}`, { decision: "approve", csrf: csrfA }, { origin: "https://evil.test" })).status,
+    ).toBe(403);
+    expect(
+      (
+        await b.fetch(`/approve/${a.id}`, {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded", origin: "" },
+          body: `decision=approve&csrf=${csrfA}`,
+        })
+      ).status,
+    ).toBe(403);
     const ok = await b.post(`/approve/${a.id}`, { decision: "approve", csrf: csrfA });
     expect(ok.status).toBe(303);
-    const row = await env.DB.prepare("SELECT state, approved_via, payload_json FROM pending_actions WHERE id = ?").bind(a.id).first<any>();
+    const row = await env.DB.prepare("SELECT state, approved_via, payload_json FROM pending_actions WHERE id = ?")
+      .bind(a.id)
+      .first<any>();
     expect(row.state).toBe("approved");
     expect(row.approved_via).toBe("browser");
     expect(row.payload_json).not.toBeNull();
     const again = await b.post(`/approve/${a.id}`, { decision: "approve", csrf: csrfA });
     expect(again.status).toBe(409);
     expect(await (await b.get(`/approve/${a.id}`)).text()).toContain("approved");
-    const audit = await env.DB.prepare("SELECT decision, phase, summary FROM audit_log WHERE pending_id = ? ORDER BY id DESC LIMIT 1").bind(a.id).first<any>();
+    const audit = await env.DB.prepare(
+      "SELECT decision, phase, summary FROM audit_log WHERE pending_id = ? ORDER BY id DESC LIMIT 1",
+    )
+      .bind(a.id)
+      .first<any>();
     expect(audit).toEqual({ decision: "approved", phase: "outcome", summary: "recipients=3 attachments=1" });
     // The transition and the audit row are one batch: a second approve writes neither.
-    const auditCount = await env.DB.prepare("SELECT count(*) AS n FROM audit_log WHERE pending_id = ?").bind(a.id).first<{ n: number }>();
+    const auditCount = await env.DB.prepare("SELECT count(*) AS n FROM audit_log WHERE pending_id = ?")
+      .bind(a.id)
+      .first<{ n: number }>();
     await b.post(`/approve/${a.id}`, { decision: "approve", csrf: csrfA });
-    expect(await env.DB.prepare("SELECT count(*) AS n FROM audit_log WHERE pending_id = ?").bind(a.id).first<{ n: number }>()).toEqual(auditCount);
+    expect(
+      await env.DB.prepare("SELECT count(*) AS n FROM audit_log WHERE pending_id = ?")
+        .bind(a.id)
+        .first<{ n: number }>(),
+    ).toEqual(auditCount);
   });
 
   it("deny purges the payload; an expired action cannot be approved", async () => {
-    const d = await createPending(env.DB, { userId: "owner-sub", accountId: "apa", action: "send.message", modifiers: [], payload, summary: "s" });
+    const d = await createPending(env.DB, {
+      userId: "owner-sub",
+      accountId: "apa",
+      action: "send.message",
+      modifiers: [],
+      payload,
+      summary: "s",
+    });
     const b = await owner();
     const csrf = csrfFrom(await (await b.get(`/approve/${d.id}`)).text(), `/approve/${d.id}`);
     expect((await b.post(`/approve/${d.id}`, { decision: "deny", csrf })).status).toBe(303);
-    const row = await env.DB.prepare("SELECT state, payload_json, summary FROM pending_actions WHERE id = ?").bind(d.id).first<any>();
+    const row = await env.DB.prepare("SELECT state, payload_json, summary FROM pending_actions WHERE id = ?")
+      .bind(d.id)
+      .first<any>();
     expect(row).toEqual({ state: "denied", payload_json: null, summary: "redacted" });
 
-    const x = await createPending(env.DB, { userId: "owner-sub", accountId: "apa", action: "send.message", modifiers: [], payload, summary: "s", ttlMs: 1 });
+    const x = await createPending(env.DB, {
+      userId: "owner-sub",
+      accountId: "apa",
+      action: "send.message",
+      modifiers: [],
+      payload,
+      summary: "s",
+      ttlMs: 1,
+    });
     await new Promise((r) => setTimeout(r, 5));
     const page = await b.get(`/approve/${x.id}`);
     expect(await page.text()).toContain("expired");
@@ -3743,11 +4343,14 @@ export function approvalView(action: string, payload: unknown): ApprovalView {
         handles: strings(p.attachments).filter((h) => StagingHandle.safeParse(h).success),
         draftId: str(p.draft_id),
         messageId: str(p.message_id),
-        includeOriginalAttachments: typeof p.include_original_attachments === "boolean" ? p.include_original_attachments : null,
+        includeOriginalAttachments:
+          typeof p.include_original_attachments === "boolean" ? p.include_original_attachments : null,
       };
       if (action === "send.draft" && !view.draftId) return { kind: "raw", reason: "send.draft without draft_id" };
-      if (action === "send.forward" && !view.messageId) return { kind: "raw", reason: "send.forward without message_id" };
-      if (action !== "send.draft" && view.to.length + view.cc.length + view.bcc.length === 0) return { kind: "raw", reason: "no recipients" };
+      if (action === "send.forward" && !view.messageId)
+        return { kind: "raw", reason: "send.forward without message_id" };
+      if (action !== "send.draft" && view.to.length + view.cc.length + view.bcc.length === 0)
+        return { kind: "raw", reason: "no recipients" };
       return view;
     }
     case "trash.move":
@@ -3765,7 +4368,8 @@ export function approvalView(action: string, payload: unknown): ApprovalView {
       };
       view.count = view.messageIds.length + view.threadIds.length;
       if (view.count === 0) return { kind: "raw", reason: "no target" };
-      if (action === "label.apply" && view.add.length + view.remove.length === 0) return { kind: "raw", reason: "no labels" };
+      if (action === "label.apply" && view.add.length + view.remove.length === 0)
+        return { kind: "raw", reason: "no labels" };
       return view;
     }
     case "label.manage": {
@@ -3789,7 +4393,10 @@ export function approvalView(action: string, payload: unknown): ApprovalView {
 Add to `worker/src/approval/pending.ts`, next to `approvePending` and `denyPending`, the statement forms the page batches:
 
 ```ts
-export function approveStatement(db: D1Database, o: { id: string; userId: string; via: "browser" | "elicitation" }): D1PreparedStatement {
+export function approveStatement(
+  db: D1Database,
+  o: { id: string; userId: string; via: "browser" | "elicitation" },
+): D1PreparedStatement {
   return db
     .prepare(
       `UPDATE pending_actions SET state = 'approved', approved_at = ?, approved_via = ? WHERE id = ? AND user_id = ? AND state = 'pending' AND expires_at > ?`,
@@ -3806,7 +4413,9 @@ export function denyStatement(db: D1Database, o: { id: string; userId: string })
 /** Fails the batch unless the pending row is now in `state`. Same `_assert` trick as the claim. */
 export function assertPendingState(db: D1Database, id: string, state: PendingState): D1PreparedStatement {
   return db
-    .prepare(`INSERT INTO _assert (x) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM pending_actions WHERE id = ? AND state = ?)`)
+    .prepare(
+      `INSERT INTO _assert (x) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM pending_actions WHERE id = ? AND state = ?)`,
+    )
     .bind(id, state);
 }
 ```
@@ -3814,7 +4423,11 @@ export function assertPendingState(db: D1Database, id: string, state: PendingSta
 In `worker/src/audit/log.ts`, split `write` so the statement can be batched:
 
 ```ts
-export function auditStatement(db: D1Database, phase: "intent" | "outcome", b: Base & { gmailResultId?: string }): D1PreparedStatement {
+export function auditStatement(
+  db: D1Database,
+  phase: "intent" | "outcome",
+  b: Base & { gmailResultId?: string },
+): D1PreparedStatement {
   return db
     .prepare(
       `INSERT INTO audit_log (ts, user_id, account_id, tool, action, modifiers, phase, decision, pending_id, operation_id, gmail_result_id, summary, client_hint)
@@ -3837,7 +4450,11 @@ export function auditStatement(db: D1Database, phase: "intent" | "outcome", b: B
     );
 }
 
-async function write(db: D1Database, phase: "intent" | "outcome", b: Base & { gmailResultId?: string }): Promise<number> {
+async function write(
+  db: D1Database,
+  phase: "intent" | "outcome",
+  b: Base & { gmailResultId?: string },
+): Promise<number> {
   const res = await auditStatement(db, phase, b).run();
   return Number(res.meta.last_row_id ?? 0);
 }
@@ -3850,7 +4467,13 @@ async function write(db: D1Database, phase: "intent" | "outcome", b: Base & { gm
 ```ts
 import type { Env } from "../../env";
 import { auditStatement } from "../../audit/log";
-import { approveStatement, assertPendingState, denyStatement, getPending, type PendingRow } from "../../approval/pending";
+import {
+  approveStatement,
+  assertPendingState,
+  denyStatement,
+  getPending,
+  type PendingRow,
+} from "../../approval/pending";
 import { approvalView, type ApprovalView } from "../../approval/view";
 import { csrfToken } from "../csrf";
 import { escapeHtml, escapeVisible, redirect } from "../html";
@@ -3882,7 +4505,8 @@ const row = (th: string, td: string) => `<tr><th>${th}</th><td>${td}</td></tr>`;
 
 /** Recipient and attachment counts for the audit summary; the audit module renders the text itself. */
 function facts(view: ApprovalView): { recipients?: number; attachments?: number; ids?: string[] } {
-  if (view.kind === "send") return { recipients: view.to.length + view.cc.length + view.bcc.length, attachments: view.handles.length };
+  if (view.kind === "send")
+    return { recipients: view.to.length + view.cc.length + view.bcc.length, attachments: view.handles.length };
   if (view.kind === "targets") return { ids: [...view.messageIds, ...view.threadIds] };
   if (view.kind === "label") return { ids: view.labelId ? [view.labelId] : [] };
   return {};
@@ -3905,7 +4529,9 @@ async function viewRows(env: Env, pending: PendingRow, view: ApprovalView): Prom
         files.length === 0 && view.handles.length === 0
           ? "none"
           : files.map((f) => `${escapeVisible(f.filename)} (${human(f.size)})`).join("<br>") +
-            (files.length < view.handles.length ? `<br><em>${view.handles.length - files.length} handle(s) not found</em>` : "");
+            (files.length < view.handles.length
+              ? `<br><em>${view.handles.length - files.length} handle(s) not found</em>`
+              : "");
       return [
         view.messageId ? row("In reply to / forwarding", escapeVisible(view.messageId)) : "",
         view.draftId ? row("Draft", escapeVisible(view.draftId)) : "",
@@ -3914,7 +4540,9 @@ async function viewRows(env: Env, pending: PendingRow, view: ApprovalView): Prom
         row("Bcc", list(view.bcc)),
         row("Subject", view.subject === null ? "none" : escapeVisible(view.subject)),
         row("Attachments", attachments),
-        view.includeOriginalAttachments === null ? "" : row("Original attachments included", view.includeOriginalAttachments ? "yes" : "no"),
+        view.includeOriginalAttachments === null
+          ? ""
+          : row("Original attachments included", view.includeOriginalAttachments ? "yes" : "no"),
       ].join("");
     }
     case "targets":
@@ -3925,19 +4553,37 @@ async function viewRows(env: Env, pending: PendingRow, view: ApprovalView): Prom
         view.remove.length ? row("Remove labels", list(view.remove)) : "",
       ].join("");
     case "label":
-      return [row("Operation", escapeHtml(view.op ?? "?")), row("Label id", view.labelId ? escapeVisible(view.labelId) : "new"), row("Name", view.name ? escapeVisible(view.name) : "unchanged")].join("");
+      return [
+        row("Operation", escapeHtml(view.op ?? "?")),
+        row("Label id", view.labelId ? escapeVisible(view.labelId) : "new"),
+        row("Name", view.name ? escapeVisible(view.name) : "unchanged"),
+      ].join("");
     case "upload":
-      return [row("File", escapeVisible(view.filename)), row("Size", human(view.size)), row("Type", escapeVisible(view.mime))].join("");
+      return [
+        row("File", escapeVisible(view.filename)),
+        row("Size", human(view.size)),
+        row("Type", escapeVisible(view.mime)),
+      ].join("");
     case "raw":
-      return row("Payload", `<p class="untrusted-label">This payload could not be summarised (${escapeHtml(view.reason)}). Read it in full before deciding.</p><pre class="untrusted">${escapeVisible(pending.payload_json ?? "")}</pre>`);
+      return row(
+        "Payload",
+        `<p class="untrusted-label">This payload could not be summarised (${escapeHtml(view.reason)}). Read it in full before deciding.</p><pre class="untrusted">${escapeVisible(pending.payload_json ?? "")}</pre>`,
+      );
   }
 }
 
 async function render(env: Env, s: Session, pending: PendingRow): Promise<Response> {
-  const account = await env.DB.prepare("SELECT alias FROM accounts WHERE id = ? AND user_id = ?").bind(pending.account_id, pending.user_id).first<{ alias: string }>();
+  const account = await env.DB.prepare("SELECT alias FROM accounts WHERE id = ? AND user_id = ?")
+    .bind(pending.account_id, pending.user_id)
+    .first<{ alias: string }>();
   if (pending.state !== "pending" || pending.expires_at <= Date.now()) {
     const state = pending.state === "pending" ? "expired" : pending.state;
-    return page(env, s, "Action " + state, `<p>This action is <strong>${escapeHtml(state)}</strong>. Nothing more can be done with it here.</p>`);
+    return page(
+      env,
+      s,
+      "Action " + state,
+      `<p>This action is <strong>${escapeHtml(state)}</strong>. Nothing more can be done with it here.</p>`,
+    );
   }
   const view = approvalView(pending.action, pending.payload_json ? JSON.parse(pending.payload_json) : {});
   const preview = view.kind === "send" && view.body !== null ? cutBytes(view.body, PREVIEW_BYTES) : null;
@@ -3990,7 +4636,8 @@ export const approveRoutes: Route[] = [
       const pending = await getPending(env.DB, params[0]!, s.userId);
       if (!pending) return page(env, s, "Not found", "<p>No such action.</p>", 404);
       const decision = form.get("decision");
-      if (decision !== "approve" && decision !== "deny") return page(env, s, "Not applied", "<p>Unknown decision.</p>", 400);
+      if (decision !== "approve" && decision !== "deny")
+        return page(env, s, "Not applied", "<p>Unknown decision.</p>", 400);
       const view = approvalView(pending.action, pending.payload_json ? JSON.parse(pending.payload_json) : {});
       const base = {
         userId: s.userId,
@@ -4099,49 +4746,121 @@ describe("accounts page", () => {
     const b = await owner();
     const res = await b.post("/accounts", { op: "default", account: "ac2", csrf: await tokenFor(b, "ac2") });
     expect(res.status).toBe(303);
-    const rows = await env.DB.prepare("SELECT id, is_default FROM accounts WHERE user_id = 'owner-sub' ORDER BY id").all<any>();
-    expect(rows.results).toEqual([{ id: "ac1", is_default: 0 }, { id: "ac2", is_default: 1 }]);
-    expect((await b.post("/accounts", { op: "default", account: "ac3", csrf: await tokenFor(b, "ac2") })).status).toBe(403);
+    const rows = await env.DB.prepare(
+      "SELECT id, is_default FROM accounts WHERE user_id = 'owner-sub' ORDER BY id",
+    ).all<any>();
+    expect(rows.results).toEqual([
+      { id: "ac1", is_default: 0 },
+      { id: "ac2", is_default: 1 },
+    ]);
+    expect((await b.post("/accounts", { op: "default", account: "ac3", csrf: await tokenFor(b, "ac2") })).status).toBe(
+      403,
+    );
   });
 
   it("trust settings need recent auth, are canonicalised the way the trust rules read them, and are audited", async () => {
     const b = await owner();
     const t = await tokenFor(b, "ac1");
     await env.DB.prepare("UPDATE web_sessions SET authenticated_at = 1 WHERE user_id = 'owner-sub'").run();
-    const stale = await b.post("/accounts", { op: "allowlist_add", account: "ac1", pattern: "prof@uni.edu.au", csrf: t });
+    const stale = await b.post("/accounts", {
+      op: "allowlist_add",
+      account: "ac1",
+      pattern: "prof@uni.edu.au",
+      csrf: t,
+    });
     expect(stale.status).toBe(403);
-    expect(await env.DB.prepare("SELECT count(*) AS n FROM contact_allowlist WHERE account_id = 'ac1'").first<{ n: number }>()).toEqual({ n: 0 });
-    await env.DB.prepare("UPDATE web_sessions SET authenticated_at = ? WHERE user_id = 'owner-sub'").bind(Date.now()).run();
+    expect(
+      await env.DB.prepare("SELECT count(*) AS n FROM contact_allowlist WHERE account_id = 'ac1'").first<{
+        n: number;
+      }>(),
+    ).toEqual({ n: 0 });
+    await env.DB.prepare("UPDATE web_sessions SET authenticated_at = ? WHERE user_id = 'owner-sub'")
+      .bind(Date.now())
+      .run();
 
-    expect((await b.post("/accounts", { op: "allowlist_add", account: "ac1", pattern: "Prof.Name@Uni.EDU.AU", csrf: t })).status).toBe(303);
-    expect((await b.post("/accounts", { op: "allowlist_add", account: "ac1", pattern: "@Bücher.example", csrf: t })).status).toBe(303);
-    expect((await b.post("/accounts", { op: "allowlist_add", account: "ac1", pattern: "Some.One+tag@gmail.com", csrf: t })).status).toBe(303);
-    expect((await b.post("/accounts", { op: "allowlist_add", account: "ac1", pattern: "not an address", csrf: t })).status).toBe(400);
-    expect((await b.post("/accounts", { op: "allowlist_add", account: "ac1", pattern: "@..", csrf: t })).status).toBe(400);
-    let list = (await env.DB.prepare("SELECT pattern FROM contact_allowlist WHERE account_id = 'ac1' ORDER BY pattern").all<any>()).results.map((r) => r.pattern);
+    expect(
+      (await b.post("/accounts", { op: "allowlist_add", account: "ac1", pattern: "Prof.Name@Uni.EDU.AU", csrf: t }))
+        .status,
+    ).toBe(303);
+    expect(
+      (await b.post("/accounts", { op: "allowlist_add", account: "ac1", pattern: "@Bücher.example", csrf: t })).status,
+    ).toBe(303);
+    expect(
+      (await b.post("/accounts", { op: "allowlist_add", account: "ac1", pattern: "Some.One+tag@gmail.com", csrf: t }))
+        .status,
+    ).toBe(303);
+    expect(
+      (await b.post("/accounts", { op: "allowlist_add", account: "ac1", pattern: "not an address", csrf: t })).status,
+    ).toBe(400);
+    expect((await b.post("/accounts", { op: "allowlist_add", account: "ac1", pattern: "@..", csrf: t })).status).toBe(
+      400,
+    );
+    let list = (
+      await env.DB.prepare("SELECT pattern FROM contact_allowlist WHERE account_id = 'ac1' ORDER BY pattern").all<any>()
+    ).results.map((r) => r.pattern);
     // Local-part case is kept for a non-Gmail domain, the domain is lower-cased and punycoded, and the Gmail address is folded.
     expect(list).toEqual(["@xn--bcher-kva.example", "Prof.Name@uni.edu.au", "some.one@gmail.com"]);
-    expect((await b.post("/accounts", { op: "allowlist_remove", account: "ac1", pattern: "@xn--bcher-kva.example", csrf: t })).status).toBe(303);
-    list = (await env.DB.prepare("SELECT pattern FROM contact_allowlist WHERE account_id = 'ac1' ORDER BY pattern").all<any>()).results.map((r) => r.pattern);
+    expect(
+      (
+        await b.post("/accounts", {
+          op: "allowlist_remove",
+          account: "ac1",
+          pattern: "@xn--bcher-kva.example",
+          csrf: t,
+        })
+      ).status,
+    ).toBe(303);
+    list = (
+      await env.DB.prepare("SELECT pattern FROM contact_allowlist WHERE account_id = 'ac1' ORDER BY pattern").all<any>()
+    ).results.map((r) => r.pattern);
     expect(list).toEqual(["Prof.Name@uni.edu.au", "some.one@gmail.com"]);
 
-    expect((await b.post("/accounts", { op: "send_limit", account: "ac1", bytes: "10485760", csrf: t })).status).toBe(303);
-    expect((await b.post("/accounts", { op: "send_limit", account: "ac1", bytes: "99999999999", csrf: t })).status).toBe(400);
+    expect((await b.post("/accounts", { op: "send_limit", account: "ac1", bytes: "10485760", csrf: t })).status).toBe(
+      303,
+    );
+    expect(
+      (await b.post("/accounts", { op: "send_limit", account: "ac1", bytes: "99999999999", csrf: t })).status,
+    ).toBe(400);
     expect((await b.post("/accounts", { op: "send_limit", account: "ac1", bytes: "0", csrf: t })).status).toBe(400);
-    expect((await b.post("/accounts", { op: "org_domains", account: "ac1", domains: "Uni.edu.au, staff.uni.edu.au, bücher.example", csrf: t })).status).toBe(303);
-    expect((await b.post("/accounts", { op: "org_domains", account: "ac1", domains: "bad domain", csrf: t })).status).toBe(400);
-    expect((await b.post("/accounts", { op: "org_domains", account: "ac1", domains: "foo..com", csrf: t })).status).toBe(400);
-    expect((await b.post("/accounts", { op: "org_domains", account: "ac1", domains: "-foo.com", csrf: t })).status).toBe(400);
-    const row = await env.DB.prepare("SELECT send_limit_bytes, org_domains FROM accounts WHERE id = 'ac1'").first<any>();
+    expect(
+      (
+        await b.post("/accounts", {
+          op: "org_domains",
+          account: "ac1",
+          domains: "Uni.edu.au, staff.uni.edu.au, bücher.example",
+          csrf: t,
+        })
+      ).status,
+    ).toBe(303);
+    expect(
+      (await b.post("/accounts", { op: "org_domains", account: "ac1", domains: "bad domain", csrf: t })).status,
+    ).toBe(400);
+    expect(
+      (await b.post("/accounts", { op: "org_domains", account: "ac1", domains: "foo..com", csrf: t })).status,
+    ).toBe(400);
+    expect(
+      (await b.post("/accounts", { op: "org_domains", account: "ac1", domains: "-foo.com", csrf: t })).status,
+    ).toBe(400);
+    const row = await env.DB.prepare(
+      "SELECT send_limit_bytes, org_domains FROM accounts WHERE id = 'ac1'",
+    ).first<any>();
     expect(row.send_limit_bytes).toBe(10485760);
     expect(JSON.parse(row.org_domains)).toEqual(["uni.edu.au", "staff.uni.edu.au", "xn--bcher-kva.example"]);
 
     // A decrease needs no recent auth; an increase does.
     await env.DB.prepare("UPDATE web_sessions SET authenticated_at = 1 WHERE user_id = 'owner-sub'").run();
-    expect((await b.post("/accounts", { op: "send_limit", account: "ac1", bytes: "1048576", csrf: t })).status).toBe(303);
-    expect((await b.post("/accounts", { op: "send_limit", account: "ac1", bytes: "2097152", csrf: t })).status).toBe(403);
+    expect((await b.post("/accounts", { op: "send_limit", account: "ac1", bytes: "1048576", csrf: t })).status).toBe(
+      303,
+    );
+    expect((await b.post("/accounts", { op: "send_limit", account: "ac1", bytes: "2097152", csrf: t })).status).toBe(
+      403,
+    );
 
-    const audits = (await env.DB.prepare("SELECT summary FROM audit_log WHERE user_id = 'owner-sub' AND tool = 'accounts_page' AND action = 'policy.edit' ORDER BY id").all<any>()).results.map((r) => r.summary);
+    const audits = (
+      await env.DB.prepare(
+        "SELECT summary FROM audit_log WHERE user_id = 'owner-sub' AND tool = 'accounts_page' AND action = 'policy.edit' ORDER BY id",
+      ).all<any>()
+    ).results.map((r) => r.summary);
     expect(audits).toContain("ids=allowlist_add");
     expect(audits).toContain("ids=org_domains");
     expect(audits).toContain("ids=send_limit");
@@ -4152,13 +4871,17 @@ describe("accounts page", () => {
     const other = await owner();
     const ring = Keyring.fromEnv(testEnv());
     const rt = await ring.encrypt("rt-to-revoke", { userId: "owner-sub", accountId: "ac2", field: "refresh_token" });
-    await env.DB.prepare("UPDATE accounts SET refresh_token_enc = ?, refresh_token_key_id = ? WHERE id = 'ac2'").bind(rt.ciphertext, rt.keyId).run();
+    await env.DB.prepare("UPDATE accounts SET refresh_token_enc = ?, refresh_token_key_id = ? WHERE id = 'ac2'")
+      .bind(rt.ciphertext, rt.keyId)
+      .run();
     await env.DB.prepare("UPDATE web_sessions SET authenticated_at = 1 WHERE user_id = 'owner-sub'").run();
     const stale = await b.post("/accounts", { op: "revoke", account: "ac2", csrf: await tokenFor(b, "ac2") });
     expect(stale.status).toBe(403);
     expect(await stale.text()).toContain('name="return" value="/accounts"');
     expect((await env.DB.prepare("SELECT status FROM accounts WHERE id = 'ac2'").first<any>()).status).toBe("active");
-    await env.DB.prepare("UPDATE web_sessions SET authenticated_at = ? WHERE user_id = 'owner-sub'").bind(Date.now()).run();
+    await env.DB.prepare("UPDATE web_sessions SET authenticated_at = ? WHERE user_id = 'owner-sub'")
+      .bind(Date.now())
+      .run();
     const ok = await b.post("/accounts", { op: "revoke", account: "ac2", csrf: await tokenFor(b, "ac2") });
     expect(ok.status).toBe(303);
     expect(g.revoked.has("rt-to-revoke")).toBe(true);
@@ -4167,7 +4890,9 @@ describe("accounts page", () => {
     expect((await other.get("/accounts")).status).toBe(303);
     expect((await b.get("/accounts")).status).toBe(200);
     expect(b.cookies.has(SESSION_COOKIE)).toBe(true);
-    const audit = await env.DB.prepare("SELECT decision FROM audit_log WHERE account_id = 'ac2' AND action = 'account.connect' ORDER BY id DESC LIMIT 1").first<any>();
+    const audit = await env.DB.prepare(
+      "SELECT decision FROM audit_log WHERE account_id = 'ac2' AND action = 'account.connect' ORDER BY id DESC LIMIT 1",
+    ).first<any>();
     expect(audit.decision).toBe("revoked");
   });
 
@@ -4177,7 +4902,8 @@ describe("accounts page", () => {
     const t = csrfFrom(html.split('data-account="companion"')[1]!);
     expect((await b.post("/accounts", { op: "register_companion", account: "companion", csrf: t })).status).toBe(303);
     const again = await (await b.get("/accounts")).text();
-    const id = (await env.DB.prepare("SELECT value FROM settings WHERE key = 'companion_client_id'").first<any>()).value;
+    const id = (await env.DB.prepare("SELECT value FROM settings WHERE key = 'companion_client_id'").first<any>())
+      .value;
     expect(again).toContain(id);
     expect(again).not.toContain('value="register_companion"');
   });
@@ -4234,7 +4960,11 @@ async function render(env: Env, s: Session, notice?: string): Promise<Response> 
       .bind(s.userId)
       .all<AccountRow>()
   ).results;
-  const allow = (await env.DB.prepare("SELECT account_id, pattern FROM contact_allowlist WHERE user_id = ? ORDER BY pattern").bind(s.userId).all<{ account_id: string; pattern: string }>()).results;
+  const allow = (
+    await env.DB.prepare("SELECT account_id, pattern FROM contact_allowlist WHERE user_id = ? ORDER BY pattern")
+      .bind(s.userId)
+      .all<{ account_id: string; pattern: string }>()
+  ).results;
   const companion = await getCompanionClientId(env.DB);
   const rows: string[] = [];
   for (const a of accounts) {
@@ -4292,7 +5022,15 @@ export const accountsRoutes: Route[] = [
       const op = form.get("op") ?? "";
       const bad = (msg: string) => page(env, s, "Not saved", `<p>${escapeHtml(msg)}</p>`, 400);
       const auditTrust = (accountId: string | null) =>
-        auditIntent(env.DB, { userId: s.userId, accountId, tool: "accounts_page", action: "policy.edit", modifiers: [], decision: "edited", facts: { ids: [op] } });
+        auditIntent(env.DB, {
+          userId: s.userId,
+          accountId,
+          tool: "accounts_page",
+          action: "policy.edit",
+          modifiers: [],
+          decision: "edited",
+          facts: { ids: [op] },
+        });
 
       if (op === "register_companion") {
         if (objectId !== "companion") return bad("wrong object");
@@ -4305,12 +5043,17 @@ export const accountsRoutes: Route[] = [
 
       // Ownership in the query, for every per-account op. A wrong id is a 403 rather than a 404 because
       // the CSRF token already bound the form to this account id; a mismatch here is a forged form.
-      const acc = await env.DB.prepare("SELECT id, status, send_limit_bytes FROM accounts WHERE id = ? AND user_id = ?").bind(objectId, s.userId).first<{ id: string; status: string; send_limit_bytes: number }>();
+      const acc = await env.DB.prepare("SELECT id, status, send_limit_bytes FROM accounts WHERE id = ? AND user_id = ?")
+        .bind(objectId, s.userId)
+        .first<{ id: string; status: string; send_limit_bytes: number }>();
       if (!acc) return page(env, s, "Refused", "<p>Not your account.</p>", 403);
 
       // Anything that widens what a send may do without asking is a trust decision: recent login, audited.
       const widens =
-        op === "revoke" || op === "allowlist_add" || op === "allowlist_remove" || op === "org_domains" ||
+        op === "revoke" ||
+        op === "allowlist_add" ||
+        op === "allowlist_remove" ||
+        op === "org_domains" ||
         (op === "send_limit" && Number(form.get("bytes")) > acc.send_limit_bytes);
       if (widens) {
         const recent = await requireRecent(env, s, request);
@@ -4329,7 +5072,15 @@ export const accountsRoutes: Route[] = [
         case "revoke": {
           await revokeAccount(env, deps, s.userId, acc.id);
           await revokeOtherSessions(env.DB, s.userId, s.idHash);
-          await auditOutcome(env.DB, { userId: s.userId, accountId: acc.id, tool: "accounts_page", action: "account.connect", modifiers: [], decision: "revoked", facts: { ids: [acc.id] } });
+          await auditOutcome(env.DB, {
+            userId: s.userId,
+            accountId: acc.id,
+            tool: "accounts_page",
+            action: "account.connect",
+            modifiers: [],
+            decision: "revoked",
+            facts: { ids: [acc.id] },
+          });
           await auditTrust(acc.id);
           return redirect("/accounts");
         }
@@ -4340,30 +5091,45 @@ export const accountsRoutes: Route[] = [
           } catch {
             return bad("a trusted recipient is an address or @domain");
           }
-          await env.DB.prepare("INSERT OR IGNORE INTO contact_allowlist (user_id, account_id, pattern) VALUES (?, ?, ?)").bind(s.userId, acc.id, pattern).run();
+          await env.DB.prepare(
+            "INSERT OR IGNORE INTO contact_allowlist (user_id, account_id, pattern) VALUES (?, ?, ?)",
+          )
+            .bind(s.userId, acc.id, pattern)
+            .run();
           await auditTrust(acc.id);
           return redirect("/accounts");
         }
         case "allowlist_remove": {
-          await env.DB.prepare("DELETE FROM contact_allowlist WHERE user_id = ? AND account_id = ? AND pattern = ?").bind(s.userId, acc.id, form.get("pattern") ?? "").run();
+          await env.DB.prepare("DELETE FROM contact_allowlist WHERE user_id = ? AND account_id = ? AND pattern = ?")
+            .bind(s.userId, acc.id, form.get("pattern") ?? "")
+            .run();
           await auditTrust(acc.id);
           return redirect("/accounts");
         }
         case "send_limit": {
           const bytes = Number(form.get("bytes"));
-          if (!Number.isInteger(bytes) || bytes < 1 || bytes > MAX_SEND_LIMIT) return bad(`send limit must be 1..${MAX_SEND_LIMIT} bytes`);
-          await env.DB.prepare("UPDATE accounts SET send_limit_bytes = ? WHERE id = ? AND user_id = ?").bind(bytes, acc.id, s.userId).run();
+          if (!Number.isInteger(bytes) || bytes < 1 || bytes > MAX_SEND_LIMIT)
+            return bad(`send limit must be 1..${MAX_SEND_LIMIT} bytes`);
+          await env.DB.prepare("UPDATE accounts SET send_limit_bytes = ? WHERE id = ? AND user_id = ?")
+            .bind(bytes, acc.id, s.userId)
+            .run();
           if (widens) await auditTrust(acc.id);
           return redirect("/accounts");
         }
         case "org_domains": {
           let domains: string[];
           try {
-            domains = (form.get("domains") ?? "").split(",").map((d) => d.trim()).filter((d) => d !== "").map(toAsciiDomain);
+            domains = (form.get("domains") ?? "")
+              .split(",")
+              .map((d) => d.trim())
+              .filter((d) => d !== "")
+              .map(toAsciiDomain);
           } catch {
             return bad("each organisation domain must be a valid domain name");
           }
-          await env.DB.prepare("UPDATE accounts SET org_domains = ? WHERE id = ? AND user_id = ?").bind(domains.length ? JSON.stringify(domains) : null, acc.id, s.userId).run();
+          await env.DB.prepare("UPDATE accounts SET org_domains = ? WHERE id = ? AND user_id = ?")
+            .bind(domains.length ? JSON.stringify(domains) : null, acc.id, s.userId)
+            .run();
           await auditTrust(acc.id);
           return redirect("/accounts");
         }
@@ -4458,20 +5224,38 @@ describe("policy page", () => {
     expect(stale.status).toBe(403);
     expect(await stale.text()).toContain('name="return" value="/policy"');
     expect(await effectiveLevel(env.DB, "owner-sub", "pp1", "send.message")).toBe("ask");
-    await env.DB.prepare("UPDATE web_sessions SET authenticated_at = ? WHERE user_id = 'owner-sub'").bind(Date.now()).run();
+    await env.DB.prepare("UPDATE web_sessions SET authenticated_at = ? WHERE user_id = 'owner-sub'")
+      .bind(Date.now())
+      .run();
 
-    expect((await b.post("/policy", { csrf, "g:send.message": "allow", "a:pp2:send.message": "deny", "a:pp3:send.message": "allow", "g:made.up": "allow" })).status).toBe(303);
+    expect(
+      (
+        await b.post("/policy", {
+          csrf,
+          "g:send.message": "allow",
+          "a:pp2:send.message": "deny",
+          "a:pp3:send.message": "allow",
+          "g:made.up": "allow",
+        })
+      ).status,
+    ).toBe(303);
     expect(await effectiveLevel(env.DB, "owner-sub", "pp1", "send.message")).toBe("allow");
     expect(await effectiveLevel(env.DB, "owner-sub", "pp2", "send.message")).toBe("deny");
     expect(await effectiveLevel(env.DB, "other-owner", "pp3", "send.message")).toBe("ask");
-    const audit = await env.DB.prepare("SELECT action, decision, summary FROM audit_log WHERE user_id = 'owner-sub' AND action = 'policy.edit' ORDER BY id DESC LIMIT 1").first<any>();
+    const audit = await env.DB.prepare(
+      "SELECT action, decision, summary FROM audit_log WHERE user_id = 'owner-sub' AND action = 'policy.edit' ORDER BY id DESC LIMIT 1",
+    ).first<any>();
     expect(audit.decision).toBe("edited");
     expect(audit.summary).toContain("g:send.message");
     expect((await other.get("/policy")).status).toBe(303);
 
     const csrf2 = csrfFrom(await (await b.get("/policy")).text(), "/policy");
-    await env.DB.prepare("UPDATE web_sessions SET authenticated_at = ? WHERE user_id = 'owner-sub'").bind(Date.now()).run();
-    expect((await b.post("/policy", { csrf: csrf2, "g:send.message": "inherit", "a:pp2:send.message": "inherit" })).status).toBe(303);
+    await env.DB.prepare("UPDATE web_sessions SET authenticated_at = ? WHERE user_id = 'owner-sub'")
+      .bind(Date.now())
+      .run();
+    expect(
+      (await b.post("/policy", { csrf: csrf2, "g:send.message": "inherit", "a:pp2:send.message": "inherit" })).status,
+    ).toBe(303);
     expect(await effectiveLevel(env.DB, "owner-sub", "pp2", "send.message")).toBe("ask");
     expect((await b.post("/policy", { csrf: csrf2, "g:trash.move": "yolo" })).status).toBe(400);
     expect(await effectiveLevel(env.DB, "owner-sub", "pp1", "trash.move")).toBe("ask");
@@ -4479,7 +5263,9 @@ describe("policy page", () => {
 
   it("a failure in the middle of an edit rolls back every change, the audit row and the session revocation", async () => {
     const other = await owner();
-    const before = (await env.DB.prepare("SELECT count(*) AS n FROM audit_log WHERE user_id = 'owner-sub' AND action = 'policy.edit'").first<{ n: number }>())!.n;
+    const before = (await env.DB.prepare(
+      "SELECT count(*) AS n FROM audit_log WHERE user_id = 'owner-sub' AND action = 'policy.edit'",
+    ).first<{ n: number }>())!.n;
     await expect(
       applyPolicyEdit(env.DB, {
         userId: "owner-sub",
@@ -4489,11 +5275,23 @@ describe("policy page", () => {
           // The CHECK constraint on policies.level rejects this; the batch rolls back.
           { accountId: null, action: "spam.mark", level: "bogus" as Level },
         ],
-        audit: { userId: "owner-sub", accountId: null, tool: "policy_page", action: "policy.edit", modifiers: [], decision: "edited", facts: { ids: ["g:trash.move", "g:spam.mark"] } },
+        audit: {
+          userId: "owner-sub",
+          accountId: null,
+          tool: "policy_page",
+          action: "policy.edit",
+          modifiers: [],
+          decision: "edited",
+          facts: { ids: ["g:trash.move", "g:spam.mark"] },
+        },
       }),
     ).rejects.toThrow();
     expect(await effectiveLevel(env.DB, "owner-sub", "pp1", "trash.move")).toBe("ask");
-    expect((await env.DB.prepare("SELECT count(*) AS n FROM audit_log WHERE user_id = 'owner-sub' AND action = 'policy.edit'").first<{ n: number }>())!.n).toBe(before);
+    expect(
+      (await env.DB.prepare(
+        "SELECT count(*) AS n FROM audit_log WHERE user_id = 'owner-sub' AND action = 'policy.edit'",
+      ).first<{ n: number }>())!.n,
+    ).toBe(before);
     expect((await other.get("/policy")).status).toBe(200);
   });
 });
@@ -4510,7 +5308,10 @@ Append to `worker/src/policy/engine.ts` (and add `import { auditStatement, type 
 ```ts
 export type PolicyChange = { accountId: string | null; action: Action; level: Level | "inherit" };
 
-export function setPolicyStatement(db: D1Database, o: { userId: string; accountId: string | null; action: Action; level: Level }): D1PreparedStatement {
+export function setPolicyStatement(
+  db: D1Database,
+  o: { userId: string; accountId: string | null; action: Action; level: Level },
+): D1PreparedStatement {
   const now = Date.now();
   return o.accountId === null
     ? db
@@ -4527,13 +5328,23 @@ export function setPolicyStatement(db: D1Database, o: { userId: string; accountI
         .bind(o.userId, o.accountId, o.action, o.level, now);
 }
 
-export function clearPolicyStatement(db: D1Database, o: { userId: string; accountId: string | null; action: Action }): D1PreparedStatement {
+export function clearPolicyStatement(
+  db: D1Database,
+  o: { userId: string; accountId: string | null; action: Action },
+): D1PreparedStatement {
   return o.accountId === null
-    ? db.prepare("DELETE FROM policies WHERE user_id = ? AND account_id IS NULL AND action = ?").bind(o.userId, o.action)
-    : db.prepare("DELETE FROM policies WHERE user_id = ? AND account_id = ? AND action = ?").bind(o.userId, o.accountId, o.action);
+    ? db
+        .prepare("DELETE FROM policies WHERE user_id = ? AND account_id IS NULL AND action = ?")
+        .bind(o.userId, o.action)
+    : db
+        .prepare("DELETE FROM policies WHERE user_id = ? AND account_id = ? AND action = ?")
+        .bind(o.userId, o.accountId, o.action);
 }
 
-export async function clearPolicy(db: D1Database, o: { userId: string; accountId: string | null; action: Action }): Promise<void> {
+export async function clearPolicy(
+  db: D1Database,
+  o: { userId: string; accountId: string | null; action: Action },
+): Promise<void> {
   await clearPolicyStatement(db, o).run();
 }
 
@@ -4589,9 +5400,18 @@ function select(name: string, current: string): string {
 }
 
 async function render(env: Env, s: Session): Promise<Response> {
-  const accounts = (await env.DB.prepare("SELECT id, alias FROM accounts WHERE user_id = ? AND status != 'revoked' ORDER BY alias").bind(s.userId).all<{ id: string; alias: string }>()).results;
-  const overrides = (await env.DB.prepare("SELECT account_id, action, level FROM policies WHERE user_id = ?").bind(s.userId).all<{ account_id: string | null; action: string; level: string }>()).results;
-  const current = (accountId: string | null, action: string) => overrides.find((o) => o.account_id === accountId && o.action === action)?.level ?? "inherit";
+  const accounts = (
+    await env.DB.prepare("SELECT id, alias FROM accounts WHERE user_id = ? AND status != 'revoked' ORDER BY alias")
+      .bind(s.userId)
+      .all<{ id: string; alias: string }>()
+  ).results;
+  const overrides = (
+    await env.DB.prepare("SELECT account_id, action, level FROM policies WHERE user_id = ?")
+      .bind(s.userId)
+      .all<{ account_id: string | null; action: string; level: string }>()
+  ).results;
+  const current = (accountId: string | null, action: string) =>
+    overrides.find((o) => o.account_id === accountId && o.action === action)?.level ?? "inherit";
   const csrf = await csrfToken(env, s, "POST", "/policy", "policy");
   const head = `<tr><th>Action</th><th>Default</th><th>All accounts</th>${accounts.map((a) => `<th>${escapeHtml(a.alias)}</th>`).join("")}</tr>`;
   const rows = EDITABLE.map(
@@ -4607,7 +5427,10 @@ async function render(env: Env, s: Session): Promise<Response> {
 <p><button>Save policy</button></p></form>
 <h2>Blocked upload extensions</h2>
 <p class="muted">What Gmail refuses to send. Applies to uploads only.</p>
-<p>${[...BLOCKED_EXTENSIONS].sort().map((e) => `.${escapeHtml(e)}`).join(" ")}</p>`;
+<p>${[...BLOCKED_EXTENSIONS]
+    .sort()
+    .map((e) => `.${escapeHtml(e)}`)
+    .join(" ")}</p>`;
   return page(env, s, "Policy", body);
 }
 
@@ -4633,9 +5456,18 @@ export const policyRoutes: Route[] = [
       const recent = await requireRecent(env, s, request);
       if (recent) return recent;
 
-      const accounts = new Set((await env.DB.prepare("SELECT id FROM accounts WHERE user_id = ?").bind(s.userId).all<{ id: string }>()).results.map((r) => r.id));
-      const overrides = (await env.DB.prepare("SELECT account_id, action, level FROM policies WHERE user_id = ?").bind(s.userId).all<{ account_id: string | null; action: string; level: string }>()).results;
-      const current = (accountId: string | null, action: string) => overrides.find((o) => o.account_id === accountId && o.action === action)?.level ?? "inherit";
+      const accounts = new Set(
+        (
+          await env.DB.prepare("SELECT id FROM accounts WHERE user_id = ?").bind(s.userId).all<{ id: string }>()
+        ).results.map((r) => r.id),
+      );
+      const overrides = (
+        await env.DB.prepare("SELECT account_id, action, level FROM policies WHERE user_id = ?")
+          .bind(s.userId)
+          .all<{ account_id: string | null; action: string; level: string }>()
+      ).results;
+      const current = (accountId: string | null, action: string) =>
+        overrides.find((o) => o.account_id === accountId && o.action === action)?.level ?? "inherit";
 
       // Validate everything before writing anything: a bad level anywhere means no change at all.
       const changes: (PolicyChange & { field: string })[] = [];
@@ -4646,7 +5478,8 @@ export const policyRoutes: Route[] = [
         const action = m[3]!;
         if (!(EDITABLE as readonly string[]).includes(action)) continue;
         if (accountId !== null && !accounts.has(accountId)) continue;
-        if (!(OPTIONS as readonly string[]).includes(value)) return page(env, s, "Not saved", `<p>Unknown level for ${escapeHtml(field)}.</p>`, 400);
+        if (!(OPTIONS as readonly string[]).includes(value))
+          return page(env, s, "Not saved", `<p>Unknown level for ${escapeHtml(field)}.</p>`, 400);
         if (value === current(accountId, action)) continue;
         changes.push({ accountId, action: action as Action, level: value as Level | "inherit", field });
       }
@@ -4654,7 +5487,15 @@ export const policyRoutes: Route[] = [
         userId: s.userId,
         sessionIdHash: s.idHash,
         changes,
-        audit: { userId: s.userId, accountId: null, tool: "policy_page", action: "policy.edit", modifiers: [], decision: "edited", facts: { ids: changes.map((c) => c.field) } },
+        audit: {
+          userId: s.userId,
+          accountId: null,
+          tool: "policy_page",
+          action: "policy.edit",
+          modifiers: [],
+          decision: "edited",
+          facts: { ids: changes.map((c) => c.field) },
+        },
       });
       return redirect("/policy");
     },
@@ -4711,9 +5552,34 @@ beforeAll(async () => {
   await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "au1", alias: "personal", isDefault: true });
   await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "au2", alias: "work" });
   await seedUserAndAccount(env.DB, { userId: "other-owner", accountId: "au3", alias: "personal", isDefault: true });
-  await auditIntent(env.DB, { userId: "owner-sub", accountId: "au1", tool: "send_message", action: "send.message", modifiers: ["+external"], decision: "ask", pendingId: "pa_x", facts: { recipients: 2 } });
-  await auditIntent(env.DB, { userId: "owner-sub", accountId: "au2", tool: "trash_message", action: "trash.move", modifiers: [], decision: "allow", facts: { ids: ["m<script>"] } });
-  await auditIntent(env.DB, { userId: "other-owner", accountId: "au3", tool: "send_message", action: "send.message", modifiers: [], decision: "ask", facts: {} });
+  await auditIntent(env.DB, {
+    userId: "owner-sub",
+    accountId: "au1",
+    tool: "send_message",
+    action: "send.message",
+    modifiers: ["+external"],
+    decision: "ask",
+    pendingId: "pa_x",
+    facts: { recipients: 2 },
+  });
+  await auditIntent(env.DB, {
+    userId: "owner-sub",
+    accountId: "au2",
+    tool: "trash_message",
+    action: "trash.move",
+    modifiers: [],
+    decision: "allow",
+    facts: { ids: ["m<script>"] },
+  });
+  await auditIntent(env.DB, {
+    userId: "other-owner",
+    accountId: "au3",
+    tool: "send_message",
+    action: "send.message",
+    modifiers: [],
+    decision: "ask",
+    facts: {},
+  });
 });
 
 describe("audit page", () => {
@@ -4733,11 +5599,19 @@ describe("audit page", () => {
   });
 
   it("scheduled runs recovery, purges stale oauth_states, and runs the provider purge", async () => {
-    await env.DB.prepare("INSERT INTO oauth_states (id, kind, payload, created_at, expires_at, consumed_at) VALUES ('st_old', 'login', '{}', 1, 2, 3)").run();
+    await env.DB.prepare(
+      "INSERT INTO oauth_states (id, kind, payload, created_at, expires_at, consumed_at) VALUES ('st_old', 'login', '{}', 1, 2, 3)",
+    ).run();
     const ctx = createExecutionContext();
-    worker.scheduled!({ scheduledTime: Date.now(), cron: "*/5 * * * *", noRetry() {} } as ScheduledController, testEnv(), ctx);
+    worker.scheduled!(
+      { scheduledTime: Date.now(), cron: "*/5 * * * *", noRetry() {} } as ScheduledController,
+      testEnv(),
+      ctx,
+    );
     await waitOnExecutionContext(ctx);
-    expect(await env.DB.prepare("SELECT count(*) AS n FROM oauth_states WHERE id = 'st_old'").first<{ n: number }>()).toEqual({ n: 0 });
+    expect(
+      await env.DB.prepare("SELECT count(*) AS n FROM oauth_states WHERE id = 'st_old'").first<{ n: number }>(),
+    ).toEqual({ n: 0 });
   });
 });
 ```
@@ -4930,22 +5804,22 @@ git push
 
 **Spec coverage for this plan's scope**
 
-| Spec item                                                                                        | Task                                     |
-| ------------------------------------------------------------------------------------------------ | ---------------------------------------- |
-| 1.3 alias grammar at connect                                                                     | 8                                        |
-| 3.1 `user_id` from the verified principal only                                                   | 7 (`requireScope`), 6 (sessions)         |
-| 3.3 encrypt with AAD, cache with expiry, refresh, lazy re-encrypt, `needs_reconnect`, revoke     | 8, 9                                     |
-| 3.7 `GET /staging/<handle>` and ack with owner in the query                                      | 7                                        |
-| 3.8 bidi and control characters shown as escapes                                                 | 2, 10                                    |
-| 3.10 audit rows for connect, revoke, approve, deny, policy edit                                  | 8, 10, 11, 12                            |
-| 4.1 scopes per client, scope and audience per route                                              | 7                                        |
-| 4.2 provider options, CIMD, DCR, loopback redirect, consent page, OIDC login checks, bootstrap   | 6, 7                                     |
-| 4.3 connect entry with signed id, offline consent, callback verification, upsert, send-as, revoke | 8, 9, 11                                 |
-| 4.4 Google Cloud projects                                                                        | 14 (runbook)                             |
-| 4.5 companion pre-registration and `staging` scope                                               | 7, 11                                    |
-| 4.6 pages, session rules, CSRF, headers, recent auth, revoke other sessions                      | 2, 3, 4, 10, 11, 12, 13                  |
-| 4.7 OAuth and web adversarial rows                                                               | 6, 7, 8, 10, 11, 12 (listed per test)    |
-| Plan 1 carry-over: delete the dev bearer                                                         | 7                                        |
+| Spec item                                                                                         | Task                                  |
+| ------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| 1.3 alias grammar at connect                                                                      | 8                                     |
+| 3.1 `user_id` from the verified principal only                                                    | 7 (`requireScope`), 6 (sessions)      |
+| 3.3 encrypt with AAD, cache with expiry, refresh, lazy re-encrypt, `needs_reconnect`, revoke      | 8, 9                                  |
+| 3.7 `GET /staging/<handle>` and ack with owner in the query                                       | 7                                     |
+| 3.8 bidi and control characters shown as escapes                                                  | 2, 10                                 |
+| 3.10 audit rows for connect, revoke, approve, deny, policy edit                                   | 8, 10, 11, 12                         |
+| 4.1 scopes per client, scope and audience per route                                               | 7                                     |
+| 4.2 provider options, CIMD, DCR, loopback redirect, consent page, OIDC login checks, bootstrap    | 6, 7                                  |
+| 4.3 connect entry with signed id, offline consent, callback verification, upsert, send-as, revoke | 8, 9, 11                              |
+| 4.4 Google Cloud projects                                                                         | 14 (runbook)                          |
+| 4.5 companion pre-registration and `staging` scope                                                | 7, 11                                 |
+| 4.6 pages, session rules, CSRF, headers, recent auth, revoke other sessions                       | 2, 3, 4, 10, 11, 12, 13               |
+| 4.7 OAuth and web adversarial rows                                                                | 6, 7, 8, 10, 11, 12 (listed per test) |
+| Plan 1 carry-over: delete the dev bearer                                                          | 7                                     |
 
 Left to Plan 3 by design: the URL-mode elicitation wait loop and `requestState` (spec 1.4, 3.4), `execute_pending`, the `needs_reconnect` elicitation on a tool call, `connect_account` as elicitation. Left to Plan 4: `/staging/intent`, `PUT /staging/<ticket>`, the companion login CLI.
 
