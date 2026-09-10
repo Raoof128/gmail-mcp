@@ -97,7 +97,7 @@ worker/
 - Produces: `Env` gains `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `OWNER_GOOGLE_SUBS`, `OWNER_EMAILS` (strings, comma separated lists for the last two) and `OAUTH_PROVIDER: OAuthHelpers` (injected by the provider at request time). `Deps = { googleFetch: typeof fetch }` and `defaultDeps`. `testEnv(overrides?)` returns a plain object with every secret set to a fixed test value and `OWNER_GOOGLE_SUBS = "owner-sub"`, `OWNER_EMAILS = "owner@example.test"`, `GOOGLE_CLIENT_ID = "gid.apps.googleusercontent.com"`, `GOOGLE_CLIENT_SECRET = "gsecret"`.
 - Table `settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)`; table `oauth_states (id TEXT PRIMARY KEY, kind TEXT NOT NULL, payload TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, consumed_at INTEGER)`; column `accounts.credential_version INTEGER NOT NULL DEFAULT 0`.
 
-- [ ] **Step 1 (RED): write the test**
+- [x] **Step 1 (RED): write the test**
 
 `worker/test/settings.test.ts`:
 
@@ -145,12 +145,12 @@ describe("plan 2 scaffold", () => {
 });
 ```
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
 Run: `cd worker && npx vitest run test/settings.test.ts`
 Expected: FAIL, `no such table: settings` and `Cannot find module './test-env'`.
 
-- [ ] **Step 3 (GREEN): dependencies**
+- [x] **Step 3 (GREEN): dependencies**
 
 In `worker/package.json` add to `dependencies`, keeping the alphabetical order:
 
@@ -161,7 +161,7 @@ In `worker/package.json` add to `dependencies`, keeping the alphabetical order:
 
 Run `npm install` from the repository root and read the output. A peer conflict stops the task; record it in the commit body and decide.
 
-- [ ] **Step 4 (GREEN): migration**
+- [x] **Step 4 (GREEN): migration**
 
 `worker/migrations/0002_identity.sql`:
 
@@ -192,7 +192,7 @@ CREATE INDEX oauth_states_expires ON oauth_states(expires_at);
 ALTER TABLE accounts ADD COLUMN credential_version INTEGER NOT NULL DEFAULT 0;
 ```
 
-- [ ] **Step 5 (GREEN): env and deps**
+- [x] **Step 5 (GREEN): env and deps**
 
 `worker/src/env.ts` becomes:
 
@@ -260,7 +260,7 @@ OWNER_EMAILS=you@example.test
 
 In `worker/wrangler.jsonc`, `vars` stays as it is; no new var is public.
 
-- [ ] **Step 6 (GREEN): test env helper**
+- [x] **Step 6 (GREEN): test env helper**
 
 `worker/test/test-env.ts`:
 
@@ -297,12 +297,12 @@ export function testEnv(overrides: Partial<Record<keyof Env, unknown>> = {}): En
 export const HOST = "https://gmail-mcp.example.workers.dev";
 ```
 
-- [ ] **Step 7: run, expect PASS**
+- [x] **Step 7: run, expect PASS**
 
 Run: `cd worker && npm run types && npx vitest run test/settings.test.ts`
 Expected: PASS (2 tests). `wrangler types` regenerates `worker-configuration.d.ts`; if its `ProcessEnv` line still lists `DEV_STATIC_TOKEN` that only reflects a local `.dev.vars` and is harmless.
 
-- [ ] **Step 8: commit**
+- [x] **Step 8: commit**
 
 ```bash
 git add package-lock.json worker/package.json worker/migrations/0002_identity.sql worker/src/env.ts worker/src/deps.ts worker/.dev.vars.example worker/test/test-env.ts worker/test/settings.test.ts worker/worker-configuration.d.ts
@@ -327,7 +327,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 - Produces: `escapeHtml(s): string` (HTML entity escaping for `& < > " '`); `escapeVisible(s): string` (escapeHtml, then render control and bidi characters as `\u{XXXX}` text so they are seen rather than obeyed); `PAGE_HEADERS: Record<string,string>`; `htmlResponse(title, body, status?): Response`; `redirect(location): Response` (303, page headers, internal paths only); `layout(title, body): string`; `CSS: string` served at `/static/app.css` by `staticHandler(request): Response | null`.
 
-- [ ] **Step 1 (RED): tests**
+- [x] **Step 1 (RED): tests**
 
 `worker/test/html.test.ts`:
 
@@ -376,12 +376,12 @@ describe("html primitives", () => {
 });
 ```
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
 Run: `cd worker && npx vitest run test/html.test.ts`
 Expected: FAIL, cannot find module `../src/web/html`.
 
-- [ ] **Step 3 (GREEN): html.ts**
+- [x] **Step 3 (GREEN): html.ts**
 
 `worker/src/web/html.ts`:
 
@@ -467,7 +467,7 @@ export function isInternalPath(p: string): boolean {
 
 The logout form in the header has no CSRF token here; Task 4 changes `layout` to take the token, and this test keeps passing because it only inspects headers and the absence of scripts and inline styles.
 
-- [ ] **Step 4 (GREEN): static.ts**
+- [x] **Step 4 (GREEN): static.ts**
 
 `worker/src/web/static.ts`:
 
@@ -501,7 +501,7 @@ export function staticHandler(request: Request): Response | null {
 }
 ```
 
-- [ ] **Step 5: run, expect PASS (5 tests), then commit**
+- [x] **Step 5: run, expect PASS (5 tests), then commit**
 
 ```bash
 git add worker/src/web/html.ts worker/src/web/static.ts worker/test/html.test.ts
@@ -522,7 +522,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 - Produces: `SESSION_COOKIE = "__Host-session"`, `ABSOLUTE_MS = 12h`, `IDLE_MS = 2h`, `RECENT_AUTH_MS = 15min`. `createSession(db, userId): Promise<{ id: string; cookie: string }>`; `readSession(db, request): Promise<Session | null>` (parses the cookie, hashes, checks revoked, absolute and idle limits, touches `last_seen_at` at most once a minute); `Session = { id: string; idHash: string; userId: string; authenticatedAt: number; lastSeenAt: number }`; `isRecentlyAuthenticated(s, now?)`; `markReauthenticated(db, idHash)`; `revokeSession(db, idHash)`; `revokeOtherSessions(db, userId, keepIdHash)`; `clearCookie(): string`; `sha256Hex` is reused from `crypto/canonical.ts`.
 
-- [ ] **Step 1 (RED): tests**
+- [x] **Step 1 (RED): tests**
 
 `worker/test/session.test.ts`:
 
@@ -608,12 +608,12 @@ describe("sessions", () => {
 });
 ```
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
 Run: `cd worker && npx vitest run test/session.test.ts`
 Expected: FAIL, cannot find module `../src/web/session`.
 
-- [ ] **Step 3 (GREEN): session.ts**
+- [x] **Step 3 (GREEN): session.ts**
 
 `worker/src/web/session.ts`:
 
@@ -721,7 +721,7 @@ export async function revokeOtherSessions(db: D1Database, userId: string, keepId
 }
 ```
 
-- [ ] **Step 4: run, expect PASS (5 tests), then commit**
+- [x] **Step 4: run, expect PASS (5 tests), then commit**
 
 ```bash
 git add worker/src/web/session.ts worker/test/session.test.ts
@@ -743,7 +743,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 - Produces: `signToken(keyB64, purpose, fields: string[], expiresAt): Promise<string>` returning `<expiresAt>.<base64url sig>` where the MAC input is the length-prefixed concatenation `len(purpose):purpose|len(f1):f1|…|len(exp):exp`, so no field value can shift a boundary; `verifyToken(keyB64, purpose, fields, token, now?): Promise<boolean>` (constant-time compare, expiry check). `csrfToken(env, session, method, route, objectId): Promise<string>` (purpose `gmail-mcp:csrf:v1`, fields `[session.id, method, route, objectId]`, 1 h expiry); `verifyCsrf(env, session, method, route, objectId, token): Promise<boolean>`; `checkOrigin(request, env): boolean` (an `Origin` header, when present, must equal `https://<WORKER_HOSTNAME>`; a missing `Origin` on a POST is refused). `layout(title, body, logoutCsrf)`; `htmlResponse(title, body, logoutCsrf, status?)`. Later tasks call `page(env, session, title, body)` from `router.ts`, which computes the header tokens itself.
 
-- [ ] **Step 1 (RED): tests**
+- [x] **Step 1 (RED): tests**
 
 `worker/test/csrf.test.ts`:
 
@@ -803,12 +803,12 @@ describe("csrf", () => {
 });
 ```
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
 Run: `cd worker && npx vitest run test/csrf.test.ts`
 Expected: FAIL, cannot find module `../src/crypto/hmac`.
 
-- [ ] **Step 3 (GREEN): hmac.ts**
+- [x] **Step 3 (GREEN): hmac.ts**
 
 `worker/src/crypto/hmac.ts`:
 
@@ -871,7 +871,7 @@ export async function verifyToken(
 }
 ```
 
-- [ ] **Step 4 (GREEN): csrf.ts**
+- [x] **Step 4 (GREEN): csrf.ts**
 
 `worker/src/web/csrf.ts`:
 
@@ -907,7 +907,7 @@ export function checkOrigin(request: Request, env: Env): boolean {
 }
 ```
 
-- [ ] **Step 5 (GREEN): thread the header form tokens through `layout`**
+- [x] **Step 5 (GREEN): thread the header form tokens through `layout`**
 
 In `worker/src/web/html.ts` add a type and change the signatures. `Chrome` carries the two tokens the header forms need; `null` renders the header without forms, for pages shown to a visitor without a session.
 
@@ -951,7 +951,7 @@ export function htmlResponse(
 
 Update `test/html.test.ts` to call `htmlResponse("T", "<p>x</p>", { logoutCsrf: "tok", reauthCsrf: "tok2" })` and `htmlResponse("T", "<p>x</p>", null, 200, ["http://localhost:5555"])`, and add `expect(body).toContain('action="/reauth"')` for the first.
 
-- [ ] **Step 6: run both files, expect PASS, then commit**
+- [x] **Step 6: run both files, expect PASS, then commit**
 
 Run: `cd worker && npx vitest run test/csrf.test.ts test/html.test.ts`
 
@@ -981,7 +981,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
   `revokeToken(deps, token): Promise<void>` (best effort, ignores non-2xx).
   Test fake: `class FakeGoogle { fetch: typeof fetch; issue(o: { sub; email; nonce; aud?; iss?; exp?; emailVerified? }): Promise<string>; codes: Map<code, { sub; email; nonce; refresh: string; scope }>; grantCode(o): string; revoked: Set<string>; refreshTokens: Map<string, "ok" | "invalid_grant">; sendAs: string[]; tokenCalls: number }`.
 
-- [ ] **Step 1 (RED): fake Google and tests**
+- [x] **Step 1 (RED): fake Google and tests**
 
 `worker/test/fake-google.ts`:
 
@@ -1207,12 +1207,12 @@ describe("oidc client", () => {
 });
 ```
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
 Run: `cd worker && npx vitest run test/oidc.test.ts`
 Expected: FAIL, cannot find module `../src/google/oidc`. If `jose` itself fails to import inside workerd, stop: that is a dependency decision, not something to patch around.
 
-- [ ] **Step 3 (GREEN): oidc.ts**
+- [x] **Step 3 (GREEN): oidc.ts**
 
 `worker/src/google/oidc.ts`:
 
@@ -1368,7 +1368,7 @@ export async function revokeToken(deps: Deps, token: string): Promise<void> {
 
 Google's primary send-as entry omits `verificationStatus`, which is why `undefined` counts as verified.
 
-- [ ] **Step 4: run, expect PASS (3 tests), then commit**
+- [x] **Step 4: run, expect PASS (3 tests), then commit**
 
 ```bash
 git add worker/src/google/oidc.ts worker/test/fake-google.ts worker/test/oidc.test.ts
@@ -1391,7 +1391,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - `state.ts`: `putState(db, kind, id, payload: object, ttlMs): Promise<void>` and `consumeState<T>(db, kind, id): Promise<T | null>`, the latter one `UPDATE oauth_states SET consumed_at = ? WHERE id = ? AND kind = ? AND consumed_at IS NULL AND expires_at > ? RETURNING payload`. `login.ts`: `startLogin(env, o: { returnTo: string; purpose: "login" | "reauth"; sessionIdHash?: string }): Promise<Response>` (row `oauth_states` of that kind holding `{ nonce, returnTo, sessionIdHash }`, 600 s); routes `GET /`, `GET /login`, `GET /oidc/callback`, `POST /reauth` (session, CSRF route `/reauth` object id `""`, form field `return`), `POST /logout`. `/reauth` is a POST because spec 4.6 puts it behind CSRF, and its 303 to Google is what the `form-action` amendment in Task 2 exists for. The bootstrap page is rendered by `oidcCallback` when `OWNER_GOOGLE_SUBS` is empty and the email is in `OWNER_EMAILS`.
 - Test helper `Browser` (cookie jar, `get`, `post`, `login(g, { sub, email })`) and `csrfFrom(html)`.
 
-- [ ] **Step 1 (RED): browser helper and tests**
+- [x] **Step 1 (RED): browser helper and tests**
 
 `worker/test/browser.ts`:
 
@@ -1618,12 +1618,12 @@ describe("owner login", () => {
 
 This test imports `createWorker` from `../src/index`, which Task 7 finishes. Step 4 gives `index.ts` a temporary `createWorker` that mounts only the web router, and Task 7 replaces it with the provider. The logout and reauth tokens are read from the landing page `/`, which renders the header forms whenever a session exists; that stays true after Task 11, so nothing here is a stand-in.
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
 Run: `cd worker && npx vitest run test/login.test.ts`
 Expected: FAIL, `createWorker` is not exported.
 
-- [ ] **Step 3 (GREEN): state.ts and router.ts**
+- [x] **Step 3 (GREEN): state.ts and router.ts**
 
 `worker/src/web/state.ts`:
 
@@ -1801,7 +1801,7 @@ export function webHandler(deps: Deps, routes: Route[]): FetchHandler {
 
 The error page passes an empty logout token: a CSRF token that verifies for nothing is harmless, and the alternative is loading a session inside an error path.
 
-- [ ] **Step 4 (GREEN): login.ts and a temporary createWorker**
+- [x] **Step 4 (GREEN): login.ts and a temporary createWorker**
 
 `worker/src/web/login.ts`:
 
@@ -2022,7 +2022,7 @@ export default createWorker() satisfies ExportedHandler<Env>;
 
 This drops the dev bearer from `/mcp` for the space of one task; `test/mcp.test.ts` fails until Task 7, which is the task that gives `/mcp` its real gate. Run only `login.test.ts` here.
 
-- [ ] **Step 5: run, expect PASS (6 tests), then commit**
+- [x] **Step 5: run, expect PASS (6 tests), then commit**
 
 Run: `cd worker && npx vitest run test/login.test.ts`
 
@@ -2058,7 +2058,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - `server.ts`: `buildServer(env, principal, deps)`; `Principal` now comes from `../auth/principal`.
 - Test helpers: `mintToken(worker, env, g, o): Promise<{ accessToken: string; refreshToken?: string; clientId: string; browser: Browser }>` in `browser.ts`; `rpc(worker, env, token, method, params, id)` in `mcp-client.ts` posting to `HOST + "/mcp"`.
 
-- [ ] **Step 1 (RED): update helpers and write the tests**
+- [x] **Step 1 (RED): update helpers and write the tests**
 
 Replace `worker/test/mcp-client.ts`:
 
@@ -2523,12 +2523,12 @@ describe("authorization endpoint hardening", () => {
 
 `registerCompanionClient` in the test is called with `worker` as a second argument: the helper needs an `OAuthHelpers` and outside a request there is none, so `companion.ts` exports `registerCompanionClient(env, workerOrHelpers)`; see Step 3 for how it gets the helpers.
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
 Run: `cd worker && npx vitest run test/oauth.test.ts test/mcp.test.ts`
 Expected: FAIL on the missing `auth/` modules.
 
-- [ ] **Step 3 (GREEN): scopes, companion, principal**
+- [x] **Step 3 (GREEN): scopes, companion, principal**
 
 `worker/src/auth/scopes.ts`:
 
@@ -2667,7 +2667,7 @@ export async function requireScope(request: Request, env: Env, scope: Scope): Pr
 }
 ```
 
-- [ ] **Step 4 (GREEN): authorize.ts**
+- [x] **Step 4 (GREEN): authorize.ts**
 
 `worker/src/auth/authorize.ts`:
 
@@ -2885,7 +2885,7 @@ export const authorizeRoutes: Route[] = [
 ];
 ```
 
-- [ ] **Step 5 (GREEN): staging routes, server.ts, index.ts, delete the dev bearer**
+- [x] **Step 5 (GREEN): staging routes, server.ts, index.ts, delete the dev bearer**
 
 `worker/src/staging/routes.ts`:
 
@@ -3049,13 +3049,13 @@ export default createWorker() satisfies ExportedHandler<Env>;
 
 The cache is keyed by `deps` first and hostname second, so two `createWorker` calls with different fake Googles never share a provider, and nothing depends on whether the test runner isolates module state per file.
 
-- [ ] **Step 6: run, expect PASS**
+- [x] **Step 6: run, expect PASS**
 
 Run: `cd worker && npm run types && npx vitest run test/oauth.test.ts test/mcp.test.ts test/login.test.ts`
 
 One thing to read from the first run: if the AS metadata lacks `client_id_metadata_document_supported`, the compatibility flag is not being seen by the test runtime; check `wrangler.jsonc` still lists `global_fetch_strictly_public` and that the vitest plugin reads it. The path-specific protected-resource documents are served by the provider from the well-known path (read from its source, header of this plan). If either document is missing or wrong, stop: the audience split between `/mcp` and `/staging` is an invariant of spec 4.1, and no test is made green by weakening it.
 
-- [ ] **Step 7: full verify, then commit**
+- [x] **Step 7: full verify, then commit**
 
 ```bash
 npm run verify
@@ -3086,7 +3086,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Routes: `GET /connect?alias=&e=` and `GET /connect/callback`. KV state record `OidcState` with `purpose: "connect"`, `alias`, `userId`, `sessionIdHash`.
 - Tools: `connect_account({ alias })` returns `{ status: "connect_required", account: alias, url }`; `open_policy_editor({})` returns `{ url: "https://<host>/policy" }`. Both audit an `intent` row with decision `browser`.
 
-- [ ] **Step 1 (RED): tests**
+- [x] **Step 1 (RED): tests**
 
 `worker/test/connect.test.ts`:
 
@@ -3334,12 +3334,12 @@ describe("connect an account", () => {
 });
 ```
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
 Run: `cd worker && npx vitest run test/connect.test.ts`
 Expected: FAIL, cannot find module `../src/google/connect`.
 
-- [ ] **Step 3 (GREEN): connect.ts**
+- [x] **Step 3 (GREEN): connect.ts**
 
 `worker/src/google/connect.ts`:
 
@@ -3630,7 +3630,7 @@ export const connectRoutes: Route[] = [
 
 The page CSP has `default-src 'none'`, which does not block a plain anchor to Google's permissions page; the link is navigation, not a fetched resource.
 
-- [ ] **Step 4 (GREEN): the two tools and mounting**
+- [x] **Step 4 (GREEN): the two tools and mounting**
 
 In `worker/src/mcp/server.ts` add, before `return server;`:
 
@@ -3683,7 +3683,7 @@ with imports `import { auditIntent } from "../audit/log";` and `import { connect
 
 In `worker/src/index.ts` add `import { connectRoutes } from "./google/connect";` and mount `[...loginRoutes, ...authorizeRoutes, ...connectRoutes]`. In `worker/test/mcp.test.ts` the `tools/list` expectation becomes `["cancel_pending", "connect_account", "get_policy", "list_accounts", "list_pending", "open_policy_editor"]`.
 
-- [ ] **Step 5: run, expect PASS, then commit**
+- [x] **Step 5: run, expect PASS, then commit**
 
 Run: `cd worker && npx vitest run test/connect.test.ts test/mcp.test.ts`
 
@@ -3707,7 +3707,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - `getAccessToken(env, deps, userId, accountId): Promise<string>`. Ownership is in the query. `status != 'active'` throws `GmailMcpError("account_needs_reconnect")`. A cached token with more than 60 s left is returned after a lazy re-encrypt if its key id is not current. Otherwise the refresh token is decrypted and used; `"invalid_grant"` flips the row to `needs_reconnect`, wipes the access token columns and throws `account_needs_reconnect`; success stores the new access token encrypted with the current key and refreshes `last_refresh_at`; a refresh token under an old key id is re-encrypted in the same update. Every write carries `WHERE id = ? AND user_id = ? AND status = 'active' AND credential_version = ?` with the version read at the start, and a write that changes zero rows means a revoke or reconnect happened meanwhile: the function then throws `account_needs_reconnect` and never returns the token it obtained.
 - `revokeAccount(env, deps, userId, accountId): Promise<void>`: local first. One UPDATE sets `status = 'revoked'`, `is_default = 0`, bumps `credential_version` and nulls both ciphertexts, returning the old refresh ciphertext with `RETURNING`; only then is Google's revoke endpoint called, best effort. Google being unreachable cannot keep an account alive.
 
-- [ ] **Step 1 (RED): tests**
+- [x] **Step 1 (RED): tests**
 
 `worker/test/tokens.test.ts`:
 
@@ -3866,11 +3866,11 @@ describe("access tokens", () => {
 });
 ```
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
 Run: `cd worker && npx vitest run test/tokens.test.ts`
 
-- [ ] **Step 3 (GREEN): tokens.ts**
+- [x] **Step 3 (GREEN): tokens.ts**
 
 `worker/src/google/tokens.ts`:
 
@@ -4035,7 +4035,7 @@ export async function revokeAccount(env: Env, deps: Deps, userId: string, accoun
 
 D1 returns BLOB columns as `ArrayBuffer`, which is why the row type says so and the code wraps in `Uint8Array`.
 
-- [ ] **Step 4: run, expect PASS (4 tests), then commit**
+- [x] **Step 4: run, expect PASS (4 tests), then commit**
 
 ```bash
 git add worker/src/google/tokens.ts worker/test/tokens.test.ts
@@ -4063,7 +4063,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - `GET /approve/<pa_id>`: session; row looked up with `user_id` in the query; an unknown or foreign id is 404. A `pending` and unexpired row renders the structured block, the attachments table (joined to `staging_objects` by handle and owner), and the untrusted block with the body preview cut to 2048 bytes. Other states render a one-line status page (200).
 - `POST /approve/<pa_id>` with `decision=approve|deny` and `csrf`: session, Origin, CSRF bound to the id. The transition and its audit row are one D1 batch: the `UPDATE` from `approvePending`/`denyPending` (exposed as `approveStatement`/`denyStatement` in `approval/pending.ts`), an `_assert` row placed before them that fails the batch unless the row is still pending and unexpired, and the `outcome` audit row with decision `approved` or `denied`. A failed batch is 409. Then redirect to the GET.
 
-- [ ] **Step 1 (RED): tests**
+- [x] **Step 1 (RED): tests**
 
 `worker/test/approve.test.ts`:
 
@@ -4329,11 +4329,11 @@ describe("approval page", () => {
 });
 ```
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
 Run: `cd worker && npx vitest run test/approve.test.ts`
 
-- [ ] **Step 3 (GREEN): approve.ts**
+- [x] **Step 3 (GREEN): approve.ts**
 
 `worker/src/approval/view.ts`:
 
@@ -4721,7 +4721,7 @@ export const approveRoutes: Route[] = [
 
 Mount `approveRoutes` in `index.ts`.
 
-- [ ] **Step 4: run, expect PASS (5 tests), then commit**
+- [x] **Step 4: run, expect PASS (5 tests), then commit**
 
 ```bash
 git add worker/src/web/pages/approve.ts worker/src/approval/view.ts worker/src/approval/pending.ts worker/src/audit/log.ts worker/src/index.ts worker/test/approve.test.ts
@@ -4744,7 +4744,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - `GET /accounts`: session. Lists every account of the owner with alias, email, status, default flag, send limit, org domains, allowlist entries. A connect form (`GET /connect` with an `alias` input). Per account: reconnect link, and POST forms for `op=default`, `op=revoke`, `op=allowlist_add` (`pattern`), `op=allowlist_remove` (`pattern`), `op=send_limit` (`bytes`), `op=org_domains` (`domains`, comma separated). A companion section showing the client id or a `op=register_companion` form.
 - `POST /accounts`: session, Origin, CSRF with route `/accounts` and object id = the `account` field (or `companion`). Trust-boundary ops require recent authentication (the 403 re-authentication page from `requireRecent` otherwise) and write an `intent` audit row with action `policy.edit`, decision `edited`, tool `accounts_page` and the op name in `facts.ids`: `revoke`, `register_companion`, `allowlist_add`, `allowlist_remove`, `org_domains`, and `send_limit` when the new value is higher than the stored one. `default` and a send-limit decrease need a session only. `revoke` calls `revokeAccount`, then `revokeOtherSessions`, and audits `account.connect` with decision `revoked` as well. Canonicalisation is shared with the trust rules, never reimplemented: an allowlist pattern is either `@` + `toAsciiDomain(domain)` or `parseAddress(pattern).normalized` (which keeps local-part case except where the provider folds it); each org domain is `toAsciiDomain(d)`; both throw `invalid_address` on garbage and the page answers 400. `bytes` is an integer within `1..26214400`.
 
-- [ ] **Step 1 (RED): tests**
+- [x] **Step 1 (RED): tests**
 
 `worker/test/accounts.test.ts`:
 
@@ -4967,11 +4967,11 @@ describe("accounts page", () => {
 });
 ```
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
 Run: `cd worker && npx vitest run test/accounts.test.ts`
 
-- [ ] **Step 3 (GREEN): accounts.ts**
+- [x] **Step 3 (GREEN): accounts.ts**
 
 `worker/src/web/pages/accounts.ts`:
 
@@ -5202,7 +5202,7 @@ export const accountsRoutes: Route[] = [
 
 Mount `accountsRoutes`.
 
-- [ ] **Step 4: run, expect PASS, then commit**
+- [x] **Step 4: run, expect PASS, then commit**
 
 Run: `cd worker && npx vitest run test/accounts.test.ts test/login.test.ts`
 
@@ -5228,7 +5228,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - `GET /policy`: session. A table with one row per action in `ACTIONS` except `policy.edit` (shown as "browser only"), columns: default, owner-wide override (`<select name="g:<action>">` with `inherit|allow|ask|deny`), then one column per active account (`<select name="a:<accountId>:<action>">`). Below it the blocked-extension set, read-only. One Save form, CSRF object id `policy`.
 - `POST /policy`: session, Origin, CSRF, recent authentication. Validates every field first (unknown actions and accounts are ignored, an unknown level is a 400 before any write), then calls `applyPolicyEdit`, so the policy rows, the `intent` audit row (`action: "policy.edit"`, `decision: "edited"`, `facts.ids` = the changed field names) and the revocation of every other session land together or not at all.
 
-- [ ] **Step 1 (RED): tests**
+- [x] **Step 1 (RED): tests**
 
 `worker/test/policy-page.test.ts`:
 
@@ -5354,11 +5354,11 @@ describe("policy page", () => {
 });
 ```
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
 Run: `cd worker && npx vitest run test/policy-page.test.ts`
 
-- [ ] **Step 3 (GREEN): engine.ts addition and policy.ts**
+- [x] **Step 3 (GREEN): engine.ts addition and policy.ts**
 
 Append to `worker/src/policy/engine.ts` (and add `import { auditStatement, type AuditBase } from "../audit/log";` and `import { revokeOtherSessionsStatement } from "../web/session";`):
 
@@ -5564,7 +5564,7 @@ export const policyRoutes: Route[] = [
 
 Mount `policyRoutes`.
 
-- [ ] **Step 4: run, expect PASS (2 tests), then commit**
+- [x] **Step 4: run, expect PASS (2 tests), then commit**
 
 ```bash
 git add worker/src/web/pages/policy.ts worker/src/policy/engine.ts worker/src/web/session.ts worker/src/index.ts worker/test/policy-page.test.ts
@@ -5587,7 +5587,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - `GET /audit?account=<alias>&action=<action>&days=<1..90>`: session. Up to 200 rows of the owner's audit log, newest first, filtered when the parameters parse; each row shows time (ISO), account alias, tool, action, modifiers, phase, decision, pending id, operation id, summary. Everything escaped. Filters are a `GET` form.
 - `runCron` gains `purgedStates` from `purgeStates(db, now)` (Task 6), so consumed and expired `oauth_states` rows leave D1; `scheduled` already calls the provider's `purgeExpiredData` (Task 7). This task proves both through `worker.scheduled`.
 
-- [ ] **Step 1 (RED): tests**
+- [x] **Step 1 (RED): tests**
 
 `worker/test/audit-page.test.ts`:
 
@@ -5669,9 +5669,9 @@ describe("audit page", () => {
 });
 ```
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
-- [ ] **Step 3 (GREEN): audit.ts**
+- [x] **Step 3 (GREEN): audit.ts**
 
 `worker/src/web/pages/audit.ts`:
 
@@ -5741,7 +5741,7 @@ ${rows.map((r) => `<tr>${cell(new Date(r.ts).toISOString())}${cell(r.alias)}${ce
 
 Mount `auditRoutes`. The full mount list in `index.ts` is now `[...loginRoutes, ...authorizeRoutes, ...connectRoutes, ...approveRoutes, ...accountsRoutes, ...policyRoutes, ...auditRoutes]`. In `worker/src/cron.ts` add `purgedStates: await purgeStates(env.DB, now, limit)` to the report (import from `./web/state`), and extend `CronReport` accordingly; `cron.test.ts` from Plan 1 keeps passing because it asserts named fields, not the whole object. If it asserts the whole object, add the field there.
 
-- [ ] **Step 4: run, expect PASS, then the whole suite and commit**
+- [x] **Step 4: run, expect PASS, then the whole suite and commit**
 
 ```bash
 cd worker && npx vitest run
@@ -5760,7 +5760,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Create: `docs/runbooks/google-cloud.md`
 - Modify: `README.md`, `docs/ARCHITECTURE.md`, `CHANGELOG.md`, `CLAUDE.md`, `worker/.dev.vars.example` (already done in Task 1; confirm), `.github/dependabot.yml` if it names packages individually
 
-- [ ] **Step 1: runbook**
+- [x] **Step 1: runbook**
 
 `docs/runbooks/google-cloud.md`:
 
@@ -5810,7 +5810,7 @@ deployed dev Worker.
 
 Check that last paragraph against the code before committing: `WORKER_HOSTNAME` is used with a fixed `https://` prefix in `audienceFor`, `loginRedirectUri`, `connectRedirectUri` and `checkOrigin`. If local HTTP is wanted, add a `WORKER_SCHEME` var defaulting to `https`, thread it through those four call sites, and say so in the runbook; otherwise state plainly that local runs use a deployed dev Worker.
 
-- [ ] **Step 2: README, ARCHITECTURE, CHANGELOG, CLAUDE.md**
+- [x] **Step 2: README, ARCHITECTURE, CHANGELOG, CLAUDE.md**
 
 README: replace the "Running the server locally" section's dev-bearer paragraph and the seeded-account commands with the runbook link and the login flow; the Inspector command becomes an OAuth run (`npx @modelcontextprotocol/inspector@2.5.0 http://localhost:8787/mcp` opens the browser flow).
 
@@ -5827,11 +5827,11 @@ Spec amendments in `docs/superpowers/specs/2026-09-09-gmail-mcp-design.md`, each
 
 CLAUDE.md: update the repository shape (`src/auth`, `src/google`, `src/web`), the "Current state" paragraph (Plan 2 complete, next is Plan 3), delete the trap about `.dev.vars` and the dev bearer, and add two new traps: "`resourceMetadata.resource` binds every token to one audience" and "`createClient` chooses the client id".
 
-- [ ] **Step 3: de-slop**
+- [x] **Step 3: de-slop**
 
 Run the `stop-slop` skill over the runbook and every edited document. Report what changed.
 
-- [ ] **Step 4: the gate**
+- [x] **Step 4: the gate**
 
 ```bash
 npm run verify
@@ -5839,7 +5839,7 @@ npm run verify
 
 Read the output. Exit code 0 is the claim.
 
-- [ ] **Step 5: commit and push**
+- [x] **Step 5: commit and push**
 
 ```bash
 git add docs/runbooks/google-cloud.md README.md docs/ARCHITECTURE.md CHANGELOG.md
@@ -5918,3 +5918,35 @@ Majors: policy rows, audit and session revocation are one batch (Task 12); the a
 Refined by measurement: the review's single-statement `UPDATE ... RETURNING` for revocation cannot return the old ciphertext, because SQLite 3.50 returns post-update values (measured with `sqlite3`); `revokeAccount` therefore reads, wipes under a version guard, and only then calls Google, which keeps the local-first order the review asked for.
 
 Scorecard after round 2: spec coverage 9/10 (unchanged; elicitation stays in Plan 3); falsifiability 9/10 (every race the review named has a test that runs two requests concurrently inside workerd; what remains untested is the library's own KV code handling); concurrency safety 8/10 (up from 4: the four races that could have resurrected credentials, double-granted a consent, or replayed a login are closed, and the residual is the library's KV); ambition unchanged at 7/10. What moves falsifiability higher: Plan 5's fault injection, which kills the Worker between the guarded write and the response.
+
+## Execution record (2026-09-10)
+
+All fourteen tasks executed inline on `feat/oauth-and-web`, one commit per task, `npm run verify` green at
+every commit: 146 tests across 25 files, 139 of them in the Workers runtime.
+
+Settled by the first run, as the plan asked:
+
+- `jose` 6.2.12 imports and verifies RS256 inside workerd.
+- The provider serves both protected-resource documents from the well-known path, so no audience fallback
+  was needed and none was added.
+- `toAsciiDomain` accepted `-foo.com`; it now rejects edge hyphens, empty labels and oversized labels, with
+  its own tests in `recipients.test.ts`.
+- Local HTTP development stays deferred; the runbook records why.
+
+Defects the tests and the gate caught in the plan itself, each fixed in the task that hit it:
+
+1. The approval batch asserted the postcondition, which cannot distinguish this approval from an earlier
+   one, so a second approve succeeded and wrote a second audit row. It now asserts the precondition first.
+2. `RETURNING` reports post-update values, so the revoke could not hand back the old ciphertext. It reads
+   first, then wipes under a version guard.
+3. The MCP handler applies DNS-rebinding protection; the test client now sends a Host header.
+4. `exactOptionalPropertyTypes` and the provider's handler types needed one named shape, `FetchHandler`,
+   for the router and both protected routes.
+5. Three fixture defects: an `async` test with nothing to await, `refresh_token: ""` where Google omits the
+   field, and a send-limit audit assertion with no successful increase behind it.
+6. The logout assertion fetched a page that does not exist until task 11.
+
+Deviations chosen to keep every commit green rather than follow the letter of the plan: the interim
+`index.ts` kept the plan 1 `/mcp` branch until the provider replaced it, the `DEV_STATIC_*` fields stayed in
+the `Env` type until the file reading them was deleted, and the approved-clients cookie went into its own
+module so login could clear it without importing the authorize routes.
