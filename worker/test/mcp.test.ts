@@ -1,49 +1,45 @@
 import { env } from "cloudflare:test";
 import { describe, it, expect, beforeAll } from "vitest";
+import { createWorker } from "../src/index";
 import { seedUserAndAccount } from "./fixtures";
 import { rpc } from "./mcp-client";
+import { FakeGoogle } from "./fake-google";
+import { mintToken } from "./browser";
+import { testEnv } from "./test-env";
 
-// A plain copy, never Object.create(env): the test env is a Proxy, and assigning onto a child
-// delegates through the prototype chain and would mutate the real env for later assertions.
-// Build every env explicitly. Never Object.create(env): the test env is a Proxy, and assigning onto
-// a child delegates through the prototype chain and would mutate the real env. Never assume the
-// ambient env lacks the dev secrets either: a developer .dev.vars file puts them there.
-function envWithout(...keys: string[]): Record<string, unknown> {
-  const copy: Record<string, unknown> = { ...env };
-  for (const k of keys) delete copy[k];
-  return copy;
-}
-const bareEnv = envWithout("DEV_STATIC_TOKEN", "DEV_STATIC_USER");
-const devEnv = { ...bareEnv, DEV_STATIC_TOKEN: "dev-token", DEV_STATIC_USER: "mu" };
 const INIT = { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "0" } };
+let g: FakeGoogle;
+let worker: ReturnType<typeof createWorker>;
+let token: string;
 
 beforeAll(async () => {
-  await seedUserAndAccount(env.DB, { userId: "mu", accountId: "ma", alias: "personal", isDefault: true });
+  g = await FakeGoogle.create();
+  worker = createWorker({ googleFetch: g.fetch });
+  await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "ma", alias: "personal", isDefault: true });
+  token = (await mintToken(worker, testEnv(), g, { scope: "mcp" })).accessToken;
 });
 
 describe("/mcp auth gate", () => {
-  it("401 without a bearer, with a wrong bearer, and when the dev path is not fully configured", async () => {
-    expect((await rpc(devEnv, null, "initialize", INIT)).status).toBe(401);
-    expect((await rpc(devEnv, "nope", "initialize", INIT)).status).toBe(401);
-    expect((await rpc(bareEnv, "dev-token", "initialize", INIT)).status).toBe(401);
-    const tokenOnly = { ...bareEnv, DEV_STATIC_TOKEN: "dev-token" };
-    expect((await rpc(tokenOnly, "dev-token", "initialize", INIT)).status).toBe(401);
+  it("401 with a resource_metadata challenge and no session leakage without a bearer", async () => {
+    const res = await rpc(worker, testEnv(), null, "initialize", INIT);
+    expect(res.status).toBe(401);
+    expect(res.headers.get("www-authenticate")).toContain("/.well-known/oauth-protected-resource/mcp");
+    expect((await rpc(worker, testEnv(), "not-a-token", "initialize", INIT)).status).toBe(401);
   });
 });
 
 describe("protocol", () => {
-  it("initialize then tools/list returns the four control tools", async () => {
-    const init = await rpc(devEnv, "dev-token", "initialize", INIT, 1);
+  it("initialize then tools/list returns the control tools", async () => {
+    const init = await rpc(worker, testEnv(), token, "initialize", INIT, 1);
     expect(init.status).toBe(200);
     expect(init.json?.result?.serverInfo?.name).toBe("gmail-mcp");
-    const list = await rpc(devEnv, "dev-token", "tools/list", {}, 2);
+    const list = await rpc(worker, testEnv(), token, "tools/list", {}, 2);
     const names = (list.json?.result?.tools ?? []).map((t: { name: string }) => t.name).sort();
     expect(names).toEqual(["cancel_pending", "get_policy", "list_accounts", "list_pending"]);
   });
-  it("get_policy resolves the default account and reports browser-only actions", async () => {
-    const call = await rpc(devEnv, "dev-token", "tools/call", { name: "get_policy", arguments: {} }, 3);
-    const text = call.json?.result?.content?.[0]?.text as string;
-    const parsed = JSON.parse(text);
+  it("get_policy resolves the default account of the token's owner", async () => {
+    const call = await rpc(worker, testEnv(), token, "tools/call", { name: "get_policy", arguments: {} }, 3);
+    const parsed = JSON.parse(call.json?.result?.content?.[0]?.text as string);
     expect(parsed.account).toBe("personal");
     expect(parsed.policy["send.message"]).toBe("ask");
     expect(parsed.policy["policy.edit"]).toBe("browser");

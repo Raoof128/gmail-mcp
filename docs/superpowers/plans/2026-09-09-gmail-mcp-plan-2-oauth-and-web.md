@@ -1766,10 +1766,13 @@ const STATUS: Partial<Record<string, number>> = {
   invalid_header: 400,
 };
 
-/** Explicitly a plain Request, so our own callers and the tests can hand it one. */
-export type WebHandler = { fetch: (request: Request, env: Env, ctx: ExecutionContext) => Promise<Response> };
+/**
+ * Explicitly a plain Request, so our own callers and the tests can hand it one. The OAuth provider
+ * accepts this shape for both its defaultHandler and its apiHandlers.
+ */
+export type FetchHandler = { fetch: (request: Request, env: Env, ctx: ExecutionContext) => Promise<Response> };
 
-export function webHandler(deps: Deps, routes: Route[]): WebHandler {
+export function webHandler(deps: Deps, routes: Route[]): FetchHandler {
   return {
     async fetch(request, env) {
       const url = new URL(request.url);
@@ -1991,7 +1994,7 @@ import type { Env } from "./env";
 import { runCron } from "./cron";
 import { defaultDeps, type Deps } from "./deps";
 import { loginRoutes } from "./web/login";
-import { webHandler } from "./web/router";
+import { webHandler, type FetchHandler } from "./web/router";
 
 /**
  * The handler shape callers and tests use: fetch is required and takes a plain Request, which is what
@@ -2077,6 +2080,9 @@ export async function rpc(
 ): Promise<{ status: number; json: any; headers: Headers }> {
   const ctx = createExecutionContext();
   const headers: Record<string, string> = {
+    // The MCP handler applies DNS-rebinding protection and refuses a request with no Host header,
+    // which every real HTTP client sends.
+    host: new URL(HOST).host,
     "content-type": "application/json",
     accept: "application/json, text/event-stream",
     "mcp-protocol-version": "2025-06-18",
@@ -2130,7 +2136,7 @@ export async function registerClient(worker: Worker, env: Env, redirectUri: stri
     }),
   });
   if (res.status !== 201) throw new Error(`register ${res.status} ${await res.text()}`);
-  return ((await res.json()) as { client_id: string }).client_id;
+  return (await res.json<{ client_id: string }>()).client_id;
 }
 
 /**
@@ -2142,7 +2148,7 @@ export async function mintToken(
   env: Env,
   g: FakeGoogle,
   o: {
-    scope: "mcp" | "staging" | string;
+    scope: string;
     clientId?: string;
     redirectUri?: string;
     resource?: string | null;
@@ -2153,7 +2159,7 @@ export async function mintToken(
   },
 ): Promise<{
   accessToken: string;
-  refreshToken?: string;
+  refreshToken?: string | undefined;
   clientId: string;
   browser: Browser;
   authorizeStatus: number;
@@ -2205,7 +2211,7 @@ export async function mintToken(
     }).toString(),
   });
   if (tok.status !== 200) throw new Error(`token ${tok.status} ${await tok.text()}`);
-  const body = (await tok.json()) as { access_token: string; refresh_token?: string };
+  const body = await tok.json<{ access_token: string; refresh_token?: string }>();
   return {
     accessToken: body.access_token,
     refreshToken: body.refresh_token,
@@ -2376,12 +2382,13 @@ describe("tokens at the routes", () => {
     const stub = (scope: string[], sub: string) =>
       ({
         OAUTH_PROVIDER: {
-          unwrapToken: async () => ({
-            userId: "owner-sub",
-            scope,
-            audience: `${HOST}/mcp`,
-            grant: { clientId: "c", props: { sub, email: "o@x" } },
-          }),
+          unwrapToken: () =>
+            Promise.resolve({
+              userId: "owner-sub",
+              scope,
+              audience: `${HOST}/mcp`,
+              grant: { clientId: "c", props: { sub, email: "o@x" } },
+            }),
         },
         WORKER_HOSTNAME: "gmail-mcp.example.workers.dev",
       }) as never;
@@ -2683,7 +2690,7 @@ type Stored = { request: AuthRequest; clientName: string; redirectUri: string; s
 type Remembered = { sub: string; clients: string[] };
 
 function clientError(
-  req: AuthRequest | { redirectUri: string; state?: string; issuer?: string },
+  req: AuthRequest | { redirectUri: string; state?: string | undefined; issuer?: string | undefined },
   code: string,
   description: string,
 ): Response {
@@ -2884,14 +2891,14 @@ export const authorizeRoutes: Route[] = [
 ```ts
 import { GmailMcpError } from "@gmail-mcp/shared/errors";
 import type { Deps } from "../deps";
-import type { Env } from "../env";
 import { requireScope } from "../auth/principal";
+import type { FetchHandler } from "../web/router";
 import { ack, openForRead } from "./store";
 
 const HANDLE = /^\/staging\/(sh_[A-Za-z0-9_-]{43})(\/ack)?$/;
 
 /** Plan 4 adds /staging/intent and PUT /staging/<ticket>. This is the download side only. */
-export function stagingApiHandler(_deps: Deps): ExportedHandler<Env> {
+export function stagingApiHandler(_deps: Deps): FetchHandler {
   return {
     async fetch(request, env) {
       const principal = await requireScope(request, env, "staging");
@@ -2952,9 +2959,9 @@ import { requireScope } from "./auth/principal";
 import { buildServer } from "./mcp/server";
 import { stagingApiHandler } from "./staging/routes";
 import { loginRoutes } from "./web/login";
-import { webHandler } from "./web/router";
+import { webHandler, type FetchHandler } from "./web/router";
 
-function mcpApiHandler(deps: Deps): ExportedHandler<Env> {
+function mcpApiHandler(deps: Deps): FetchHandler {
   return {
     async fetch(request, env, ctx) {
       // apiHandlers match by prefix, so /mcpanything would land here too.
@@ -3010,6 +3017,15 @@ function providerFor(env: Env, deps: Deps): Entry {
   return entry;
 }
 
+/**
+ * The handler shape callers and tests use: fetch is required and takes a plain Request, which is what
+ * `new Request(...)` produces. The default export below is checked against ExportedHandler, so this
+ * staying a valid Worker entrypoint is proved by the compiler rather than assumed.
+ */
+export type WorkerHandler = {
+  fetch: (request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>;
+  scheduled: (controller: ScheduledController, env: Env, ctx: ExecutionContext) => void;
+};
 export type Worker = WorkerHandler & { oauthOptions: (env: Env) => OAuthProviderOptions<Env> };
 
 export function createWorker(deps: Deps = defaultDeps): Worker {

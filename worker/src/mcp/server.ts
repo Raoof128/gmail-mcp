@@ -4,7 +4,8 @@ import { ACTIONS, DEFAULT_POLICY } from "@gmail-mcp/shared/actions";
 import { AccountAlias } from "@gmail-mcp/shared/schemas";
 import { GmailMcpError } from "@gmail-mcp/shared/errors";
 import type { Env } from "../env";
-import type { Principal } from "./auth-dev";
+import type { Deps } from "../deps";
+import type { Principal } from "../auth/principal";
 import { effectiveLevel } from "../policy/engine";
 import { cancelPending } from "../approval/pending";
 
@@ -28,7 +29,7 @@ async function resolveAccount(env: Env, userId: string, alias?: string): Promise
   return row;
 }
 
-export function buildServer(env: Env, principal: Principal): McpServer {
+export function buildServer(env: Env, principal: Principal, _deps: Deps): McpServer {
   const server = new McpServer({ name: "gmail-mcp", version: "0.0.1" });
 
   server.registerTool(

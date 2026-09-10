@@ -91,10 +91,13 @@ const STATUS: Partial<Record<string, number>> = {
   invalid_header: 400,
 };
 
-/** Explicitly a plain Request, so our own callers and the tests can hand it one. */
-export type WebHandler = { fetch: (request: Request, env: Env, ctx: ExecutionContext) => Promise<Response> };
+/**
+ * Explicitly a plain Request, so our own callers and the tests can hand it one. The OAuth provider
+ * accepts this shape for both its defaultHandler and its apiHandlers.
+ */
+export type FetchHandler = { fetch: (request: Request, env: Env, ctx: ExecutionContext) => Promise<Response> };
 
-export function webHandler(deps: Deps, routes: Route[]): WebHandler {
+export function webHandler(deps: Deps, routes: Route[]): FetchHandler {
   return {
     async fetch(request, env) {
       const url = new URL(request.url);

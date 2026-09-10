@@ -3,6 +3,7 @@ import type { Env } from "../src/env";
 import type { WorkerHandler } from "../src/index";
 import type { FakeGoogle } from "./fake-google";
 import { HOST } from "./test-env";
+import { b64url } from "../src/crypto/random";
 
 type Worker = WorkerHandler;
 
@@ -60,4 +61,112 @@ export function csrfFrom(html: string, formAction?: string): string {
   const m = /name="csrf" value="([^"]+)"/.exec(scope);
   if (!m) throw new Error("no csrf token in page");
   return m[1]!;
+}
+
+async function pkce(): Promise<{ verifier: string; challenge: string }> {
+  const raw = new Uint8Array(32);
+  crypto.getRandomValues(raw);
+  const verifier = b64url(raw);
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
+  return { verifier, challenge: b64url(digest) };
+}
+
+export async function registerClient(worker: Worker, env: Env, redirectUri: string): Promise<string> {
+  const b = new Browser(worker, env);
+  const res = await b.fetch("/register", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      client_name: "test client",
+      redirect_uris: [redirectUri],
+      token_endpoint_auth_method: "none",
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+    }),
+  });
+  if (res.status !== 201) throw new Error(`register ${res.status} ${await res.text()}`);
+  return (await res.json<{ client_id: string }>()).client_id;
+}
+
+/**
+ * The whole Flow A as a client would run it: DCR (unless a client id is given), owner login, consent,
+ * code exchange with PKCE. Returns the token and the browser that holds the owner's session.
+ */
+export async function mintToken(
+  worker: Worker,
+  env: Env,
+  g: FakeGoogle,
+  o: {
+    scope: string;
+    clientId?: string;
+    redirectUri?: string;
+    resource?: string | null;
+    browser?: Browser;
+    sub?: string;
+    email?: string;
+    decision?: "approve" | "deny";
+  },
+): Promise<{
+  accessToken: string;
+  refreshToken?: string | undefined;
+  clientId: string;
+  browser: Browser;
+  authorizeStatus: number;
+  location: string | null;
+}> {
+  const redirectUri = o.redirectUri ?? "http://localhost:5555/callback";
+  const clientId = o.clientId ?? (await registerClient(worker, env, redirectUri));
+  const b = o.browser ?? new Browser(worker, env);
+  if (!o.browser) await b.login(g, { sub: o.sub ?? "owner-sub", email: o.email ?? "owner@example.test" });
+  const { verifier, challenge } = await pkce();
+  const q = new URLSearchParams({
+    response_type: "code",
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    scope: o.scope,
+    state: "client-state",
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+  });
+  if (o.resource !== null) q.set("resource", o.resource ?? `${HOST}/${o.scope === "staging" ? "staging" : "mcp"}`);
+  let res = await b.get(`/authorize?${q.toString()}`);
+  const authorizeStatus = res.status;
+  let location = res.headers.get("location");
+  if (res.status === 303 && location?.startsWith("/authorize/")) {
+    const consentPath = location;
+    res = await b.get(consentPath);
+    location = res.headers.get("location");
+    if (res.status === 200) {
+      // A remembered client answers the GET with a redirect instead; only a rendered page has a form.
+      const csrf = csrfFrom(await res.text(), consentPath);
+      res = await b.post(consentPath, { decision: o.decision ?? "approve", csrf });
+      location = res.headers.get("location");
+    }
+  }
+  if (!location || !location.startsWith(redirectUri)) {
+    return { accessToken: "", clientId, browser: b, authorizeStatus, location };
+  }
+  const code = new URL(location).searchParams.get("code");
+  if (!code) return { accessToken: "", clientId, browser: b, authorizeStatus, location };
+  const tok = await b.fetch("/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: redirectUri,
+      client_id: clientId,
+      code_verifier: verifier,
+    }).toString(),
+  });
+  if (tok.status !== 200) throw new Error(`token ${tok.status} ${await tok.text()}`);
+  const body = await tok.json<{ access_token: string; refresh_token?: string }>();
+  return {
+    accessToken: body.access_token,
+    refreshToken: body.refresh_token,
+    clientId,
+    browser: b,
+    authorizeStatus,
+    location,
+  };
 }

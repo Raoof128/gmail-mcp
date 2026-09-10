@@ -1,27 +1,32 @@
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
-import worker from "../src/index";
+import type { Env } from "../src/env";
+import type { WorkerHandler } from "../src/index";
+import { HOST } from "./test-env";
+
+type Worker = WorkerHandler;
 
 export async function rpc(
-  env: unknown,
+  worker: Worker,
+  env: Env,
   token: string | null,
   method: string,
   params: unknown,
   id = 1,
-): Promise<{ status: number; json: any }> {
+  path = "/mcp",
+): Promise<{ status: number; json: any; headers: Headers }> {
   const ctx = createExecutionContext();
   const headers: Record<string, string> = {
+    // The MCP handler applies DNS-rebinding protection and refuses a request with no Host header,
+    // which every real HTTP client sends.
+    host: new URL(HOST).host,
     "content-type": "application/json",
     accept: "application/json, text/event-stream",
     "mcp-protocol-version": "2025-06-18",
   };
   if (token) headers.authorization = `Bearer ${token}`;
   const res = await worker.fetch(
-    new Request("https://x.test/mcp", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
-    }),
-    env as any,
+    new Request(HOST + path, { method: "POST", headers, body: JSON.stringify({ jsonrpc: "2.0", id, method, params }) }),
+    { ...env },
     ctx,
   );
   await waitOnExecutionContext(ctx);
@@ -36,5 +41,5 @@ export async function rpc(
       .pop();
     if (line) json = JSON.parse(line.slice(5));
   }
-  return { status: res.status, json };
+  return { status: res.status, json, headers: res.headers };
 }

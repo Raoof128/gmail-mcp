@@ -5,7 +5,7 @@ import worker from "../src/index";
 describe("worker smoke", () => {
   it("returns 404 for an unknown path", async () => {
     const ctx = createExecutionContext();
-    const res = await worker.fetch(new Request("https://x.test/nope"), env, ctx);
+    const res = await worker.fetch(new Request("https://x.test/nope"), { ...env }, ctx);
     await waitOnExecutionContext(ctx);
     expect(res.status).toBe(404);
   });
