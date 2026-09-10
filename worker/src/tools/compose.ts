@@ -1,7 +1,11 @@
 import { GmailMcpError } from "@gmail-mcp/shared/errors";
-import { MediaType, type InlineAttachment } from "@gmail-mcp/shared/schemas";
+import { MediaType, type InlineAttachment, type MessageFormat } from "@gmail-mcp/shared/schemas";
 import { sha256Hex } from "../crypto/canonical";
 import { fromB64url } from "../crypto/random";
+import type { Deps } from "../deps";
+import type { Env } from "../env";
+import { gmailJson } from "../google/gmail";
+import { gmailFormatFor, type GmailMessage } from "../google/messages";
 import { LIMITS, assertNotBlocked } from "../policy/limits";
 
 export type DecodedInline = { filename: string; mime: string; size: number; sha256: string; bytes: Uint8Array };
@@ -62,4 +66,20 @@ export function intentArgs(args: Record<string, unknown>, inline: DecodedInline[
         ...rest,
         inline_attachments: inline.map((d) => ({ filename: d.filename, mime: d.mime, size: d.size, sha256: d.sha256 })),
       };
+}
+
+export async function getMessage(
+  env: Env,
+  deps: Deps,
+  acct: { userId: string; accountId: string },
+  id: string,
+  format: MessageFormat,
+): Promise<GmailMessage> {
+  const q = gmailFormatFor(format);
+  return gmailJson<GmailMessage>(env, deps, acct, {
+    method: "GET",
+    path: `messages/${encodeURIComponent(id)}`,
+    query: { format: q.format, metadataHeaders: q.metadataHeaders },
+    retry: "safe",
+  });
 }

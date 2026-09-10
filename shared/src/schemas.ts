@@ -109,3 +109,57 @@ export const InlineAttachment = z.object({
   content_base64: z.string().min(1).max(INLINE_B64_MAX),
 });
 export type InlineAttachment = z.infer<typeof InlineAttachment>;
+const FormatArg = z.union([MessageFormat, z.literal("MESSAGE_FORMAT_UNSPECIFIED")]).default("PLAIN_TEXT");
+const PageLimit = z.number().int().min(1).max(50).default(20);
+const PageToken = z.string().min(1).max(512).optional();
+const BodyCharLimit = z.number().int().min(1).max(200_000).default(20_000);
+export const SearchThreadsInput = z.object({
+  account: AccountAlias.optional(),
+  query: z.string().max(2048).optional(),
+  limit: PageLimit,
+  page_token: PageToken,
+  include_spam_trash: z.boolean().default(false),
+});
+export const GetThreadInput = z.object({
+  account: AccountAlias.optional(),
+  thread_id: GmailId,
+  message_format: FormatArg,
+  max_messages: z.number().int().min(1).max(100).default(25),
+  include_body: z.boolean().default(true),
+  body_char_limit: BodyCharLimit,
+  total_body_char_limit: z.number().int().min(1).max(2_000_000).default(200_000),
+});
+export const GetMessageInput = z.object({
+  account: AccountAlias.optional(),
+  message_id: GmailId,
+  message_format: FormatArg,
+  include_body: z.boolean().default(true),
+  body_char_limit: BodyCharLimit,
+});
+export const ListDraftsInput = z.object({
+  account: AccountAlias.optional(),
+  query: z.string().max(2048).optional(),
+  limit: PageLimit,
+  page_token: PageToken,
+});
+export const GetDraftInput = z.object({
+  account: AccountAlias.optional(),
+  draft_id: GmailId,
+  message_format: FormatArg,
+  body_char_limit: BodyCharLimit,
+});
+export const ListLabelsInput = z.object({ account: AccountAlias.optional() });
+const oneSource = (v: { attachment_id?: string | undefined; part_id?: string | undefined }) =>
+  (v.attachment_id === undefined) !== (v.part_id === undefined);
+const ONE_SOURCE = { message: "give attachment_id or part_id, not both" };
+const DownloadAttachmentFields = {
+  message_id: GmailId,
+  attachment_id: z.string().min(1).max(1024).optional(),
+  part_id: z.string().min(1).max(64).optional(),
+};
+export const DownloadAttachmentInput = z
+  .object({ account: AccountAlias.optional(), ...DownloadAttachmentFields })
+  .refine(oneSource, ONE_SOURCE);
+/** The stored payload, which the gate strips of `account` before it journals. A refined object cannot
+ * be `.omit()`ed, so the two schemas are built from one field set instead. */
+export const DownloadAttachmentPayload = z.object(DownloadAttachmentFields).refine(oneSource, ONE_SOURCE);
