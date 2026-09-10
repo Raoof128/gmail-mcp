@@ -990,6 +990,12 @@ import { SignJWT, exportJWK, generateKeyPair, type CryptoKey } from "jose";
 
 type CodeRecord = { sub: string; email: string; nonce: string; refresh: string; scope: string };
 
+/** FormData.get() is string | File; every field this fake reads is a string or absent. */
+const field = (f: FormData, k: string): string => {
+  const v = f.get(k);
+  return typeof v === "string" ? v : "";
+};
+
 /**
  * A Google that lives in memory: real RS256 keys, a real JWKS document, and a token endpoint that
  * hands out id_tokens signed with them. Every Worker path that talks to Google runs against this
@@ -1054,11 +1060,12 @@ export class FakeGoogle {
     if (url.href === "https://www.googleapis.com/oauth2/v3/certs") return Response.json(this.jwks);
     if (url.href === "https://oauth2.googleapis.com/token") {
       this.tokenCalls++;
-      const form = new URLSearchParams(await req.text());
-      if (form.get("grant_type") === "authorization_code") {
-        const rec = this.codes.get(form.get("code") ?? "");
+      // formData(), not text(): workerd warns that .text() on a urlencoded body may corrupt it.
+      const form = await req.formData();
+      if (field(form, "grant_type") === "authorization_code") {
+        const rec = this.codes.get(field(form, "code"));
         if (!rec) return Response.json({ error: "invalid_grant" }, { status: 400 });
-        this.codes.delete(form.get("code")!); // Google codes are single use
+        this.codes.delete(field(form, "code")); // Google codes are single use
         if (this.malformedNext) {
           this.malformedNext = false;
           return Response.json({ token_type: "Bearer", expires_in: 3599 });
@@ -1072,16 +1079,16 @@ export class FakeGoogle {
           id_token: await this.issue({ sub: rec.sub, email: rec.email, nonce: rec.nonce }),
         });
       }
-      if (form.get("grant_type") === "refresh_token") {
+      if (field(form, "grant_type") === "refresh_token") {
         if (this.beforeRefresh) await this.beforeRefresh();
-        const state = this.refreshTokens.get(form.get("refresh_token") ?? "");
+        const state = this.refreshTokens.get(field(form, "refresh_token"));
         if (state !== "ok") return Response.json({ error: "invalid_grant" }, { status: 400 });
         return Response.json({ access_token: `at-${++this.accessCounter}`, expires_in: 3599, token_type: "Bearer" });
       }
       return Response.json({ error: "unsupported_grant_type" }, { status: 400 });
     }
     if (url.href === "https://oauth2.googleapis.com/revoke") {
-      this.revoked.add(new URLSearchParams(await req.text()).get("token") ?? "");
+      this.revoked.add(field(await req.formData(), "token"));
       return new Response(null, { status: 200 });
     }
     if (url.href === "https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs") {
@@ -1309,7 +1316,7 @@ async function jwks(deps: Deps): Promise<ReturnType<typeof createLocalJWKSet>> {
   // across a key rotation is a worse failure than one extra request.
   const res = await deps.googleFetch(GOOGLE.jwksUrl);
   if (!res.ok) throw new GmailMcpError("internal", `google jwks ${res.status}`);
-  return createLocalJWKSet((await res.json()) as JSONWebKeySet);
+  return createLocalJWKSet(await res.json<JSONWebKeySet>());
 }
 
 export async function verifyIdToken(
@@ -1340,7 +1347,7 @@ export async function verifyIdToken(
 export async function fetchSendAs(deps: Deps, accessToken: string): Promise<string[]> {
   const res = await deps.googleFetch(GOOGLE.sendAsUrl, { headers: { authorization: `Bearer ${accessToken}` } });
   if (!res.ok) throw new GmailMcpError("internal", `sendAs ${res.status}`);
-  const body = (await res.json()) as { sendAs?: { sendAsEmail: string; verificationStatus?: string }[] };
+  const body = await res.json<{ sendAs?: { sendAsEmail: string; verificationStatus?: string }[] }>();
   return (body.sendAs ?? [])
     .filter((s) => s.verificationStatus === "accepted" || s.verificationStatus === undefined)
     .map((s) => s.sendAsEmail.toLowerCase());
