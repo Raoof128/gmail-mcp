@@ -4186,7 +4186,7 @@ export type ToolSpec<S extends z.ZodObject<z.ZodRawShape>> = {
 - Payload shapes, rendered by `approvalView` as the `targets` and `label` views: message targets carry `message_id`, thread targets `thread_id`, label changes `add` and `remove` arrays; label management carries `op`, `label_id`, `name`.
 - `callTool(worker, env, token, name, args, id?)` in `test/mcp-client.ts`.
 
-- [ ] **Step 1 (RED): tests**
+- [x] **Step 1 (RED): tests**
 
 `worker/test/labels-tools.test.ts`:
 
@@ -4452,12 +4452,12 @@ describe("label.manage", () => {
 
 In `mcp.test.ts`, the expected tool list becomes the eighteen names of this family plus the eight control tools, sorted; Task 10 has the final list.
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
 Run: `cd worker && npx vitest run test/labels-tools.test.ts`
 Expected: FAIL, unknown tool `label_message`.
 
-- [ ] **Step 3 (GREEN): schemas**
+- [x] **Step 3 (GREEN): schemas**
 
 Append to `shared/src/schemas.ts`:
 
@@ -4513,7 +4513,7 @@ export const UpdateLabelInput = z.object({
 export const DeleteLabelInput = z.object({ account: AccountAlias, label_id: LabelId });
 ```
 
-- [ ] **Step 4 (GREEN): defineTool**
+- [x] **Step 4 (GREEN): defineTool**
 
 `worker/src/tools/compose.ts` is created here with `decodeInline`, `intentArgs` and `DecodedInline` exactly as Task 8 lists them; Task 8 adds the rest of the module.
 
@@ -4601,7 +4601,7 @@ export function defineTool<S extends z.ZodObject<z.ZodRawShape>>(
 
 `canonicalize` refuses `undefined`, so `intentArgs` must return only defined values; it strips them with the same loop the gate uses on payloads.
 
-- [ ] **Step 5 (GREEN): the family**
+- [x] **Step 5 (GREEN): the family**
 
 `worker/test/mcp-client.ts` gains
 
@@ -5087,12 +5087,12 @@ export function registerLabelTools(
 
 `worker/src/mcp/server.ts`: `registerLabelTools(server, toolContext, env);` after the control tools.
 
-- [ ] **Step 6: run, expect pass**
+- [x] **Step 6: run, expect pass**
 
 Run: `cd worker && npx vitest run test/labels-tools.test.ts test/mcp.test.ts test/approve.test.ts` then `npm run verify`.
 Expected: PASS. `approve.test.ts` renders the `targets` and `label` views from payloads this task now produces; it must still pass without change.
 
-- [ ] **Step 7: commit**
+- [x] **Step 7: commit**
 
 ```bash
 git add shared/src/schemas.ts worker/src worker/test
