@@ -5122,7 +5122,7 @@ Claude-Session: https://claude.ai/code/session_01NBfkjWcEGDFghet3APnUjU"
 - Every result carries `account`; lists carry `next_page_token` when Gmail returned one.
 - `download_attachment` takes `message_id` and one of `attachment_id` or `part_id`. A part with an `attachmentId` is fetched with `attachments.get`; a part whose bytes live in `body.data` (no `attachmentId`, which Gmail uses for small parts) is decoded from the message itself. It refuses anything above 25 MB by the part's `size` before any bytes move, and returns `StagingHandleResponse` plus `account`.
 
-- [ ] **Step 1 (RED): tests**
+- [x] **Step 1 (RED): tests**
 
 `worker/test/read-tools.test.ts`:
 
@@ -5360,12 +5360,12 @@ describe("download_attachment", () => {
 });
 ```
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
 Run: `cd worker && npx vitest run test/read-tools.test.ts`
 Expected: FAIL, unknown tools.
 
-- [ ] **Step 3 (GREEN): schemas and the family**
+- [x] **Step 3 (GREEN): schemas and the family**
 
 Append to `shared/src/schemas.ts`:
 
@@ -5702,12 +5702,12 @@ The download path buffers the `attachments.get` JSON and the decoded bytes, whic
 
 `worker/src/mcp/server.ts`: `registerReadTools(server, toolContext, env);` after `registerLabelTools`.
 
-- [ ] **Step 4: run, expect pass**
+- [x] **Step 4: run, expect pass**
 
 Run: `cd worker && npx vitest run test/read-tools.test.ts test/mcp.test.ts` then `npm run verify`.
 Expected: PASS.
 
-- [ ] **Step 5: commit**
+- [x] **Step 5: commit**
 
 ```bash
 git add shared/src/schemas.ts worker/src/tools/read.ts worker/src/mcp/server.ts worker/test
