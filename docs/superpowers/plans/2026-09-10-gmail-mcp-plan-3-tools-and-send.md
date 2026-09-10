@@ -2298,7 +2298,7 @@ Claude-Session: https://claude.ai/code/session_01NBfkjWcEGDFghet3APnUjU"
 
 The intent hash is `sha256(JCS({ tool, v, account: alias, args }))` where `args` are the schema-parsed arguments with every inline attachment's `content_base64` replaced by `{ filename, mime, size, sha256 }`. It describes what the client asked for and nothing the server generated, so a retried call, an idempotent replay and an elicitation resume all hash to the same value whether or not staging handles were minted in between. The execution payload (with handles) is hashed separately as `payload_hash`, which is what the claim and the approval page bind to.
 
-- [ ] **Step 1 (RED): tests**
+- [x] **Step 1 (RED): tests**
 
 `worker/test/gate.test.ts`:
 
@@ -2803,12 +2803,12 @@ describe("executePending", () => {
 
 `worker/test/mcp.test.ts`: the expected tool list gains `"execute_pending"`. `worker/test/schema.test.ts`: add an assertion that `idempotency_keys` exists with its composite primary key and that inserting a row whose `(user_id, account_id)` does not match an account fails.
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
 Run: `cd worker && npx vitest run test/gate.test.ts test/mcp.test.ts test/schema.test.ts`
 Expected: FAIL, modules and table not found.
 
-- [ ] **Step 3 (GREEN): migration, pending, staging, journal**
+- [x] **Step 3 (GREEN): migration, pending, staging, journal**
 
 `worker/migrations/0003_intent.sql`:
 
@@ -2976,7 +2976,7 @@ export function insertOperationStatement(
 
 `OperationRow` gains `result_json: string | null`. `acquire` stays for Plan 1's tests; the gate uses `insertOperationStatement` and the `idempotency_keys` table instead, because the operations index binds one key to one operation for ever, and spec 3.5 lets a `failed_safe` attempt be followed by a fresh one under the same key.
 
-- [ ] **Step 4 (GREEN): state, results, accounts, idempotency, settlement**
+- [x] **Step 4 (GREEN): state, results, accounts, idempotency, settlement**
 
 `worker/src/approval/state.ts`:
 
@@ -3417,7 +3417,7 @@ export async function settleUnknown(db: D1Database, s: Settlement): Promise<void
 }
 ```
 
-- [ ] **Step 5 (GREEN): the gate**
+- [x] **Step 5 (GREEN): the gate**
 
 `worker/src/tools/gate.ts`:
 
@@ -3951,7 +3951,7 @@ export function factsOf(p: Record<string, unknown>): AuditFacts {
 
 `resumeGated` records `action: "send.message"` as a placeholder only until the pending row is read; when the row exists the audit row carries the row's real action. The `lostRace` helper returns `undefined as never` in quiet mode so the caller can fall through to `handle_reserved`; that is the one place the type is bent, and the comment above it says why.
 
-- [ ] **Step 6 (GREEN): the server factory**
+- [x] **Step 6 (GREEN): the server factory**
 
 `worker/src/mcp/server.ts`:
 
@@ -4120,12 +4120,12 @@ Tasks 5, 6, 8 and 9 add `registerLabelTools(server, toolContext, env)`, `registe
 
 `worker/src/index.ts`: the factory line becomes `createMcpHandler((mcpCtx) => buildServer(env, principal, deps, mcpCtx.era))(request, env, ctx)`.
 
-- [ ] **Step 7: run, expect pass**
+- [x] **Step 7: run, expect pass**
 
 Run: `cd worker && npx vitest run test/gate.test.ts test/claim.test.ts test/mcp.test.ts test/cron.test.ts test/schema.test.ts` then `npm run verify`.
 Expected: PASS.
 
-- [ ] **Step 8: commit**
+- [x] **Step 8: commit**
 
 ```bash
 git add worker/migrations/0003_intent.sql worker/src worker/test
