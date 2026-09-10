@@ -5660,11 +5660,7 @@ describe("audit page", () => {
       "INSERT INTO oauth_states (id, kind, payload, created_at, expires_at, consumed_at) VALUES ('st_old', 'login', '{}', 1, 2, 3)",
     ).run();
     const ctx = createExecutionContext();
-    worker.scheduled!(
-      { scheduledTime: Date.now(), cron: "*/5 * * * *", noRetry() {} } as ScheduledController,
-      testEnv(),
-      ctx,
-    );
+    worker.scheduled({ scheduledTime: Date.now(), cron: "*/5 * * * *", noRetry() {} }, testEnv(), ctx);
     await waitOnExecutionContext(ctx);
     expect(
       await env.DB.prepare("SELECT count(*) AS n FROM oauth_states WHERE id = 'st_old'").first<{ n: number }>(),
