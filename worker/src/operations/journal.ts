@@ -11,6 +11,7 @@ export type OperationRow = {
   idempotency_key: string | null;
   state: OpState;
   payload_hash: string;
+  result_json: string | null;
   rfc822_message_id: string | null;
   gmail_result_id: string | null;
   created_at: number;
@@ -76,4 +77,27 @@ export async function transition(
     .bind(to, Date.now(), patch.gmail_result_id ?? null, patch.rfc822_message_id ?? null, operationId, ...from)
     .run();
   return (res.meta.changes ?? 0) === 1;
+}
+
+/** Spec 3.5 step 3: the executor calls this immediately before the first request that can change Gmail. */
+export async function beginOperation(
+  db: D1Database,
+  operationId: string,
+  patch: { rfc822_message_id?: string } = {},
+): Promise<void> {
+  if (!(await transition(db, operationId, ["claimed"], "executing", patch))) {
+    throw new GmailMcpError("internal", `operation ${operationId} was not claimed`);
+  }
+}
+
+export function insertOperationStatement(
+  db: D1Database,
+  o: { id: string; userId: string; accountId: string; action: Action; payloadHash: string; now: number },
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO operations (id, user_id, account_id, action, idempotency_key, state, payload_hash, created_at, updated_at)
+       VALUES (?, ?, ?, ?, NULL, 'claimed', ?, ?, ?)`,
+    )
+    .bind(o.id, o.userId, o.accountId, o.action, o.payloadHash, o.now, o.now);
 }

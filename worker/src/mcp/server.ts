@@ -1,38 +1,45 @@
-import { McpServer } from "@modelcontextprotocol/server";
+import { McpServer, type ServerContext } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { ACTIONS, DEFAULT_POLICY } from "@gmail-mcp/shared/actions";
 import { AccountAlias } from "@gmail-mcp/shared/schemas";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
 import type { Env } from "../env";
 import type { Deps } from "../deps";
 import type { Principal } from "../auth/principal";
 import { auditIntent } from "../audit/log";
-import { connectUrl } from "../google/connect";
-import { effectiveLevel } from "../policy/engine";
+import { approvalCodec } from "../approval/state";
 import { cancelPending } from "../approval/pending";
+import { effectiveLevel } from "../policy/engine";
+import { resolveAccount } from "../tools/accounts";
+import { executePending, roundOf, type ToolContext } from "../tools/gate";
+import { connectRequired, guarded, text } from "../tools/results";
+import { registerLabelTools } from "../tools/labels";
+import { registerReadTools } from "../tools/read";
+import { registerDraftTools } from "../tools/drafts";
+import { registerSendTools } from "../tools/send";
 
-function text(obj: unknown) {
-  return { content: [{ type: "text" as const, text: JSON.stringify(obj, null, 2) }] };
-}
+export type Era = "legacy" | "modern";
 
-async function resolveAccount(env: Env, userId: string, alias?: string): Promise<{ id: string; alias: string }> {
-  const row = alias
-    ? await env.DB.prepare("SELECT id, alias FROM accounts WHERE user_id = ? AND alias = ?")
-        .bind(userId, alias)
-        .first<{ id: string; alias: string }>()
-    : await env.DB.prepare("SELECT id, alias FROM accounts WHERE user_id = ? AND is_default = 1")
-        .bind(userId)
-        .first<{ id: string; alias: string }>();
-  if (!row)
-    throw new GmailMcpError(
-      "account_not_found",
-      alias ? `account_not_found: ${alias}` : "account_not_found: no default account",
-    );
-  return row;
-}
+/**
+ * The seven control tools registered here read the owner's own state or are the approval mechanism
+ * itself, and do not pass through the policy engine. Every Gmail tool is registered by the family
+ * modules through defineTool, which is the only path to the gate.
+ */
+export function buildServer(env: Env, principal: Principal, deps: Deps, era: Era): McpServer {
+  const codec = approvalCodec(env, principal);
+  const server = new McpServer(
+    { name: "gmail-mcp", version: "0.0.1" },
+    // Wrapped rather than passed by reference: the codec's verify is a method and must keep its receiver.
+    { requestState: { verify: (state, ctx) => codec.verify(state, ctx) } },
+  );
 
-export function buildServer(env: Env, principal: Principal, _deps: Deps): McpServer {
-  const server = new McpServer({ name: "gmail-mcp", version: "0.0.1" });
+  /** One ToolContext per call: the era and the request's capabilities decide whether a URL can be opened. */
+  const toolContext = (ctx: ServerContext): ToolContext => ({
+    env,
+    deps,
+    principal,
+    urlElicitation: era === "modern" && server.server.getClientCapabilities()?.elicitation?.url !== undefined,
+    round: roundOf(ctx, codec),
+  });
 
   server.registerTool(
     "list_accounts",
@@ -58,14 +65,15 @@ export function buildServer(env: Env, principal: Principal, _deps: Deps): McpSer
       inputSchema: z.object({ account: AccountAlias.optional() }),
       annotations: { readOnlyHint: true },
     },
-    async ({ account }) => {
-      const acc = await resolveAccount(env, principal.userId, account);
-      const policy: Record<string, string> = {};
-      for (const a of ACTIONS)
-        policy[a] =
-          DEFAULT_POLICY[a] === "browser" ? "browser" : await effectiveLevel(env.DB, principal.userId, acc.id, a);
-      return text({ account: acc.alias, policy });
-    },
+    async ({ account }, ctx) =>
+      guarded(toolContext(ctx), async () => {
+        const acc = await resolveAccount(env, principal.userId, account);
+        const policy: Record<string, string> = {};
+        for (const a of ACTIONS)
+          policy[a] =
+            DEFAULT_POLICY[a] === "browser" ? "browser" : await effectiveLevel(env.DB, principal.userId, acc.id, a);
+        return text({ account: acc.alias, policy });
+      }),
   );
 
   server.registerTool(
@@ -88,6 +96,19 @@ export function buildServer(env: Env, principal: Principal, _deps: Deps): McpSer
   );
 
   server.registerTool(
+    "execute_pending",
+    {
+      description: "Execute an action the owner approved in the browser. Claimable once; a replay is refused.",
+      inputSchema: z.object({ action_id: z.string().regex(/^pa_[A-Za-z0-9_-]{22}$/) }),
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+    },
+    async ({ action_id }, ctx) => {
+      const t = toolContext(ctx);
+      return guarded(t, async () => text(await executePending(t, action_id)));
+    },
+  );
+
+  server.registerTool(
     "cancel_pending",
     {
       description: "Withdraw a pending or approved action before it executes.",
@@ -102,11 +123,11 @@ export function buildServer(env: Env, principal: Principal, _deps: Deps): McpSer
     "connect_account",
     {
       description:
-        "Connect or reconnect a Google account under an alias. Completes in the owner's browser; returns the page URL.",
+        "Connect or reconnect a Google account under an alias. Completes in the owner's browser; opens the page when the client can, else returns its URL.",
       inputSchema: z.object({ alias: AccountAlias }),
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
-    async ({ alias }) => {
+    async ({ alias }, ctx) => {
       await auditIntent(env.DB, {
         userId: principal.userId,
         accountId: null,
@@ -116,7 +137,7 @@ export function buildServer(env: Env, principal: Principal, _deps: Deps): McpSer
         decision: "browser",
         facts: {},
       });
-      return text({ status: "connect_required", account: alias, url: await connectUrl(env, principal.userId, alias) });
+      return connectRequired(toolContext(ctx), alias);
     },
   );
 
@@ -140,6 +161,11 @@ export function buildServer(env: Env, principal: Principal, _deps: Deps): McpSer
       return text({ url: `https://${env.WORKER_HOSTNAME}/policy` });
     },
   );
+
+  registerLabelTools(server, toolContext, env);
+  registerReadTools(server, toolContext, env);
+  registerDraftTools(server, toolContext, env);
+  registerSendTools(server, toolContext, env);
 
   return server;
 }

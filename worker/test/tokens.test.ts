@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { describe, it, expect, beforeAll } from "vitest";
 import { FakeGoogle } from "./fake-google";
-import { testEnv } from "./test-env";
+import { testEnv, testDeps } from "./test-env";
 import { Keyring } from "../src/crypto/keyring";
 import { getAccessToken, revokeAccount } from "../src/google/tokens";
 import { seedUserAndAccount } from "./fixtures";
@@ -37,10 +37,10 @@ describe("access tokens", () => {
     g.refreshTokens.set("rt-a", "ok");
     await seedTokens(e, "ta", { refresh: "rt-a", access: "cached", expiresAt: Date.now() + 10 * 60_000 });
     const calls = g.tokenCalls;
-    expect(await getAccessToken(e, { googleFetch: g.fetch }, "tu", "ta")).toBe("cached");
+    expect(await getAccessToken(e, testDeps(g), "tu", "ta")).toBe("cached");
     expect(g.tokenCalls).toBe(calls);
     await seedTokens(e, "ta", { refresh: "rt-a", access: "stale", expiresAt: Date.now() + 30_000 });
-    const fresh = await getAccessToken(e, { googleFetch: g.fetch }, "tu", "ta");
+    const fresh = await getAccessToken(e, testDeps(g), "tu", "ta");
     expect(fresh).toMatch(/^at-/);
     expect(g.tokenCalls).toBe(calls + 1);
     const row = await env.DB.prepare(
@@ -54,13 +54,13 @@ describe("access tokens", () => {
     const e = testEnv();
     g.refreshTokens.set("rt-dead", "invalid_grant");
     await seedTokens(e, "tb", { refresh: "rt-dead" });
-    await expect(getAccessToken(e, { googleFetch: g.fetch }, "tu", "tb")).rejects.toMatchObject({
+    await expect(getAccessToken(e, testDeps(g), "tu", "tb")).rejects.toMatchObject({
       code: "account_needs_reconnect",
     });
     const row = await env.DB.prepare("SELECT status, access_token_enc FROM accounts WHERE id = 'tb'").first<any>();
     expect(row.status).toBe("needs_reconnect");
     expect(row.access_token_enc).toBeNull();
-    await expect(getAccessToken(e, { googleFetch: g.fetch }, "tu", "tb")).rejects.toMatchObject({
+    await expect(getAccessToken(e, testDeps(g), "tu", "tb")).rejects.toMatchObject({
       code: "account_needs_reconnect",
     });
   });
@@ -70,7 +70,7 @@ describe("access tokens", () => {
     g.refreshTokens.set("rt-rot", "ok");
     await seedTokens(old, "ta", { refresh: "rt-rot", access: "cached", expiresAt: Date.now() + 10 * 60_000 });
     const rotated = testEnv({ TOKEN_KEKS: JSON.stringify({ k1: K1, k2: K2 }), TOKEN_KEK_CURRENT: "k2" });
-    expect(await getAccessToken(rotated, { googleFetch: g.fetch }, "tu", "ta")).toBe("cached");
+    expect(await getAccessToken(rotated, testDeps(g), "tu", "ta")).toBe("cached");
     const row = await env.DB.prepare(
       "SELECT refresh_token_key_id, access_token_key_id FROM accounts WHERE id = 'ta'",
     ).first<any>();
@@ -92,10 +92,10 @@ describe("access tokens", () => {
     g.refreshTokens.set("rt-race", "ok");
     await seedTokens(e, "ta", { refresh: "rt-race", access: "old", expiresAt: Date.now() + 1000 });
     g.beforeRefresh = async () => {
-      await revokeAccount(e, { googleFetch: g.fetch }, "tu", "ta");
+      await revokeAccount(e, testDeps(g), "tu", "ta");
     };
     try {
-      await expect(getAccessToken(e, { googleFetch: g.fetch }, "tu", "ta")).rejects.toMatchObject({
+      await expect(getAccessToken(e, testDeps(g), "tu", "ta")).rejects.toMatchObject({
         code: "account_needs_reconnect",
       });
     } finally {
@@ -117,7 +117,7 @@ describe("access tokens", () => {
     await env.DB.prepare(
       "UPDATE accounts SET status = 'revoked', credential_version = credential_version + 1, refresh_token_enc = NULL, refresh_token_key_id = NULL, access_token_enc = NULL, access_token_key_id = NULL WHERE id = 'tb'",
     ).run();
-    await expect(getAccessToken(rotated, { googleFetch: g.fetch }, "tu", "tb")).rejects.toMatchObject({
+    await expect(getAccessToken(rotated, testDeps(g), "tu", "tb")).rejects.toMatchObject({
       code: "account_needs_reconnect",
     });
     const row = await env.DB.prepare(
@@ -128,14 +128,14 @@ describe("access tokens", () => {
 
   it("ownership is in the query, and revoke wipes ciphertexts before telling Google", async () => {
     const e = testEnv();
-    await expect(getAccessToken(e, { googleFetch: g.fetch }, "tv", "ta")).rejects.toMatchObject({
+    await expect(getAccessToken(e, testDeps(g), "tv", "ta")).rejects.toMatchObject({
       code: "account_not_found",
     });
     g.refreshTokens.set("rt-rev", "ok");
     await seedTokens(e, "ta", { refresh: "rt-rev", access: "x", expiresAt: Date.now() + 600_000 });
     const before = (await env.DB.prepare("SELECT credential_version AS v FROM accounts WHERE id = 'ta'").first<any>())
       .v;
-    await revokeAccount(e, { googleFetch: g.fetch }, "tu", "ta");
+    await revokeAccount(e, testDeps(g), "tu", "ta");
     expect(g.revoked.has("rt-rev")).toBe(true);
     const row = await env.DB.prepare(
       "SELECT status, is_default, credential_version, refresh_token_enc, access_token_enc, refresh_token_key_id FROM accounts WHERE id = 'ta'",

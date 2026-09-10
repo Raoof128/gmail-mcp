@@ -50,13 +50,20 @@ async function guardedWrite(env: Env, sql: string, binds: unknown[], row: TokenR
  * refresh token buys a new one. Any ciphertext read under a key that is no longer current is
  * rewritten under the current one, which is how a rotation completes without a migration.
  */
-export async function getAccessToken(env: Env, deps: Deps, userId: string, accountId: string): Promise<string> {
+export async function getAccessToken(
+  env: Env,
+  deps: Deps,
+  userId: string,
+  accountId: string,
+  o: { forceRefresh?: boolean } = {},
+): Promise<string> {
   const row = await load(env.DB, userId, accountId);
   if (row.status !== "active") throw reconnect(row.status);
   const ring = Keyring.fromEnv(env);
   const now = Date.now();
 
   if (
+    !o.forceRefresh &&
     row.access_token_enc &&
     row.access_token_key_id &&
     row.access_expires_at &&

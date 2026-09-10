@@ -1,3 +1,5 @@
+import { defaultDeps, type Deps } from "../src/deps";
+import type { FakeGoogle } from "./fake-google";
 import { env } from "cloudflare:test";
 import type { Env } from "../src/env";
 
@@ -28,3 +30,16 @@ export function testEnv(overrides: Record<string, unknown> = {}): Env {
 }
 
 export const HOST = "https://gmail-mcp.example.workers.dev";
+
+/** Fake Google, no real sleeping, and an approval wait long enough for a browser approval to land inside it. */
+export function testDeps(g: FakeGoogle, overrides: Partial<Deps> = {}): Deps {
+  return {
+    ...defaultDeps,
+    googleFetch: g.fetch,
+    // A resolved promise is a microtask, and a loop of those starves the timer queue, so an approval
+    // scheduled with setTimeout could never land inside the wait loop. Yield a macrotask instead.
+    sleep: () => new Promise((r) => setTimeout(r, 0)),
+    approvalWait: { intervalMs: 5, deadlineMs: 500 },
+    ...overrides,
+  };
+}

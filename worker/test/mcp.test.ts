@@ -5,7 +5,7 @@ import { seedUserAndAccount } from "./fixtures";
 import { rpc } from "./mcp-client";
 import { FakeGoogle } from "./fake-google";
 import { mintToken } from "./browser";
-import { testEnv } from "./test-env";
+import { testEnv, testDeps } from "./test-env";
 
 const INIT = { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "0" } };
 let g: FakeGoogle;
@@ -14,10 +14,51 @@ let token: string;
 
 beforeAll(async () => {
   g = await FakeGoogle.create();
-  worker = createWorker({ googleFetch: g.fetch });
+  worker = createWorker(testDeps(g));
   await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "ma", alias: "personal", isDefault: true });
   token = (await mintToken(worker, testEnv(), g, { scope: "mcp" })).accessToken;
 });
+
+const ALL_TOOLS = [
+  "apply_sensitive_message_label",
+  "apply_sensitive_thread_label",
+  "cancel_pending",
+  "connect_account",
+  "create_draft",
+  "create_label",
+  "delete_label",
+  "download_attachment",
+  "execute_pending",
+  "forward",
+  "get_draft",
+  "get_message",
+  "get_policy",
+  "get_thread",
+  "label_message",
+  "label_thread",
+  "list_accounts",
+  "list_drafts",
+  "list_labels",
+  "list_pending",
+  "mark_message_spam",
+  "mark_thread_spam",
+  "open_policy_editor",
+  "reply",
+  "search_threads",
+  "send_draft",
+  "send_message",
+  "trash_message",
+  "trash_thread",
+  "unlabel_message",
+  "unlabel_thread",
+  "unmark_message_spam",
+  "unmark_thread_spam",
+  "untrash_message",
+  "untrash_thread",
+  "update_draft",
+  "update_label",
+  "update_message_labels",
+];
 
 describe("/mcp auth gate", () => {
   it("401 with a resource_metadata challenge and no session leakage without a bearer", async () => {
@@ -35,14 +76,57 @@ describe("protocol", () => {
     expect(init.json?.result?.serverInfo?.name).toBe("gmail-mcp");
     const list = await rpc(worker, testEnv(), token, "tools/list", {}, 2);
     const names = (list.json?.result?.tools ?? []).map((t: { name: string }) => t.name).sort();
-    expect(names).toEqual([
-      "cancel_pending",
-      "connect_account",
+    expect(names).toEqual(ALL_TOOLS);
+    expect(names).toHaveLength(38);
+    const byName = Object.fromEntries(
+      (list.json.result.tools as { name: string; annotations?: Record<string, boolean> }[]).map((t) => [
+        t.name,
+        t.annotations ?? {},
+      ]),
+    );
+    for (const n of [
+      "search_threads",
+      "get_thread",
+      "get_message",
+      "list_drafts",
+      "get_draft",
+      "list_labels",
       "get_policy",
-      "list_accounts",
-      "list_pending",
       "open_policy_editor",
-    ]);
+      "list_pending",
+      "list_accounts",
+    ])
+      expect(byName[n]!.readOnlyHint).toBe(true);
+    expect(byName.download_attachment).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    });
+    for (const n of ["send_message", "reply", "send_draft", "forward"])
+      expect(byName[n]).toMatchObject({ readOnlyHint: false, destructiveHint: false, openWorldHint: true });
+    for (const n of [
+      "trash_message",
+      "trash_thread",
+      "unlabel_message",
+      "unlabel_thread",
+      "mark_message_spam",
+      "mark_thread_spam",
+      "delete_label",
+    ])
+      expect(byName[n]!.destructiveHint).toBe(true);
+    for (const n of [
+      "untrash_message",
+      "untrash_thread",
+      "unmark_message_spam",
+      "unmark_thread_spam",
+      "label_message",
+      "label_thread",
+      "create_label",
+      "update_label",
+      "create_draft",
+      "update_draft",
+    ])
+      expect(byName[n]!.destructiveHint).toBe(false);
   });
   it("get_policy resolves the default account of the token's owner", async () => {
     const call = await rpc(worker, testEnv(), token, "tools/call", { name: "get_policy", arguments: {} }, 3);

@@ -71,4 +71,16 @@ describe("schema constraints", () => {
       env.DB.prepare("UPDATE accounts SET send_limit_bytes = 999999999 WHERE id = 'a11'").run(),
     ).rejects.toThrow(/CHECK/);
   });
+
+  it("idempotency_keys is keyed on (user_id, account_id, key) and owned by an account", async () => {
+    await seedUserAndAccount(env.DB, { userId: "u8", accountId: "a12", alias: "k" });
+    const row = (n: string, acct: string) =>
+      env.DB.prepare(
+        `INSERT INTO idempotency_keys (user_id, account_id, key, tool, intent_hash, created_at, updated_at)
+         VALUES (?, ?, ?, 'send_message', 'ih', 1, 1)`,
+      ).bind("u8", acct, n);
+    await row("k1", "a12").run();
+    await expect(row("k1", "a12").run()).rejects.toThrow(/UNIQUE|PRIMARY/);
+    await expect(row("k2", "a-nope").run()).rejects.toThrow(/FOREIGN KEY/);
+  });
 });

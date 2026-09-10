@@ -1,6 +1,7 @@
 import { GmailMcpError } from "@gmail-mcp/shared/errors";
 import { StagingHandle } from "@gmail-mcp/shared/schemas";
 import { randomId } from "../crypto/random";
+import { reserveStatements } from "../staging/store";
 import { getPending, type PendingRow } from "./pending";
 
 /** Handles come from the approved payload only. Any other shape is a payload_mismatch, never a guess. */
@@ -27,8 +28,13 @@ export async function claimPending(
   const before = await getPending(db, o.id, o.userId);
   if (!before) throw new GmailMcpError("pending_not_approved", "pending_not_approved: unknown");
   if (before.expires_at <= Date.now()) throw new GmailMcpError("pending_expired", "pending_expired");
-  if (before.state !== "approved")
+  if (before.state !== "approved") {
+    // An action already running or already run is a replay, not a missing approval. The distinction is
+    // what tells a retrying caller "this happened once" apart from "this will never happen".
+    if (before.state === "executing" || before.state === "executed")
+      throw new GmailMcpError("pending_replayed", `pending_replayed: ${before.state}`);
     throw new GmailMcpError("pending_not_approved", `pending_not_approved: ${before.state}`);
+  }
   const handles = handlesFromPayload(before.payload_json);
 
   const operationId = randomId("op");
@@ -53,22 +59,9 @@ export async function claimPending(
       )
       .bind(o.id, operationId),
   ];
-  if (handles.length > 0) {
-    stmts.push(
-      db
-        .prepare(
-          `UPDATE staging_objects SET reserved_by_operation_id = ?
-         WHERE handle IN (${handles.map(() => "?").join(",")}) AND user_id = ? AND account_id = ? AND direction = 'upload'
-           AND consumed_at IS NULL AND reserved_by_operation_id IS NULL AND expires_at > ?`,
-        )
-        .bind(operationId, ...handles, before.user_id, before.account_id, now),
-      db
-        .prepare(
-          `INSERT INTO _assert (x) SELECT 1 WHERE (SELECT count(*) FROM staging_objects WHERE reserved_by_operation_id = ?) != ?`,
-        )
-        .bind(operationId, handles.length),
-    );
-  }
+  stmts.push(
+    ...reserveStatements(db, { operationId, handles, userId: before.user_id, accountId: before.account_id, now }),
+  );
   try {
     await db.batch(stmts);
   } catch (e) {

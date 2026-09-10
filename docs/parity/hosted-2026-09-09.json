@@ -5,7 +5,8 @@
     "Hosted descriptions reference batch_apply_sensitive_message_labels and batch_apply_sensitive_thread_labels, which were not exposed in this session. Recorded as referenced-but-unexposed.",
     "search_threads pageSize maximum is 50. Our spec aligns to 50.",
     "No hosted tool returns attachment bytes. get_message/get_thread/get_draft expose attachment_ids and attachments metadata only.",
-    "Hosted send_message, create_draft, update_draft accept Attachment { content: base64, filename?, mimeType?, inline? }. Ours accept staging handles instead."
+    "Hosted send_message, create_draft, update_draft accept Attachment { content: base64, filename?, mimeType?, inline? }. Ours accept staging handles instead.",
+    "Our label tools take text_color and background_color instead of colorPreset and do not auto-create parent labels; every argument is snake_case; MESSAGE_FORMAT_UNSPECIFIED is accepted as the default; update_draft merges each field independently and treats an omitted attachment list as none."
   ],
   "shared_defs": {
     "Attachment": {
