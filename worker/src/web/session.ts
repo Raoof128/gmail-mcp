@@ -93,9 +93,12 @@ export async function revokeSession(db: D1Database, idHash: string): Promise<voi
     .run();
 }
 
-export async function revokeOtherSessions(db: D1Database, userId: string, keepIdHash: string): Promise<void> {
-  await db
+export function revokeOtherSessionsStatement(db: D1Database, userId: string, keepIdHash: string): D1PreparedStatement {
+  return db
     .prepare("UPDATE web_sessions SET revoked_at = ? WHERE user_id = ? AND id_hash != ? AND revoked_at IS NULL")
-    .bind(Date.now(), userId, keepIdHash)
-    .run();
+    .bind(Date.now(), userId, keepIdHash);
+}
+
+export async function revokeOtherSessions(db: D1Database, userId: string, keepIdHash: string): Promise<void> {
+  await revokeOtherSessionsStatement(db, userId, keepIdHash).run();
 }

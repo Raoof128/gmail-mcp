@@ -7,6 +7,7 @@ import { authorizeRoutes } from "./auth/authorize";
 import { connectRoutes } from "./google/connect";
 import { accountsRoutes } from "./web/pages/accounts";
 import { approveRoutes } from "./web/pages/approve";
+import { policyRoutes } from "./web/pages/policy";
 import { requireScope } from "./auth/principal";
 import { buildServer } from "./mcp/server";
 import { stagingApiHandler } from "./staging/routes";
@@ -35,6 +36,7 @@ function oauthOptions(env: Env, deps: Deps): OAuthProviderOptions<Env> {
       ...connectRoutes,
       ...approveRoutes,
       ...accountsRoutes,
+      ...policyRoutes,
     ]),
     authorizeEndpoint: "/authorize",
     tokenEndpoint: "/token",
