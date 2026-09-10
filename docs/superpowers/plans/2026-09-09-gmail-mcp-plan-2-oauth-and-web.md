@@ -4061,7 +4061,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - `approval/view.ts`: `approvalView(action, payload): ApprovalView`, a discriminated union the page renders field by field. `send` (`send.message`, `send.draft`, `send.forward`): `to`, `cc`, `bcc` kept apart, `subject`, `body`, `attachments`, plus `draft_id`, `message_id`, `include_original_attachments` when present. `targets` (`trash.move`, `trash.restore`, `spam.mark`, `spam.unmark`, `label.apply`): `message_ids`, `thread_ids`, `label_ids`, `add`, `remove`, with counts. `label` (`label.manage`): `op` (`create`, `update`, `delete`), `label_id`, `name`. `upload` (`attachment.stage_upload`): `filename`, `size`, `mime`. Any other action, or a payload missing the fields its action needs, yields `raw`, and the page prints the whole canonical payload as escaped text so the owner always sees what would run. This is the payload contract Plan 3's tools must honour; the page never guesses.
 - `audit/log.ts` gains `auditStatement(db, phase, base): D1PreparedStatement`, the prepared form of the existing `write`, so callers can put an audit row inside a batch.
 - `GET /approve/<pa_id>`: session; row looked up with `user_id` in the query; an unknown or foreign id is 404. A `pending` and unexpired row renders the structured block, the attachments table (joined to `staging_objects` by handle and owner), and the untrusted block with the body preview cut to 2048 bytes. Other states render a one-line status page (200).
-- `POST /approve/<pa_id>` with `decision=approve|deny` and `csrf`: session, Origin, CSRF bound to the id. The transition and its audit row are one D1 batch: the `UPDATE` from `approvePending`/`denyPending` (exposed as `approveStatement`/`denyStatement` in `approval/pending.ts`), an `_assert` row that fails the batch when the update matched nothing, and the `outcome` audit row with decision `approved` or `denied`. A failed batch is 409. Then redirect to the GET.
+- `POST /approve/<pa_id>` with `decision=approve|deny` and `csrf`: session, Origin, CSRF bound to the id. The transition and its audit row are one D1 batch: the `UPDATE` from `approvePending`/`denyPending` (exposed as `approveStatement`/`denyStatement` in `approval/pending.ts`), an `_assert` row placed before them that fails the batch unless the row is still pending and unexpired, and the `outcome` audit row with decision `approved` or `denied`. A failed batch is 409. Then redirect to the GET.
 
 - [ ] **Step 1 (RED): tests**
 
@@ -4455,13 +4455,19 @@ export function denyStatement(db: D1Database, o: { id: string; userId: string })
     )
     .bind(o.id, o.userId, Date.now());
 }
-/** Fails the batch unless the pending row is now in `state`. Same `_assert` trick as the claim. */
-export function assertPendingState(db: D1Database, id: string, state: PendingState): D1PreparedStatement {
+/**
+ * Fails the batch unless the row is still pending and unexpired. This runs BEFORE the transition, not
+ * after: a postcondition check cannot tell "this statement approved it" from "it was already approved",
+ * so a second approval would slip through. The batch is one transaction, so nothing interleaves between
+ * this assertion and the update that follows it.
+ */
+export function assertStillPending(db: D1Database, id: string): D1PreparedStatement {
   return db
     .prepare(
-      `INSERT INTO _assert (x) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM pending_actions WHERE id = ? AND state = ?)`,
+      `INSERT INTO _assert (x) SELECT 1 WHERE NOT EXISTS (
+         SELECT 1 FROM pending_actions WHERE id = ? AND state = 'pending' AND expires_at > ?)`,
     )
-    .bind(id, state);
+    .bind(id, Date.now());
 }
 ```
 
@@ -4471,7 +4477,7 @@ In `worker/src/audit/log.ts`, split `write` so the statement can be batched:
 export function auditStatement(
   db: D1Database,
   phase: "intent" | "outcome",
-  b: Base & { gmailResultId?: string },
+  b: AuditBase & { gmailResultId?: string },
 ): D1PreparedStatement {
   return db
     .prepare(
@@ -4498,7 +4504,7 @@ export function auditStatement(
 async function write(
   db: D1Database,
   phase: "intent" | "outcome",
-  b: Base & { gmailResultId?: string },
+  b: AuditBase & { gmailResultId?: string },
 ): Promise<number> {
   const res = await auditStatement(db, phase, b).run();
   return Number(res.meta.last_row_id ?? 0);
@@ -4514,7 +4520,7 @@ import type { Env } from "../../env";
 import { auditStatement } from "../../audit/log";
 import {
   approveStatement,
-  assertPendingState,
+  assertStillPending,
   denyStatement,
   getPending,
   type PendingRow,
@@ -4698,10 +4704,10 @@ export const approveRoutes: Route[] = [
       // already decided, the assertion fails, the batch rolls back, and no audit row claims otherwise.
       try {
         await env.DB.batch([
+          assertStillPending(env.DB, pending.id),
           decision === "approve"
             ? approveStatement(env.DB, { id: pending.id, userId: s.userId, via: "browser" })
             : denyStatement(env.DB, { id: pending.id, userId: s.userId }),
-          assertPendingState(env.DB, pending.id, decision === "approve" ? "approved" : "denied"),
           auditStatement(env.DB, "outcome", base),
         ]);
       } catch {
