@@ -14,6 +14,7 @@ import { executePending, roundOf, type ToolContext } from "../tools/gate";
 import { connectRequired, guarded, text } from "../tools/results";
 import { registerLabelTools } from "../tools/labels";
 import { registerReadTools } from "../tools/read";
+import { registerDraftTools } from "../tools/drafts";
 
 export type Era = "legacy" | "modern";
 
@@ -162,6 +163,7 @@ export function buildServer(env: Env, principal: Principal, deps: Deps, era: Era
 
   registerLabelTools(server, toolContext, env);
   registerReadTools(server, toolContext, env);
+  registerDraftTools(server, toolContext, env);
 
   return server;
 }

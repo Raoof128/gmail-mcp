@@ -163,3 +163,31 @@ export const DownloadAttachmentInput = z
 /** The stored payload, which the gate strips of `account` before it journals. A refined object cannot
  * be `.omit()`ed, so the two schemas are built from one field set instead. */
 export const DownloadAttachmentPayload = z.object(DownloadAttachmentFields).refine(oneSource, ONE_SOURCE);
+
+export const Recipient = z.string().min(3).max(320);
+// Coarse guard only: validateCompose owns the 500 cap and reports it as limit_exceeded.
+export const Recipients = z.array(Recipient).max(2000).default([]);
+const ComposeFields = {
+  to: Recipients,
+  cc: Recipients,
+  bcc: Recipients,
+  subject: z.string().max(4000).optional(),
+  body: z.string().max(600_000).optional(),
+  html_body: z.string().max(600_000).optional(),
+  from: Recipient.optional(),
+  attachments: z.array(StagingHandle).max(100).optional(),
+  inline_attachments: z.array(InlineAttachment).max(50).optional(),
+};
+export const CreateDraftInput = z.object({
+  account: AccountAlias,
+  ...ComposeFields,
+  reply_to_message_id: GmailId.optional(),
+});
+export const UpdateDraftInput = z.object({
+  account: AccountAlias,
+  draft_id: GmailId,
+  ...ComposeFields,
+  to: z.array(Recipient).max(2000).optional(),
+  cc: z.array(Recipient).max(2000).optional(),
+  bcc: z.array(Recipient).max(2000).optional(),
+});

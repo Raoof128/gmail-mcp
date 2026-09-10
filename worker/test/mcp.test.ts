@@ -40,6 +40,7 @@ describe("protocol", () => {
       "apply_sensitive_thread_label",
       "cancel_pending",
       "connect_account",
+      "create_draft",
       "create_label",
       "delete_label",
       "download_attachment",
@@ -66,6 +67,7 @@ describe("protocol", () => {
       "unmark_thread_spam",
       "untrash_message",
       "untrash_thread",
+      "update_draft",
       "update_label",
       "update_message_labels",
     ]);

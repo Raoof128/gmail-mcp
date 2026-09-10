@@ -243,6 +243,43 @@ export class FakeGmail {
     return start + max < items.length ? { items: slice, nextPageToken: String(start + max) } : { items: slice };
   }
 
+  /**
+   * Gmail parses an uploaded message and serves its parts back, and an update that omits a field
+   * merges it from what the draft already holds, so the fake has to read the text bodies out of the
+   * MIME it was given. Base64 is re-spelled as base64url rather than decoded, which keeps the bytes.
+   */
+  private textParts(block: string, n = { i: 0 }): FakePart[] {
+    const head = block.split(/\r?\n\r?\n/)[0] ?? "";
+    const field = (name: string) =>
+      new RegExp(`^${name}:[ \\t]*([^\\r\\n]*)`, "im").exec(head)?.[1]?.trim().toLowerCase() ?? "";
+    const ct = field("content-type").split(";")[0] ?? "";
+    if (ct.startsWith("multipart/")) {
+      const boundary = /boundary="?([^";\r\n]+)"?/i.exec(head)?.[1];
+      if (!boundary) return [];
+      return block
+        .split(`--${boundary}`)
+        .slice(1, -1)
+        .flatMap((part) => this.textParts(part.replace(/^\r?\n/, ""), n));
+    }
+    if (field("content-disposition").includes("attachment")) return [];
+    if (field("content-transfer-encoding") !== "base64") return [];
+    if (ct !== "text/plain" && ct !== "text/html") return [];
+    const body = block
+      .split(/\r?\n\r?\n/)
+      .slice(1)
+      .join("\r\n\r\n")
+      .replace(/\s+/g, "");
+    return [
+      {
+        partId: String(n.i++),
+        mimeType: ct,
+        filename: "",
+        headers: [{ name: "Content-Type", value: `${ct}; charset=UTF-8` }],
+        body: { size: body.length, data: body.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") },
+      },
+    ];
+  }
+
   private storeSent(raw: Uint8Array<ArrayBuffer>, via: Sent["via"], threadIdHint: string | null): FakeMessage {
     const text = new TextDecoder().decode(raw);
     const headerBlock = text.split(/\r?\n\r?\n/)[0] ?? "";
@@ -252,6 +289,8 @@ export class FakeGmail {
       return m ? m[1]!.replace(/\r?\n[ \t]+/g, " ").trim() : "";
     };
     const id = this.next("m");
+    const topType = header("Content-Type").split(";")[0] || "text/plain";
+    const parsed = this.textParts(text);
     const inReplyTo = header("In-Reply-To");
     const parent = [...this.messages.values()].find((m) =>
       m.payload.headers.some((h) => h.name === "Message-ID" && h.value === inReplyTo),
@@ -266,12 +305,13 @@ export class FakeGmail {
       sizeEstimate: raw.byteLength,
       payload: {
         partId: "",
-        mimeType: header("Content-Type").split(";")[0] || "text/plain",
+        mimeType: topType,
         filename: "",
         headers: ["From", "To", "Cc", "Bcc", "Subject", "Message-ID", "In-Reply-To", "References", "Date"]
           .map((n) => ({ name: n, value: header(n) }))
           .filter((h) => h.value !== ""),
-        body: { size: 0 },
+        body: topType.startsWith("multipart/") ? { size: 0 } : (parsed[0]?.body ?? { size: 0 }),
+        ...(topType.startsWith("multipart/") ? { parts: parsed } : {}),
       },
       raw: b64url(raw),
     };
