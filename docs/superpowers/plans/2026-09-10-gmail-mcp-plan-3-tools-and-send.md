@@ -1202,7 +1202,7 @@ Claude-Session: https://claude.ai/code/session_01NBfkjWcEGDFghet3APnUjU"
   - `splitAddressList(value): string[]`: an RFC 5322 address-list splitter that understands quoted strings with backslash escapes, comments in parentheses (nested), angle-bracketed addr-specs, and groups (`Name: a, b;`, whose display name is dropped and whose members are returned). It splits and trims; it does not validate, which `parseAddress` does when a value is used.
   - `decodeBodyData(data)`.
 
-- [ ] **Step 1 (RED): tests**
+- [x] **Step 1 (RED): tests**
 
 `worker/test/messages.test.ts`:
 
@@ -1326,12 +1326,12 @@ describe("messageView", () => {
 
 `worker/test/fake-gmail.ts`: `seedMessage` accepts `replyTo?: string` (emitted as a `Reply-To` header) and each attachment accepts `inline?: boolean`, in which case the part carries `body: { size, data: b64url(bytes) }` and no `attachmentId`.
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
 Run: `cd worker && npx vitest run test/messages.test.ts`
 Expected: FAIL, module not found.
 
-- [ ] **Step 3 (GREEN): implementation**
+- [x] **Step 3 (GREEN): implementation**
 
 `shared/src/schemas.ts` additions:
 
@@ -1645,12 +1645,12 @@ export function partData(m: GmailMessage, partId: string): string | null {
 
 `bodyOfType` skips named parts, so an inline attachment never leaks into `plaintext_body`.
 
-- [ ] **Step 4: run, expect pass**
+- [x] **Step 4: run, expect pass**
 
 Run: `cd worker && npx vitest run test/messages.test.ts` then `npm run verify`.
 Expected: PASS.
 
-- [ ] **Step 5: commit**
+- [x] **Step 5: commit**
 
 ```bash
 git add shared/src/schemas.ts worker/src/google/messages.ts worker/test/messages.test.ts worker/test/fake-gmail.ts
