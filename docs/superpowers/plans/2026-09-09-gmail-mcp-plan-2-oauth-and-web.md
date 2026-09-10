@@ -1397,10 +1397,11 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```ts
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import type { Env } from "../src/env";
+import type { WorkerHandler } from "../src/index";
 import type { FakeGoogle } from "./fake-google";
 import { HOST } from "./test-env";
 
-type Worker = { fetch: (r: Request, e: Env, c: ExecutionContext) => Promise<Response> | Response };
+type Worker = WorkerHandler;
 
 /** A browser with a cookie jar and nothing else. It never follows redirects; tests assert on them. */
 export class Browser {
@@ -1605,7 +1606,11 @@ describe("owner login", () => {
     const out = await b.post("/logout", { csrf });
     expect(out.status).toBe(303);
     expect(b.cookies.has(SESSION_COOKIE)).toBe(false);
-    expect((await b.get("/accounts")).headers.get("location")).toBe("/login?return=%2Faccounts");
+    // /accounts does not exist until task 11; what this task can prove is that the session is gone,
+    // so the landing page renders the logged-out view instead of the header forms.
+    const afterLogout = await b.get("/");
+    expect(afterLogout.status).toBe(200);
+    expect(await afterLogout.text()).toContain('href="/login"');
   });
 });
 ```
@@ -1684,7 +1689,9 @@ const FORM_CAP = 64 * 1024;
 export async function readForm(request: Request): Promise<URLSearchParams> {
   const len = Number(request.headers.get("content-length") ?? "0");
   if (len > FORM_CAP) throw new GmailMcpError("limit_exceeded", "form too large");
-  const text = await request.text();
+  // Decoded from bytes rather than request.text(): the runtime warns that text() on a urlencoded
+  // body may corrupt it, and the byte count is what the cap is about anyway.
+  const text = new TextDecoder().decode(await request.arrayBuffer());
   if (text.length > FORM_CAP) throw new GmailMcpError("limit_exceeded", "form too large");
   return new URLSearchParams(text);
 }
@@ -1759,7 +1766,10 @@ const STATUS: Partial<Record<string, number>> = {
   invalid_header: 400,
 };
 
-export function webHandler(deps: Deps, routes: Route[]): ExportedHandler<Env> {
+/** Explicitly a plain Request, so our own callers and the tests can hand it one. */
+export type WebHandler = { fetch: (request: Request, env: Env, ctx: ExecutionContext) => Promise<Response> };
+
+export function webHandler(deps: Deps, routes: Route[]): WebHandler {
   return {
     async fetch(request, env) {
       const url = new URL(request.url);
@@ -1983,17 +1993,27 @@ import { defaultDeps, type Deps } from "./deps";
 import { loginRoutes } from "./web/login";
 import { webHandler } from "./web/router";
 
-export function createWorker(deps: Deps = defaultDeps): ExportedHandler<Env> {
+/**
+ * The handler shape callers and tests use: fetch is required and takes a plain Request, which is what
+ * `new Request(...)` produces. The default export below is checked against ExportedHandler, so this
+ * staying a valid Worker entrypoint is proved by the compiler rather than assumed.
+ */
+export type WorkerHandler = {
+  fetch: (request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>;
+  scheduled: (controller: ScheduledController, env: Env, ctx: ExecutionContext) => void;
+};
+
+export function createWorker(deps: Deps = defaultDeps): WorkerHandler {
   const web = webHandler(deps, [...loginRoutes]);
   return {
-    fetch: (request, env, ctx) => web.fetch!(request, env, ctx),
+    fetch: (request, env, ctx) => web.fetch(request, env, ctx),
     scheduled(_controller, env, ctx) {
       ctx.waitUntil(runCron(env, Date.now()));
     },
   };
 }
 
-export default createWorker();
+export default createWorker() satisfies ExportedHandler<Env>;
 ```
 
 This drops the dev bearer from `/mcp` for the space of one task; `test/mcp.test.ts` fails until Task 7, which is the task that gives `/mcp` its real gate. Run only `login.test.ts` here.
@@ -2041,9 +2061,10 @@ Replace `worker/test/mcp-client.ts`:
 ```ts
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import type { Env } from "../src/env";
+import type { WorkerHandler } from "../src/index";
 import { HOST } from "./test-env";
 
-type Worker = { fetch: (r: Request, e: Env, c: ExecutionContext) => Promise<Response> | Response };
+type Worker = WorkerHandler;
 
 export async function rpc(
   worker: Worker,
@@ -2989,7 +3010,7 @@ function providerFor(env: Env, deps: Deps): Entry {
   return entry;
 }
 
-export type Worker = ExportedHandler<Env> & { oauthOptions: (env: Env) => OAuthProviderOptions<Env> };
+export type Worker = WorkerHandler & { oauthOptions: (env: Env) => OAuthProviderOptions<Env> };
 
 export function createWorker(deps: Deps = defaultDeps): Worker {
   return {
@@ -3006,7 +3027,7 @@ export function createWorker(deps: Deps = defaultDeps): Worker {
   };
 }
 
-export default createWorker();
+export default createWorker() satisfies ExportedHandler<Env>;
 ```
 
 The cache is keyed by `deps` first and hostname second, so two `createWorker` calls with different fake Googles never share a provider, and nothing depends on whether the test runner isolates module state per file.
