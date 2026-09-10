@@ -138,7 +138,7 @@ One migration, `0003_intent.sql`: the idempotency table and three columns. Appen
 
 Add error code `"gmail_error"` to `shared/src/errors.ts` (`ErrorCode` union). The shared package's type test does not enumerate codes, so this is additive.
 
-- [ ] **Step 1 (RED): tests**
+- [x] **Step 1 (RED): tests**
 
 `worker/test/gmail-client.test.ts`:
 
@@ -295,12 +295,12 @@ describe("gmailFetch", () => {
 });
 ```
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
 Run: `cd worker && npx vitest run test/gmail-client.test.ts`
 Expected: FAIL, `../src/google/gmail` and `./fake-gmail` do not exist.
 
-- [ ] **Step 3 (GREEN): Deps, forceRefresh, the client, the fake**
+- [x] **Step 3 (GREEN): Deps, forceRefresh, the client, the fake**
 
 `worker/src/deps.ts`:
 
@@ -1161,12 +1161,12 @@ export function testDeps(g: FakeGoogle, overrides: Partial<Deps> = {}): Deps {
 
 Replace every `{ googleFetch: g.fetch }` literal with `testDeps(g)`. Measured list: `createWorker({ googleFetch: g.fetch })` in `mcp.test.ts`, `login.test.ts`, `accounts.test.ts`, `approve.test.ts`, `oauth.test.ts`, `policy-page.test.ts`, `audit-page.test.ts`, `connect.test.ts`; `const deps = () => ({ googleFetch: g.fetch })` in `oidc.test.ts`; eleven call sites in `tokens.test.ts`. In the test above, `deps` becomes `testDeps(g)` and the backoff test spreads it: `{ ...testDeps(g), sleep: async (ms) => void slept.push(ms) }`. `tokens.test.ts` keeps its own `seedTokens` helper; the fixture above is separate so that test keeps its key-rotation assertions.
 
-- [ ] **Step 4: run, expect pass**
+- [x] **Step 4: run, expect pass**
 
 Run: `cd worker && npx vitest run test/gmail-client.test.ts test/tokens.test.ts test/connect.test.ts`
 Expected: PASS. Then `npm run verify` from the root: green.
 
-- [ ] **Step 5: commit**
+- [x] **Step 5: commit**
 
 ```bash
 git add shared/src/errors.ts worker/src/deps.ts worker/src/google worker/test

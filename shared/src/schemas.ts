@@ -44,3 +44,7 @@ export const UploadIntent = z.object({
     .optional(),
 });
 export type UploadIntent = z.infer<typeof UploadIntent>;
+
+export const MESSAGE_FORMATS = ["MINIMAL", "METADATA_ONLY", "PLAIN_TEXT", "FULL_CONTENT", "RAW"] as const;
+export const MessageFormat = z.enum(MESSAGE_FORMATS);
+export type MessageFormat = z.infer<typeof MessageFormat>;
