@@ -92,6 +92,9 @@ no mocked storage. `npm run verify` is the gate, and CI runs the same command.
   domains, need a recent login and are audited. Allowlist entries are stored through the same
   canonicalisation the trust rules read them with, so a stored entry always means what it will match.
 - Policy edits and approval decisions write their audit row in the same transaction as the change.
+- The libheif advisories carried by `sharp` are cleared. `miniflare` pins it at exactly 0.35.2, so the
+  root manifest overrides it to the patched 0.35.4. The package never reaches the deployed Worker, but a
+  clean `npm audit` is worth more than an exception nobody rereads.
 - Dependabot ignores vitest major bumps. `@cloudflare/vitest-plugin` peers on `vitest ^4.1.0` and it is
   what runs the Worker tests inside workerd, so a major bump cannot pass CI until the plugin accepts one.
 
