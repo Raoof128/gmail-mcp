@@ -38,7 +38,9 @@ export function escapeVisible(s: string): string {
   return escapeHtml(s).replace(VISIBLE, (c) => `\\u{${c.codePointAt(0)!.toString(16).toUpperCase()}}`);
 }
 
-export function layout(title: string, body: string): string {
+export type Chrome = { logoutCsrf: string; reauthCsrf: string } | null;
+
+export function layout(title: string, body: string, chrome: Chrome): string {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -49,7 +51,12 @@ export function layout(title: string, body: string): string {
 </head>
 <body>
 <header><a href="/accounts">Accounts</a> <a href="/policy">Policy</a> <a href="/audit">Audit</a>
-<form method="post" action="/logout" class="inline"><button>Log out</button></form></header>
+${
+  chrome
+    ? `<form method="post" action="/reauth" class="inline"><input type="hidden" name="csrf" value="${escapeHtml(chrome.reauthCsrf)}"><button>Re-authenticate</button></form>
+<form method="post" action="/logout" class="inline"><input type="hidden" name="csrf" value="${escapeHtml(chrome.logoutCsrf)}"><button>Log out</button></form>`
+    : ""
+}</header>
 <main>
 <h1>${escapeHtml(title)}</h1>
 ${body}
@@ -59,8 +66,14 @@ ${body}
 `;
 }
 
-export function htmlResponse(title: string, body: string, status = 200, extraFormActions: string[] = []): Response {
-  return new Response(layout(title, body), {
+export function htmlResponse(
+  title: string,
+  body: string,
+  chrome: Chrome,
+  status = 200,
+  extraFormActions: string[] = [],
+): Response {
+  return new Response(layout(title, body, chrome), {
     status,
     headers: { ...pageHeaders(extraFormActions), "content-type": "text/html; charset=utf-8" },
   });

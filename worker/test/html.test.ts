@@ -12,8 +12,8 @@ describe("html primitives", () => {
     expect(escapeVisible("<b>")).toBe("&lt;b&gt;");
   });
   it("page responses carry the security headers and no-store", async () => {
-    const res = htmlResponse("T", "<p>x</p>");
-    const withClient = htmlResponse("T", "<p>x</p>", 200, ["http://localhost:5555"]);
+    const res = htmlResponse("T", "<p>x</p>", { logoutCsrf: "tok", reauthCsrf: "tok2" });
+    const withClient = htmlResponse("T", "<p>x</p>", null, 200, ["http://localhost:5555"]);
     expect(withClient.headers.get("content-security-policy")).toContain(
       "form-action 'self' https://accounts.google.com http://localhost:5555",
     );
@@ -22,6 +22,8 @@ describe("html primitives", () => {
     expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8");
     const body = await res.text();
     expect(body).toContain('<link rel="stylesheet" href="/static/app.css">');
+    expect(body).toContain('action="/reauth"');
+    expect(body).toContain('value="tok"');
     expect(body).not.toMatch(/<script/i);
     expect(body).not.toMatch(/ style=/i);
   });
