@@ -6271,7 +6271,7 @@ Claude-Session: https://claude.ai/code/session_01NBfkjWcEGDFghet3APnUjU"
   - `threadingFor(target)`: `{ thread_id, subject, in_reply_to, references, from, reply_to: string[], to, cc }` with every list split by `splitAddressList`.
 - Produces in `drafts.ts`: `registerDraftTools(server, toolContext, env)`. `draft.write` is journaled for create and update (`journal: true`). Payload: `{ to, cc, bcc, subject, body, html_body, from, attachments, carry: [], reply_to_message_id, thread_id, in_reply_to, references, draft_id }`. An update merges each text field and each recipient list independently: a field the call omits keeps the draft's value, a field the call gives (even empty) replaces it. Attachments follow the hosted rule: the set given replaces, none given leaves none.
 
-- [ ] **Step 1 (RED): tests**
+- [x] **Step 1 (RED): tests**
 
 `worker/test/drafts-tools.test.ts`:
 
@@ -6555,12 +6555,12 @@ describe("update_draft", () => {
 
 The fake stores raw MIME for a draft our tool uploaded and parses only its headers, so `To`, `Cc`, `Bcc` and `Subject` merge from headers; the body merge is asserted through the base64 of the new body.
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
 Run: `cd worker && npx vitest run test/drafts-tools.test.ts`
 Expected: FAIL, unknown tools.
 
-- [ ] **Step 3 (GREEN): schemas**
+- [x] **Step 3 (GREEN): schemas**
 
 Append to `shared/src/schemas.ts`:
 
@@ -6605,7 +6605,7 @@ export const UpdateDraftInput = z.object({
 });
 ```
 
-- [ ] **Step 4 (GREEN): compose helpers**
+- [x] **Step 4 (GREEN): compose helpers**
 
 `worker/src/tools/compose.ts`:
 
@@ -6903,7 +6903,7 @@ export function threadingFor(target: GmailMessage): {
 
 Remove the private `getMessage` from `tools/read.ts` and import it from `./compose`.
 
-- [ ] **Step 5 (GREEN): the draft tools**
+- [x] **Step 5 (GREEN): the draft tools**
 
 `worker/src/tools/drafts.ts`:
 
@@ -7115,12 +7115,12 @@ export function registerDraftTools(
 
 `worker/src/mcp/server.ts`: `registerDraftTools(server, toolContext, env);`.
 
-- [ ] **Step 6: run, expect pass**
+- [x] **Step 6: run, expect pass**
 
 Run: `cd worker && npx vitest run test/drafts-tools.test.ts test/read-tools.test.ts test/mcp.test.ts` then `npm run verify`.
 Expected: PASS.
 
-- [ ] **Step 7: commit**
+- [x] **Step 7: commit**
 
 ```bash
 git add shared/src/schemas.ts worker/src worker/test
