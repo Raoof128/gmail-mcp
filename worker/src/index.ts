@@ -4,6 +4,7 @@ import type { Env } from "./env";
 import { runCron } from "./cron";
 import { defaultDeps, type Deps } from "./deps";
 import { authorizeRoutes } from "./auth/authorize";
+import { connectRoutes } from "./google/connect";
 import { requireScope } from "./auth/principal";
 import { buildServer } from "./mcp/server";
 import { stagingApiHandler } from "./staging/routes";
@@ -26,7 +27,7 @@ function oauthOptions(env: Env, deps: Deps): OAuthProviderOptions<Env> {
   const origin = `https://${env.WORKER_HOSTNAME}`;
   return {
     apiHandlers: { "/mcp": mcpApiHandler(deps), "/staging/": stagingApiHandler(deps) },
-    defaultHandler: webHandler(deps, [...loginRoutes, ...authorizeRoutes]),
+    defaultHandler: webHandler(deps, [...loginRoutes, ...authorizeRoutes, ...connectRoutes]),
     authorizeEndpoint: "/authorize",
     tokenEndpoint: "/token",
     clientRegistrationEndpoint: "/register",

@@ -84,7 +84,8 @@ export class FakeGoogle {
         }
         return Response.json({
           access_token: `at-${++this.accessCounter}`,
-          refresh_token: rec.refresh,
+          // Google omits the field entirely when it issues no refresh token; it never sends "".
+          ...(rec.refresh ? { refresh_token: rec.refresh } : {}),
           expires_in: 3599,
           scope: rec.scope,
           token_type: "Bearer",
