@@ -118,21 +118,42 @@ async function canonicalPayload(payload: Record<string, unknown>): Promise<{ can
  * store-and-ask or journal-and-run. Nothing before `build` writes staging state, so a denied or replayed
  * call leaves no trace but its audit row. Nothing here touches Gmail; executors do, after the journal row.
  */
+/**
+ * The answer a known key already has, or null when this call is fresh. `defineTool` asks before it
+ * plans, because planning reads the staged handles and a replayed send's handles are already consumed:
+ * a replay must touch nothing at all (spec 3.5 step 1).
+ */
+export async function replayIfKnown(
+  t: ToolContext,
+  o: { tool: string; account: AccountRef; intentHash: string; idempotencyKey: string | undefined },
+): Promise<ToolResult | null> {
+  if (!o.idempotencyKey) return null;
+  const userId = t.principal.userId;
+  const known = await lookupIdempotency(t.env.DB, {
+    userId,
+    accountId: o.account.id,
+    key: o.idempotencyKey,
+  });
+  if (!known) return null;
+  const replay = await replayFor(t.env, known, {
+    tool: o.tool,
+    intentHash: o.intentHash,
+    alias: o.account.alias,
+    userId,
+  });
+  return replay === "fresh" ? null : text(replay);
+}
+
 export async function runGated(t: ToolContext, input: GateInput): Promise<ToolResult> {
   const db = t.env.DB;
   const userId = t.principal.userId;
-  if (input.idempotencyKey) {
-    const known = await lookupIdempotency(db, { userId, accountId: input.account.id, key: input.idempotencyKey });
-    if (known) {
-      const replay = await replayFor(t.env, known, {
-        tool: input.tool,
-        intentHash: input.intentHash,
-        alias: input.account.alias,
-        userId,
-      });
-      if (replay !== "fresh") return text(replay);
-    }
-  }
+  const replayed = await replayIfKnown(t, {
+    tool: input.tool,
+    account: input.account,
+    intentHash: input.intentHash,
+    idempotencyKey: input.idempotencyKey,
+  });
+  if (replayed) return replayed;
   const decision = await decide(db, {
     userId,
     accountId: input.account.id,

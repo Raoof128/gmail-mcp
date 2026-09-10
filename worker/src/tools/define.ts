@@ -13,7 +13,7 @@ import type { Env } from "../env";
 import { canonicalize, hashCanonical } from "../crypto/canonical";
 import { resolveAccount, type AccountRef } from "./accounts";
 import { decodeInline, intentArgs, type DecodedInline } from "./compose";
-import { registerExecutor, resumeGated, runGated, type Executor, type ToolContext } from "./gate";
+import { registerExecutor, replayIfKnown, resumeGated, runGated, type Executor, type ToolContext } from "./gate";
 import { guarded, withAlias } from "./results";
 
 export type Plan = {
@@ -77,6 +77,11 @@ export function defineTool<S extends z.ZodObject<z.ZodRawShape> & StandardSchema
         );
         const state = t.round.requestState();
         if (state) return resumeGated(t, { tool: spec.name, account, intentHash, state });
+        // Before planning, because a plan reads the staged handles and a replayed send's handles are
+        // already consumed. A known key answers with what it did the first time and writes nothing.
+        const idempotencyKey = typeof a.idempotency_key === "string" ? a.idempotency_key : undefined;
+        const replayed = await replayIfKnown(t, { tool: spec.name, account, intentHash, idempotencyKey });
+        if (replayed) return replayed;
         const plan = await spec.plan(env, t, account, args as z.infer<S>, inline);
         return runGated(t, {
           tool: spec.name,

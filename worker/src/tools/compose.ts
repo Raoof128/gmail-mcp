@@ -260,6 +260,28 @@ export async function composeMime(
 }
 
 /** Reply headers derived from the target (spec 2.3 `reply`): the Worker, not the model, threads the message. */
+const isAddress = (s: string | null): s is string => s !== null;
+
+/**
+ * A header may hold a display name the restricted grammar of spec 2.7 refuses, such as
+ * `"Office, Dean" <office@uni.test>`. A derived recipient keeps the address and drops the name: the
+ * grammar is not loosened for addresses this server did not receive from its owner.
+ */
+function derivedMailbox(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  const angled = /^[^<>]*<([^<>]+)>$/.exec(trimmed)?.[1]?.trim() ?? trimmed;
+  for (const candidate of [trimmed, angled]) {
+    try {
+      parseAddress(candidate);
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
 export function threadingFor(target: GmailMessage): {
   thread_id: string;
   subject: string;
@@ -275,13 +297,13 @@ export function threadingFor(target: GmailMessage): {
   const subject = /^\s*re:/i.test(subjectRaw) ? subjectRaw : `Re: ${subjectRaw}`;
   const mid = h("message-id");
   const refs = [h("references"), mid].filter((x): x is string => !!x).join(" ");
-  const split = (v: string | null) => (v ? splitAddressList(v) : []);
+  const split = (v: string | null) => (v ? splitAddressList(v).map(derivedMailbox).filter(isAddress) : []);
   return {
     thread_id: target.threadId,
     subject,
     in_reply_to: mid,
     references: refs || null,
-    from: h("from"),
+    from: derivedMailbox(h("from") ?? ""),
     reply_to: split(h("reply-to")),
     to: split(h("to")),
     cc: split(h("cc")),

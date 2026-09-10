@@ -191,3 +191,33 @@ export const UpdateDraftInput = z.object({
   cc: z.array(Recipient).max(2000).optional(),
   bcc: z.array(Recipient).max(2000).optional(),
 });
+export const IdempotencyKey = z.string().min(1).max(128);
+export const SendMessageInput = z.object({
+  account: AccountAlias,
+  ...ComposeFields,
+  idempotency_key: IdempotencyKey.optional(),
+});
+export const ReplyInput = z
+  .object({
+    account: AccountAlias,
+    message_id: GmailId,
+    reply_all: z.boolean().default(false),
+    ...ComposeFields,
+    idempotency_key: IdempotencyKey.optional(),
+  })
+  .omit({ subject: true });
+export const ForwardInput = z
+  .object({
+    account: AccountAlias,
+    message_id: GmailId,
+    forward_text: z.string().max(600_000).optional(),
+    include_original_attachments: z.boolean().default(false),
+    ...ComposeFields,
+    idempotency_key: IdempotencyKey.optional(),
+  })
+  .omit({ subject: true, body: true });
+export const SendDraftInput = z.object({
+  account: AccountAlias,
+  draft_id: GmailId,
+  idempotency_key: IdempotencyKey.optional(),
+});
