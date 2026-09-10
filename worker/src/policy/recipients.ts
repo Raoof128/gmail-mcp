@@ -20,13 +20,22 @@ function fail(raw: string): never {
 
 export function toAsciiDomain(domain: string): string {
   if (!DOMAIN.test(domain)) fail(domain);
+  let host: string | null;
   try {
-    const host = new URL(`http://${domain}/`).hostname;
-    if (!host || host.includes("..")) fail(domain);
-    return host.toLowerCase();
+    host = new URL(`http://${domain}/`).hostname.toLowerCase();
   } catch {
-    fail(domain);
+    host = null;
   }
+  if (!host || host.length > 253) fail(domain);
+  // Label rules from RFC 1035 and IDNA: one to 63 bytes, no empty label, no leading or trailing
+  // hyphen. A punycoded label carries hyphens in the middle, which is allowed. The web pages store
+  // trusted domains through this function, so what it accepts is exactly what the trust rules match.
+  const labels = host.split(".");
+  if (labels.length < 2) fail(domain);
+  for (const l of labels) {
+    if (l.length === 0 || l.length > 63 || l.startsWith("-") || l.endsWith("-")) fail(domain);
+  }
+  return host;
 }
 
 export function parseAddress(raw: string): ParsedAddress {

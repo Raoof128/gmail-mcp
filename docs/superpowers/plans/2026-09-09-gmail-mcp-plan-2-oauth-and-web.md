@@ -4906,6 +4906,12 @@ describe("accounts page", () => {
     expect((await b.post("/accounts", { op: "send_limit", account: "ac1", bytes: "2097152", csrf: t })).status).toBe(
       403,
     );
+    await env.DB.prepare("UPDATE web_sessions SET authenticated_at = ? WHERE user_id = 'owner-sub'")
+      .bind(Date.now())
+      .run();
+    expect((await b.post("/accounts", { op: "send_limit", account: "ac1", bytes: "2097152", csrf: t })).status).toBe(
+      303,
+    );
 
     const audits = (
       await env.DB.prepare(
