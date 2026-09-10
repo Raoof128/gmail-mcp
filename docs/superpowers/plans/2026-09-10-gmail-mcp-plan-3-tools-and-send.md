@@ -7151,7 +7151,7 @@ Claude-Session: https://claude.ai/code/session_01NBfkjWcEGDFghet3APnUjU"
 - Modifiers: `recipientModifiers(all, trustContext)` for every send; `+attachment` when `attachments`, `inline_attachments`, `carry` or `draft_attachments` is non-empty.
 - `send_draft` re-derives its payload at execution and compares the canonical hash to the one it ran under; a draft edited in between is `payload_mismatch`, settled `failed_safe` because the operation was never opened.
 
-- [ ] **Step 1 (RED): tests**
+- [x] **Step 1 (RED): tests**
 
 `worker/test/send-tools.test.ts`:
 
@@ -7570,12 +7570,12 @@ describe("send_draft", () => {
 
 The fake's `seedMessage` gains an optional `replyTo` field that becomes a `Reply-To` header.
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
 Run: `cd worker && npx vitest run test/send-tools.test.ts`
 Expected: FAIL, unknown tools.
 
-- [ ] **Step 3 (GREEN): schemas**
+- [x] **Step 3 (GREEN): schemas**
 
 Append to `shared/src/schemas.ts`:
 
@@ -7612,7 +7612,7 @@ export const SendDraftInput = z.object({
 });
 ```
 
-- [ ] **Step 4 (GREEN): the send tools**
+- [x] **Step 4 (GREEN): the send tools**
 
 `worker/src/tools/send.ts`:
 
@@ -7949,12 +7949,12 @@ export function registerSendTools(server: McpServer, toolContext: (ctx: ServerCo
 
 The `payload_mismatch` throw in `send_draft` happens while the operation is still `claimed`, so the gate settles it `failed_safe`. `worker/src/mcp/server.ts`: `registerSendTools(server, toolContext, env);`.
 
-- [ ] **Step 5: run, expect pass**
+- [x] **Step 5: run, expect pass**
 
 Run: `cd worker && npx vitest run test/send-tools.test.ts test/drafts-tools.test.ts test/mcp.test.ts test/approve.test.ts` then `npm run verify`.
 Expected: PASS. `approve.test.ts` renders the `send` view from a payload with `to`, `cc`, `bcc`, `subject`, `body`, `attachments`, `draft_id`, `message_id`, `include_original_attachments`; if it fails, the payload key names drifted from `approvalView`, and the payload is what changes, never the view.
 
-- [ ] **Step 6: commit**
+- [x] **Step 6: commit**
 
 ```bash
 git add shared/src/schemas.ts worker/src/tools/send.ts worker/src/mcp/server.ts worker/test
