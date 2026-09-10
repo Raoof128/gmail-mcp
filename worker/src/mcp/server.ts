@@ -4,7 +4,10 @@ import { ACTIONS, DEFAULT_POLICY } from "@gmail-mcp/shared/actions";
 import { AccountAlias } from "@gmail-mcp/shared/schemas";
 import { GmailMcpError } from "@gmail-mcp/shared/errors";
 import type { Env } from "../env";
-import type { Principal } from "./auth-dev";
+import type { Deps } from "../deps";
+import type { Principal } from "../auth/principal";
+import { auditIntent } from "../audit/log";
+import { connectUrl } from "../google/connect";
 import { effectiveLevel } from "../policy/engine";
 import { cancelPending } from "../approval/pending";
 
@@ -28,7 +31,7 @@ async function resolveAccount(env: Env, userId: string, alias?: string): Promise
   return row;
 }
 
-export function buildServer(env: Env, principal: Principal): McpServer {
+export function buildServer(env: Env, principal: Principal, _deps: Deps): McpServer {
   const server = new McpServer({ name: "gmail-mcp", version: "0.0.1" });
 
   server.registerTool(
@@ -93,6 +96,49 @@ export function buildServer(env: Env, principal: Principal): McpServer {
     },
     async ({ action_id }) =>
       text({ cancelled: await cancelPending(env.DB, { id: action_id, userId: principal.userId }) }),
+  );
+
+  server.registerTool(
+    "connect_account",
+    {
+      description:
+        "Connect or reconnect a Google account under an alias. Completes in the owner's browser; returns the page URL.",
+      inputSchema: z.object({ alias: AccountAlias }),
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    },
+    async ({ alias }) => {
+      await auditIntent(env.DB, {
+        userId: principal.userId,
+        accountId: null,
+        tool: "connect_account",
+        action: "account.connect",
+        modifiers: [],
+        decision: "browser",
+        facts: {},
+      });
+      return text({ status: "connect_required", account: alias, url: await connectUrl(env, principal.userId, alias) });
+    },
+  );
+
+  server.registerTool(
+    "open_policy_editor",
+    {
+      description: "Policy is edited in the browser only. Returns the policy page URL.",
+      inputSchema: z.object({}),
+      annotations: { readOnlyHint: true },
+    },
+    async () => {
+      await auditIntent(env.DB, {
+        userId: principal.userId,
+        accountId: null,
+        tool: "open_policy_editor",
+        action: "policy.read",
+        modifiers: [],
+        decision: "browser",
+        facts: {},
+      });
+      return text({ url: `https://${env.WORKER_HOSTNAME}/policy` });
+    },
   );
 
   return server;

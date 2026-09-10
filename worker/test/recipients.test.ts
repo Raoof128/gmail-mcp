@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseAddress, isTrusted, recipientModifiers } from "../src/policy/recipients";
+import { parseAddress, isTrusted, recipientModifiers, toAsciiDomain } from "../src/policy/recipients";
 
 const consumer = {
   selfAddresses: ["raouf@gmail.com"],
@@ -69,5 +69,19 @@ describe("recipientModifiers", () => {
   it("rejects more than 500 raw recipients even when they repeat", () => {
     const tooMany = Array.from({ length: 501 }, () => "p@uni.edu.au");
     expect(() => recipientModifiers(tooMany, consumer)).toThrow(/limit_exceeded/);
+  });
+});
+
+// The web pages store trusted domains through toAsciiDomain, so its grammar is a permission boundary.
+describe("domain canonicalisation", () => {
+  it("rejects empty labels, edge hyphens, oversized labels and single labels", () => {
+    for (const d of ["foo..com", "-foo.com", "foo-.com", `${"a".repeat(64)}.com`, "nodot", ".com", "com."]) {
+      expect(() => toAsciiDomain(d), d).toThrow();
+    }
+  });
+  it("lower-cases and punycodes what it accepts, hyphens inside a label included", () => {
+    expect(toAsciiDomain("Staff.Uni.EDU.AU")).toBe("staff.uni.edu.au");
+    expect(toAsciiDomain("bücher.example")).toBe("xn--bcher-kva.example");
+    expect(toAsciiDomain("my-uni.edu.au")).toBe("my-uni.edu.au");
   });
 });

@@ -1,11 +1,6 @@
 # Copy to worker/.dev.vars for local development. That file is gitignored and must never be committed.
 # Every value here is a throwaway placeholder. Generate real ones before deploying anywhere.
 
-# The development bearer is active only when BOTH of these are set. A bypass never invents an identity.
-# Plan 2 deletes the code path that reads them once Google OAuth lands.
-DEV_STATIC_TOKEN=dev-token
-DEV_STATIC_USER=mu
-
 # Encryption keyring for stored Google tokens: a JSON map of key id to 32 raw bytes, base64 encoded.
 # Old keys stay in the ring so existing ciphertexts still decrypt while they are re-encrypted lazily.
 # Generate one with:  openssl rand -base64 32
@@ -16,3 +11,14 @@ TOKEN_KEK_CURRENT=k1
 # not be signed with the same key.
 STATE_HMAC_KEY=AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
 CSRF_HMAC_KEY=AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
+
+# Google OAuth client for the Worker (Flow A identity login and Flow B account connection).
+# Create it in the gmail-mcp-personal project per docs/runbooks/google-cloud.md. Redirect URIs:
+#   https://<WORKER_HOSTNAME>/oidc/callback  and  https://<WORKER_HOSTNAME>/connect/callback
+GOOGLE_CLIENT_ID=placeholder.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=placeholder
+
+# Google subs allowed to log in, comma separated. Leave empty on first deploy: the login page then shows
+# the sub of anyone whose email is in OWNER_EMAILS so you can paste it here.
+OWNER_GOOGLE_SUBS=
+OWNER_EMAILS=you@example.test

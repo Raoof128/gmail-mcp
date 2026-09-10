@@ -128,3 +128,35 @@ export async function finishPending(
     .bind(to, error ?? null, Date.now(), id)
     .run();
 }
+
+export function approveStatement(
+  db: D1Database,
+  o: { id: string; userId: string; via: "browser" | "elicitation" },
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `UPDATE pending_actions SET state = 'approved', approved_at = ?, approved_via = ? WHERE id = ? AND user_id = ? AND state = 'pending' AND expires_at > ?`,
+    )
+    .bind(Date.now(), o.via, o.id, o.userId, Date.now());
+}
+export function denyStatement(db: D1Database, o: { id: string; userId: string }): D1PreparedStatement {
+  return db
+    .prepare(
+      `UPDATE pending_actions SET state = 'denied', payload_json = NULL, summary = 'redacted' WHERE id = ? AND user_id = ? AND state = 'pending' AND expires_at > ?`,
+    )
+    .bind(o.id, o.userId, Date.now());
+}
+/**
+ * Fails the batch unless the row is still pending and unexpired. This runs BEFORE the transition, not
+ * after: a postcondition check cannot tell "this statement approved it" from "it was already approved",
+ * so a second approval would slip through. The batch is one transaction, so nothing interleaves between
+ * this assertion and the update that follows it.
+ */
+export function assertStillPending(db: D1Database, id: string): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO _assert (x) SELECT 1 WHERE NOT EXISTS (
+         SELECT 1 FROM pending_actions WHERE id = ? AND state = 'pending' AND expires_at > ?)`,
+    )
+    .bind(id, Date.now());
+}

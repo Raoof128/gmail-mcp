@@ -1,6 +1,6 @@
 # Gmail MCP for Claude: design
 
-Date: 2026-09-09 (revision 2, after adversarial review)
+Date: 2026-09-09 (revision 4, amended 2026-09-10 during plan 2 implementation)
 Status: approved design, pre-implementation
 Owner: Raouf
 
@@ -41,11 +41,10 @@ Claude (claude.ai / Desktop / Claude Code)
 │             audit, connect, logout       │
 └──────┬─────────────┬──────────────┬──────┘
        │             │              │
-       │             │              └── KV: workers-oauth-provider state,
-       │             │                      OAuth state, OIDC nonce
+       │             │              └── KV: workers-oauth-provider state
        │             └── R2: temporary attachment bytes
-       └── D1: users, accounts, policies, pending actions,
-               operations, staging metadata, web sessions, audit
+       └── D1: users, accounts, policies, pending actions, operations,
+               staging metadata, web sessions, one-use oauth state, audit
        ▼
    Gmail API (users.messages.*, users.drafts.*, users.labels.*, users.threads.*)
 
@@ -373,7 +372,18 @@ audit_log (
 );
 ```
 
-KV holds only `workers-oauth-provider` state (client registrations, grants, its tokens) and OAuth `state` plus OIDC `nonce` entries with 600 s TTL. CSRF tokens are not stored anywhere (4.6).
+OAuth `state`, the OIDC `nonce` and pending consent requests live in D1:
+
+```sql
+oauth_states (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('login','reauth','connect','authreq')),
+  payload TEXT NOT NULL,
+  created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, consumed_at INTEGER
+);
+```
+
+They are consumed by one atomic `UPDATE ... SET consumed_at = ? WHERE id = ? AND kind = ? AND consumed_at IS NULL AND expires_at > ? RETURNING payload`; zero rows means unknown, expired or replayed. Workers KV is eventually consistent and a `get` followed by a `delete` is not a one-use consume, so KV holds only `workers-oauth-provider` state (client registrations, grants, its tokens). `accounts` carries `credential_version INTEGER NOT NULL DEFAULT 0`: every write that stores or refreshes Google credentials is conditional on it and on `status = 'active'`, and revocation is local-first, bumping the version before Google is told. CSRF tokens are not stored anywhere (4.6).
 
 ### 3.3 Token encryption and refresh
 
@@ -493,8 +503,8 @@ Per-client allowed scopes are enforced by our authorization handler, since the l
 - `OAuthProvider` with `clientIdMetadataDocumentEnabled: true`, `allowPlainPKCE: false`, `resourceMetadata.resource` set to the canonical `/mcp` URL, and the `global_fetch_strictly_public` compatibility flag. It mounts `/authorize`, `/token`, `/register` and serves both well-known documents.
 - Registration: Claude clients use CIMD when they offer it, DCR as deprecated compatibility. The companion is pre-registered. This matches the library's stated preference order.
 - Redirect URIs: exact scheme, host and path match against the client's own registration. Loopback clients vary the port per RFC 8252 §7.3. The claude.ai client's registered URI is `https://claude.ai/api/mcp/auth_callback`. Claude Code registers `http://localhost:PORT/callback` (and used `127.0.0.1` in one release), so both loopback hosts are accepted for its registration. No wildcard allowlist exists.
-- Consent page per Cloudflare guidance: sanitised client name and redirect URI, CSRF token, approved-clients cookie. Then Google OIDC with `openid email profile` only, `state` and one-use `nonce` in KV. On return verify `id_token` signature, `iss`, `aud`, `exp`, `iat`, `nonce`, `email_verified == true`. Require `sub ∈ OWNER_GOOGLE_SUBS`. Complete the grant with `props = { sub, email }`.
-- Bootstrap: when `OWNER_GOOGLE_SUBS` is empty and `email ∈ OWNER_EMAILS`, the setup page displays the `sub` to paste into the secret. `OWNER_EMAILS` is display and bootstrap only.
+- Consent page per Cloudflare guidance: sanitised client name and redirect URI, CSRF token, approved-clients cookie. Then Google OIDC with `openid email profile` only, `state` and one-use `nonce` in KV. On return verify `id_token` signature, `iss`, `aud`, `exp`, `nonce`, `email_verified == true`, and `iat` within the last 10 minutes with 60 s of clock tolerance. The remembered-consent cookie is bound to the owner's `sub`, so a different owner in the same browser always sees the consent page. Require `sub ∈ OWNER_GOOGLE_SUBS`. Complete the grant with `props = { sub, email }`.
+- Bootstrap: when `OWNER_GOOGLE_SUBS` is empty and `email ∈ OWNER_EMAILS`, the setup page displays the `sub` to paste into the secret and asks the owner to confirm the identity first, because for a non-Gmail, non-Workspace address `email_verified` means Google confirmed the address once, not that it remains authoritative. `OWNER_EMAILS` is consulted only while `OWNER_GOOGLE_SUBS` is empty, and it never grants a session.
 - Profile-only scopes exempt this identity login from the 7-day Testing expiry.
 
 ### 4.3 Flow B: Worker to Google per account
@@ -530,6 +540,10 @@ Server-rendered HTML forms, no client JavaScript, no third-party assets.
 | `/audit`        | 90-day metadata log with filters                                                                                                                                                                          | session                                                                                                                                                                                 |
 | `/logout`       | revoke current session                                                                                                                                                                                    | CSRF                                                                                                                                                                                    |
 
+`form-action` names Google because browsers apply the directive to the redirect that follows a form post, and `/reauth` and `/connect` answer a post with a redirect to Google. The consent page adds the client's own redirect origin the same way. `/reauth` is a POST so it sits behind CSRF like every other state change.
+
+The approval page renders a typed view per action family: recipients kept apart as To, Cc and Bcc for sends, target ids and counts for trash, spam and label actions, the label operation for label management, and the file for an upload. A payload whose shape has no view is printed in full, so nothing is ever approved blind. Trust-boundary settings on `/accounts` (recipient allowlist, organisation domains, raising the send limit, companion registration, revocation) require recent authentication and are audited as `policy.edit`. A policy edit and its audit row and the revocation of other sessions are one transaction, as are an approval decision and its audit row.
+
 Session: `__Host-session` = 256-bit random opaque value; `web_sessions.id_hash` stores its sha256. HttpOnly, Secure, SameSite=Lax. Rotated after login. Absolute lifetime 12 h, idle timeout 2 h. Logout revokes immediately. Recent authentication means `authenticated_at` within the last 15 minutes; `last_seen_at` never counts. Policy edits and account revocations require recent authentication and revoke all other sessions.
 
 CSRF: stateless per-form token = HMAC (secret `CSRF_HMAC_KEY`) over `session_id || method || route || object_id || expiry`, delivered in the form and recomputed on POST. A token for `/approve/A` cannot approve `/approve/B`.
@@ -540,7 +554,7 @@ Response headers on every page:
 Cache-Control: no-store
 Pragma: no-cache
 Referrer-Policy: no-referrer
-Content-Security-Policy: default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'
+Content-Security-Policy: default-src 'none'; style-src 'self'; form-action 'self' https://accounts.google.com; frame-ancestors 'none'; base-uri 'none'
 X-Content-Type-Options: nosniff
 ```
 

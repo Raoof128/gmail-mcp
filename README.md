@@ -132,31 +132,31 @@ npm run verify
 `npm run verify` runs formatting, linting, type checking and the tests. CI runs the same gate, so a green
 local run means a green pull request.
 
-### Running the server locally
+### Running the server
+
+Every route is behind real identity. There is no development bearer: a client obtains a token through
+the OAuth flow, and the browser pages need a Google login as the configured owner.
 
 ```bash
 cp worker/.dev.vars.example worker/.dev.vars
 cd worker
 npm run migrate:local
-npx wrangler dev
 ```
 
-The development bearer exists only when you set both `DEV_STATIC_TOKEN` and `DEV_STATIC_USER`. It is
-scaffolding for driving the endpoint before OAuth lands, and it gets deleted rather than disabled when
-OAuth arrives.
-
-Seed an account and call a tool:
+Create the Google OAuth client and set the owner following
+[the Google Cloud runbook](docs/runbooks/google-cloud.md). Because the Worker builds its redirect URIs and
+audiences as `https://<WORKER_HOSTNAME>`, the OAuth flows do not complete against a plain-HTTP
+`wrangler dev`; deploy a dev Worker for manual checks. The test suite drives every flow, including the
+races, against an in-memory Google inside the real Workers runtime:
 
 ```bash
-npx wrangler d1 execute gmail-mcp --local --command \
-  "INSERT INTO users (id,email,created_at) VALUES ('mu','you@example.test',0);
-   INSERT INTO accounts (id,user_id,alias,google_sub,google_email,scopes,status,is_default,created_at)
-   VALUES ('ma','mu','personal','s','you@example.test','gmail.modify','active',1,0);"
+npm run verify
 ```
 
+Point a client at the deployed endpoint and it discovers authorization on its own:
+
 ```bash
-npx @modelcontextprotocol/inspector --cli http://localhost:8787/mcp \
-  --transport http --header "Authorization: Bearer dev-token" --method tools/list
+npx @modelcontextprotocol/inspector https://<WORKER_HOSTNAME>/mcp
 ```
 
 ## Repository layout

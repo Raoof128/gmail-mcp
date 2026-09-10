@@ -1,6 +1,6 @@
 export type AuditFacts = { recipients?: number; attachments?: number; ids?: string[] };
 
-type Base = {
+export type AuditBase = {
   userId: string;
   accountId: string | null;
   tool: string;
@@ -28,12 +28,12 @@ function render(f: AuditFacts): string {
   return parts.join(" ");
 }
 
-async function write(
+export function auditStatement(
   db: D1Database,
   phase: "intent" | "outcome",
-  b: Base & { gmailResultId?: string },
-): Promise<number> {
-  const res = await db
+  b: AuditBase & { gmailResultId?: string },
+): D1PreparedStatement {
+  return db
     .prepare(
       `INSERT INTO audit_log (ts, user_id, account_id, tool, action, modifiers, phase, decision, pending_id, operation_id, gmail_result_id, summary, client_hint)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -52,10 +52,17 @@ async function write(
       b.gmailResultId ?? null,
       render(b.facts),
       b.clientHint ?? null,
-    )
-    .run();
+    );
+}
+
+async function write(
+  db: D1Database,
+  phase: "intent" | "outcome",
+  b: AuditBase & { gmailResultId?: string },
+): Promise<number> {
+  const res = await auditStatement(db, phase, b).run();
   return Number(res.meta.last_row_id ?? 0);
 }
 
-export const auditIntent = (db: D1Database, b: Base) => write(db, "intent", b);
-export const auditOutcome = (db: D1Database, b: Base & { gmailResultId?: string }) => write(db, "outcome", b);
+export const auditIntent = (db: D1Database, b: AuditBase) => write(db, "intent", b);
+export const auditOutcome = (db: D1Database, b: AuditBase & { gmailResultId?: string }) => write(db, "outcome", b);

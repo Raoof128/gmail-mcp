@@ -62,6 +62,30 @@ tool call
 
 ## The parts that carry the weight
 
+### Identity
+
+`worker/src/auth/`, `worker/src/web/session.ts`
+
+Two kinds of caller reach the Worker, and neither carries an identity it chose for itself.
+
+A Claude client or the companion holds an OAuth token issued by `@cloudflare/workers-oauth-provider`. The
+library checks the signature, the expiry and the audience before any handler runs. `requireScope` then adds
+what the library leaves to the application: the token's scope must match the route, and the identity in the
+token's props must be the token's own owner. A `mcp` token cannot reach `/staging` and a `staging` token
+cannot reach `/mcp`, because the scope and the audience differ per route. The owner decides which scope a
+client may hold at consent time: the pre-registered companion may hold `staging`, everyone else `mcp`.
+
+The owner's browser holds a session cookie whose value never reaches the database, only its sha256. A
+session lasts twelve hours and dies after two idle hours. Editing policy or revoking an account needs a
+Google login within the last fifteen minutes, and activity never counts towards that.
+
+Google refresh tokens live only in the Worker, encrypted per account with framed additional data. Every
+write that stores or refreshes one carries the `credential_version` read at the start, so a revocation that
+lands mid-refresh wins and the refreshed token is thrown away rather than stored against a revoked account.
+
+One-use OAuth state lives in D1 and is consumed by a single `UPDATE ... RETURNING`. KV holds the provider's
+own records: it is eventually consistent, so a read followed by a delete is not a one-use consume.
+
 ### Policy engine
 
 `worker/src/policy/`

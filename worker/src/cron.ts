@@ -1,5 +1,6 @@
 import type { Env } from "./env";
 import { purgeExpired } from "./staging/store";
+import { purgeStates } from "./web/state";
 
 export type CronReport = {
   expiredPending: number;
@@ -7,6 +8,7 @@ export type CronReport = {
   failedSafe: number;
   purgedStaging: number;
   purgedAudit: number;
+  purgedStates: number;
 };
 
 const STALE_MS = 2 * 60_000;
@@ -78,5 +80,6 @@ export async function runCron(env: Env, now: number, limit = 200): Promise<CronR
     failedSafe,
     purgedStaging: staging.deleted,
     purgedAudit: audit.meta.changes ?? 0,
+    purgedStates: await purgeStates(env.DB, now, limit),
   };
 }
