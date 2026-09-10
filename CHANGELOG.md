@@ -8,6 +8,9 @@ release.
 
 The project is pre-release. Nothing here has sent an email.
 
+The suite is 146 tests, 139 of them inside the real Workers runtime against D1, R2 and KV emulation with
+no mocked storage. `npm run verify` is the gate, and CI runs the same command.
+
 ### Added
 
 - Identity and the owner's web pages. Every route is now behind a real principal, and the development
@@ -32,8 +35,7 @@ The project is pre-release. Nothing here has sent an email.
     in full, so nothing is approved blind.
   - Stateless per-form CSRF tokens bound to session, method, route and object, plus an Origin check.
   - The companion-facing staging routes for reading a staged attachment and acknowledging the write.
-- Worker foundations: the authority core of the Gmail MCP server, tested against the real Workers
-  runtime across 77 tests with no mocked storage.
+- Worker foundations: the authority core of the Gmail MCP server.
   - D1 schema where ownership is a composite foreign key rather than a convention, with partial unique
     indexes for owner-wide policy rows and bounded checks on account flags.
   - Action-based policy engine. Every action resolves to `allow`, `ask` or `deny`; modifiers
@@ -67,13 +69,15 @@ The project is pre-release. Nothing here has sent an email.
   rewritten as sentences, decorative adverbs and one transition crutch. The named invariants in the
   design spec and the mandated fields in the implementation plan kept their bold leads, because the rest
   of those documents and the code comments cite them by name.
+- Domain canonicalisation is stricter. `toAsciiDomain` rejects empty labels, leading and trailing
+  hyphens, labels over 63 bytes and names over 253, having previously accepted `-foo.com`. The web pages
+  store trusted domains through it, so what it accepts is a permission boundary.
 - CI runs `actions/checkout` and `actions/setup-node` at v7.
 
 ### Removed
 
 - The development bearer, along with `DEV_STATIC_TOKEN` and `DEV_STATIC_USER`. Nothing reaches `/mcp`
   without a token the OAuth provider issued.
-
 - The `@types/node` dependency, which nothing used. The worker tsconfig lists its types explicitly and
   does not include `node`, and the only `node:` import sits outside the tsconfig `include`. It also
   shadowed the Workers `Crypto` interface, which is where `DigestStream` is declared.
@@ -88,12 +92,16 @@ The project is pre-release. Nothing here has sent an email.
   domains, need a recent login and are audited. Allowlist entries are stored through the same
   canonicalisation the trust rules read them with, so a stored entry always means what it will match.
 - Policy edits and approval decisions write their audit row in the same transaction as the change.
-
-- The development bearer requires both `DEV_STATIC_TOKEN` and `DEV_STATIC_USER`. A partial configuration
-  authenticates nobody rather than inventing an identity.
 - Dependabot ignores vitest major bumps. `@cloudflare/vitest-plugin` peers on `vitest ^4.1.0` and it is
   what runs the Worker tests inside workerd, so a major bump cannot pass CI until the plugin accepts one.
 
 ### Not yet implemented
 
-Google OAuth and the approval pages, the 38 Gmail tools and the send pipeline, and the local companion.
+The 38 Gmail tools and the send pipeline, including URL-mode elicitation and `execute_pending`. The local
+companion, with the upload intent and ticket routes it needs. The protected Gmail suite and fault
+injection against a real mailbox.
+
+Local development over plain HTTP is deferred by choice: the Worker builds its redirect URIs, token
+audiences and `Origin` check as `https://<WORKER_HOSTNAME>`, so `wrangler dev` cannot complete an OAuth
+flow. Three of those four call sites are security boundaries, so they get a deliberate change rather than
+a convenience flag.
