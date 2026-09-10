@@ -302,7 +302,21 @@ export class FakeGmail {
     // Uploads.
     if (p.startsWith("/upload/gmail/v1/users/me/")) {
       const rest = p.slice("/upload/gmail/v1/users/me/".length);
-      return this.upload(rest, req.method, await raw(), "media");
+      const ct = req.headers.get("content-type") ?? "";
+      const bytes = await raw();
+      if (ct.startsWith("multipart/related")) {
+        const boundary = /boundary=([^;]+)/.exec(ct)![1]!;
+        // latin1 keeps byte offsets equal to character offsets, which the media slice below relies on.
+        const all = new TextDecoder("latin1").decode(bytes);
+        const parts = all.split(`--${boundary}`).slice(1, -1);
+        const meta = JSON.parse(parts[0]!.split("\r\n\r\n").slice(1).join("\r\n\r\n").trim()) as {
+          threadId?: string;
+        };
+        const mediaStart = all.indexOf(parts[1]!) + parts[1]!.indexOf("\r\n\r\n") + 4;
+        const mediaEnd = all.lastIndexOf(`\r\n--${boundary}--`);
+        return this.upload(rest, req.method, bytes.subarray(mediaStart, mediaEnd), "media", meta.threadId ?? null);
+      }
+      return this.upload(rest, req.method, bytes, "media", null);
     }
     if (p.startsWith("/resumable/upload/gmail/v1/users/me/")) {
       const rest = p.slice("/resumable/upload/gmail/v1/users/me/".length);
@@ -310,13 +324,18 @@ export class FakeGmail {
         const s = this.sessions.get(url.searchParams.get("upload_id")!);
         if (!s) return this.error(404, "unknown upload session");
         this.sessions.delete(url.searchParams.get("upload_id")!);
+        if (this.afterSession) {
+          const f = this.afterSession;
+          return this.error(f.status, f.message ?? `fault ${f.status}`, f.reason);
+        }
         return this.upload(s.path, "POST", await raw(), "resumable", s.threadId);
       }
+      const meta = (await req.json().catch(() => ({}))) as { threadId?: string };
       const uploadId = this.next("u");
       this.sessions.set(uploadId, {
         path: rest,
         contentType: req.headers.get("x-upload-content-type") ?? "",
-        threadId: null,
+        threadId: meta.threadId ?? null,
       });
       return new Response(null, {
         status: 200,

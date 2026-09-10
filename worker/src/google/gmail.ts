@@ -14,13 +14,18 @@ const BACKOFF_BASE_MS = 500;
 const BACKOFF_CAP_MS = 8000;
 
 export type GmailAccount = { userId: string; accountId: string };
-export type Upload = { kind: "media" | "resumable"; contentType: string; bytes: Uint8Array };
+export type Upload =
+  | { kind: "media"; contentType: string; bytes: Uint8Array }
+  | { kind: "multipart"; contentType: string; bytes: Uint8Array; metadata: Record<string, unknown> };
 export type GmailRequest = {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   path: string;
   query?: Record<string, string | string[] | number | boolean | undefined>;
   json?: unknown;
   upload?: Upload;
+  /** `resumable` targets the session host; the plain API host otherwise. */
+  base?: "api" | "resumable";
+  headers?: Record<string, string>;
   /** `safe` may be re-sent after a transient failure; `none` is opened once (spec 3.9). */
   retry: "safe" | "none";
 };
@@ -98,49 +103,45 @@ async function once(
 }
 
 function plainTarget(o: GmailRequest) {
+  const extra = o.headers ?? {};
+  if (o.upload?.kind === "multipart") {
+    const b = `=_meta_${crypto.randomUUID()}`;
+    const enc = new TextEncoder();
+    const head = enc.encode(
+      `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(o.upload.metadata)}\r\n--${b}\r\nContent-Type: ${o.upload.contentType}\r\n\r\n`,
+    );
+    const tail = enc.encode(`\r\n--${b}--\r\n`);
+    const body = new Uint8Array(new ArrayBuffer(head.byteLength + o.upload.bytes.byteLength + tail.byteLength));
+    body.set(head, 0);
+    body.set(o.upload.bytes, head.byteLength);
+    body.set(tail, head.byteLength + o.upload.bytes.byteLength);
+    return {
+      url: buildUrl(GMAIL.upload, o.path, { ...o.query, uploadType: "multipart" }),
+      init: { method: o.method, headers: { ...extra, "content-type": `multipart/related; boundary=${b}` }, body },
+    };
+  }
   if (o.upload?.kind === "media") {
     return {
       url: buildUrl(GMAIL.upload, o.path, { ...o.query, uploadType: "media" }),
-      init: { method: o.method, headers: { "content-type": o.upload.contentType }, body: bodyOf(o.upload.bytes) },
+      init: {
+        method: o.method,
+        headers: { ...extra, "content-type": o.upload.contentType },
+        body: bodyOf(o.upload.bytes),
+      },
     };
   }
+  const base = o.base === "resumable" ? GMAIL.resumable : GMAIL.api;
   return {
-    url: buildUrl(GMAIL.api, o.path, o.query),
+    url: buildUrl(base, o.path, o.query),
     init:
       o.json === undefined
-        ? { method: o.method, headers: {} as Record<string, string> }
-        : { method: o.method, headers: { "content-type": "application/json" }, body: JSON.stringify(o.json) },
+        ? { method: o.method, headers: { ...extra } as Record<string, string> }
+        : {
+            method: o.method,
+            headers: { ...extra, "content-type": "application/json" },
+            body: JSON.stringify(o.json),
+          },
   };
-}
-
-/**
- * Resumable upload per Google's protocol: open a session with the content headers, then PUT the
- * bytes to the session URL. Once the PUT has been opened nothing is retried; a failure after that is
- * exactly the ambiguity spec 3.5 turns into delivery_unknown, so the caller sees the raw error.
- */
-async function resumable(deps: Deps, token: string, o: GmailRequest, upload: Upload): Promise<Response> {
-  const start = await deps.googleFetch(buildUrl(GMAIL.resumable, o.path, { ...o.query, uploadType: "resumable" }), {
-    method: o.method,
-    headers: {
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json",
-      "x-upload-content-type": upload.contentType,
-      "x-upload-content-length": String(upload.bytes.byteLength),
-    },
-    body: JSON.stringify({}),
-  });
-  if (!start.ok) return start;
-  const location = start.headers.get("location");
-  if (!location) throw new GmailApiError(start.status, "resumable session without Location", null);
-  return deps.googleFetch(location, {
-    method: "PUT",
-    headers: {
-      authorization: `Bearer ${token}`,
-      "content-type": upload.contentType,
-      "content-length": String(upload.bytes.byteLength),
-    },
-    body: bodyOf(upload.bytes),
-  });
 }
 
 /**
@@ -152,10 +153,7 @@ export async function gmailFetch(env: Env, deps: Deps, acct: GmailAccount, o: Gm
   let token = await getAccessToken(env, deps, acct.userId, acct.accountId);
   let refreshed = false;
   for (let attempt = 1; ; attempt++) {
-    const res =
-      o.upload?.kind === "resumable"
-        ? await resumable(deps, token, o, o.upload)
-        : await once(deps, token, o, plainTarget(o));
+    const res = await once(deps, token, o, plainTarget(o));
     if (res.ok) return res;
     if (res.status === 401 && !refreshed) {
       refreshed = true;
@@ -176,4 +174,48 @@ export async function gmailJson<T>(env: Env, deps: Deps, acct: GmailAccount, o: 
   const res = await gmailFetch(env, deps, acct, o);
   if (res.status === 204) return undefined as T;
   return res.json<T>();
+}
+
+/**
+ * Half one of the resumable protocol: the session. It moves no message bytes, so it is retried like any
+ * read (spec 3.9 "5xx before the send body"). Google's recovery (query the session, resume at the
+ * confirmed offset) is not built: the URL lives only in this call's stack frame.
+ */
+export async function openResumableSession(
+  env: Env,
+  deps: Deps,
+  acct: GmailAccount,
+  o: { path: string; contentType: string; length: number; metadata?: Record<string, unknown> },
+): Promise<string> {
+  const res = await gmailFetch(env, deps, acct, {
+    method: "POST",
+    path: o.path,
+    base: "resumable",
+    query: { uploadType: "resumable" },
+    headers: { "x-upload-content-type": o.contentType, "x-upload-content-length": String(o.length) },
+    json: o.metadata ?? {},
+    retry: "safe",
+  });
+  const location = res.headers.get("location");
+  if (!location) throw new GmailApiError(res.status, "resumable session without Location", null);
+  return location;
+}
+
+/** Half two: the bytes. Opened exactly once; a failure here is the caller's to classify. */
+export async function putResumable(
+  env: Env,
+  deps: Deps,
+  acct: GmailAccount,
+  sessionUrl: string,
+  o: { contentType: string; length: number; body: ReadableStream<Uint8Array> },
+): Promise<Response> {
+  const token = await getAccessToken(env, deps, acct.userId, acct.accountId);
+  const res = await deps.googleFetch(sessionUrl, {
+    method: "PUT",
+    headers: { authorization: `Bearer ${token}`, "content-type": o.contentType },
+    body: o.body.pipeThrough(new FixedLengthStream(o.length)),
+  });
+  if (res.ok) return res;
+  const { message, reason } = await readError(res);
+  throw new GmailApiError(res.status, message, reason);
 }

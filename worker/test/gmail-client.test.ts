@@ -4,7 +4,7 @@ import { FakeGoogle } from "./fake-google";
 import { FakeGmail } from "./fake-gmail";
 import { seedUserAndAccount, seedAccessToken } from "./fixtures";
 import { testDeps, testEnv } from "./test-env";
-import { gmailFetch, gmailJson } from "../src/google/gmail";
+import { gmailFetch, gmailJson, openResumableSession, putResumable } from "../src/google/gmail";
 import type { Deps } from "../src/deps";
 
 let g: FakeGoogle;
@@ -113,8 +113,8 @@ describe("gmailFetch", () => {
     });
   });
 
-  it("media upload posts message/rfc822 to the upload host; resumable does POST then PUT", async () => {
-    const bytes = new TextEncoder().encode("From: a@b.test\r\n\r\nhi");
+  it("media upload posts message/rfc822 to the upload host; the session is opened and the bytes are PUT", async () => {
+    const bytes = new Uint8Array(new TextEncoder().encode("From: a@b.test\r\n\r\nhi"));
     const r1 = await gmailJson<{ id: string }>(e, deps, acct, {
       method: "POST",
       path: "messages/send",
@@ -126,21 +126,26 @@ describe("gmailFetch", () => {
       "https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send?uploadType=media",
     );
     expect(gm.sent.at(-1)!.via).toBe("media");
-    const r2 = await gmailJson<{ id: string }>(e, deps, acct, {
-      method: "POST",
+    // The two halves of the resumable protocol are separate calls: only the second moves message bytes.
+    const session = await openResumableSession(e, deps, acct, {
       path: "messages/send",
-      upload: { kind: "resumable", contentType: "message/rfc822", bytes },
-      retry: "none",
+      contentType: "message/rfc822",
+      length: bytes.byteLength,
     });
-    expect(r2.id).toMatch(/^m/);
-    const [start, put] = gm.requests.slice(-2);
-    expect(start!.url).toBe(
+    const start = gm.requests.at(-1)!;
+    expect(start.url).toBe(
       "https://gmail.googleapis.com/resumable/upload/gmail/v1/users/me/messages/send?uploadType=resumable",
     );
-    expect(start!.headers.get("x-upload-content-type")).toBe("message/rfc822");
-    expect(start!.headers.get("x-upload-content-length")).toBe(String(bytes.byteLength));
-    expect(put!.method).toBe("PUT");
-    expect(put!.url).toContain("upload_id=");
+    expect(start.headers.get("x-upload-content-type")).toBe("message/rfc822");
+    expect(start.headers.get("x-upload-content-length")).toBe(String(bytes.byteLength));
+    expect(session).toContain("upload_id=");
+    const put = await putResumable(e, deps, acct, session, {
+      contentType: "message/rfc822",
+      length: bytes.byteLength,
+      body: new Response(bytes).body!,
+    });
+    expect((await put.json<{ id: string }>()).id).toMatch(/^m/);
+    expect(gm.requests.at(-1)!.method).toBe("PUT");
     expect(gm.sent.at(-1)!.via).toBe("resumable");
   });
 
