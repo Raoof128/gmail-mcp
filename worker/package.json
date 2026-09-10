@@ -11,9 +11,11 @@
     "migrate:local": "wrangler d1 migrations apply gmail-mcp --local"
   },
   "dependencies": {
+    "@cloudflare/workers-oauth-provider": "0.10.3",
     "@gmail-mcp/shared": "0.0.1",
     "@modelcontextprotocol/server": "2.0.0",
     "agents": "0.22.0",
+    "jose": "6.2.12",
     "zod": "4.5.4"
   },
   "devDependencies": {
