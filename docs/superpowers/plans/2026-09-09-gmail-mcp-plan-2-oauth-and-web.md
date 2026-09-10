@@ -366,7 +366,7 @@ describe("html primitives", () => {
     expect(() => redirect("//evil.test/")).toThrow();
     expect(() => redirect("/\\evil.test")).toThrow();
   });
-  it("serves the stylesheet with nosniff and no-store", async () => {
+  it("serves the stylesheet with nosniff and no-store", () => {
     const res = staticHandler(new Request("https://x.test/static/app.css"));
     expect(res?.status).toBe(200);
     expect(res?.headers.get("content-type")).toBe("text/css; charset=utf-8");
