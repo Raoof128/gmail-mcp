@@ -8526,7 +8526,7 @@ Claude-Session: https://claude.ai/code/session_01NBfkjWcEGDFghet3APnUjU"
 
 - Modify: `docs/superpowers/specs/2026-09-09-gmail-mcp-design.md`, `docs/ARCHITECTURE.md`, `CHANGELOG.md`, `CLAUDE.md`, `docs/parity/hosted-2026-09-09.json` (notes only)
 
-- [ ] **Step 1: spec amendments**
+- [x] **Step 1: spec amendments**
 
 Edit the spec in place, each as a one-line "Amended 2026-09-10 (plan 3):" note next to the sentence it changes:
 
@@ -8546,11 +8546,11 @@ Edit the spec in place, each as a one-line "Amended 2026-09-10 (plan 3):" note n
 7. Section 3.4 state machine: a pending row whose operation ends `delivery_unknown` is finished as `failed` with `error = "delivery_unknown"`. The operation is authoritative for delivery from then on. This makes the existing "Terminal purge" bullet explicit.
 8. Section 4.7 unit list: "MIME encoders: RFC 2047 words at most 75 characters, RFC 2231 continuations, header injection refused" added under Vitest.
 
-- [ ] **Step 2: `docs/parity/hosted-2026-09-09.json`**
+- [x] **Step 2: `docs/parity/hosted-2026-09-09.json`**
 
 Append to `notes`: `"Our label tools take text_color and background_color instead of colorPreset and do not auto-create parent labels; every argument is snake_case; MESSAGE_FORMAT_UNSPECIFIED is accepted as the default; update_draft merges each field independently and treats an omitted attachment list as none."`
 
-- [ ] **Step 3: ARCHITECTURE.md**
+- [x] **Step 3: ARCHITECTURE.md**
 
 Add two subsections under "The parts that carry the weight", after "Approval engine":
 
@@ -8558,7 +8558,7 @@ Add two subsections under "The parts that carry the weight", after "Approval eng
 
 **The send pipeline.** `composeMime` reads staged bytes and any carried originals, builds one MIME message under `<op_…@host>`, and `sendMime` moves the operation to `executing` immediately before the upload opens. At or under 5 MB the upload is `media` (or `multipart` when a thread id must travel with it); above, it is `resumable`. A 4xx is Gmail's definitive no: `failed_safe`, reservation released, error verbatim. Any other failure after the upload opened leaves the row `executing`; the cron promotes it to `delivery_unknown` and the tool reports the same, with the instruction never to retry automatically. Reconciliation waits for Plan 5's Message-ID preservation gate.
 
-- [ ] **Step 4: CHANGELOG.md**
+- [x] **Step 4: CHANGELOG.md**
 
 Under `## [Unreleased]`, replace the "Not yet implemented" paragraph and add:
 
@@ -8596,7 +8596,7 @@ The local companion with `/staging/intent` and the upload ticket (Plan 4). The p
 fault injection at every checkpoint, and reconciliation of `delivery_unknown` operations (Plan 5).
 ```
 
-- [ ] **Step 5: CLAUDE.md**
+- [x] **Step 5: CLAUDE.md**
 
 Update "Current state" to say Plans 1 to 3 are complete with the test count from the final run, and "Not built yet" to Plans 4 and 5. Add to "Repository shape": `src/tools/` (gate, define, executors per family), `src/mime/`, `src/operations/send.ts`, `test/fake-gmail.ts`. Add these traps, each led by its symptom:
 
@@ -8609,14 +8609,14 @@ Add invariants 17 to 19 to the list: **Executors are keyed by tool name and vers
 
 Add to traps: **`idempotency_conflict` on a retry whose arguments look identical** means an inline attachment's bytes or a recipient changed; the intent hash is over the parsed arguments with inline bytes digested, not over the wire JSON.
 
-- [ ] **Step 6: prose pass and the gate**
+- [x] **Step 6: prose pass and the gate**
 
 Run the `stop-slop` skill over the spec amendments, ARCHITECTURE.md, CHANGELOG.md and CLAUDE.md. Then:
 
 Run: `npm run verify`
 Expected: exit code 0. Record the test count in CLAUDE.md and the execution record at the end of this plan.
 
-- [ ] **Step 7: commit**
+- [x] **Step 7: commit**
 
 ```bash
 git add docs CHANGELOG.md CLAUDE.md
@@ -8703,3 +8703,117 @@ Raouf's line-by-line review returned eleven stop-ship findings and twenty signif
 **Rejected with a receipt.** M10 reserving handles at pending creation: spec 3.7 places reservation inside the claim batch, and `staging_objects.reserved_by_operation_id` is a foreign key to `operations`, which does not exist until the claim. Reserving earlier would mean inserting an operation row for an unapproved action, which spec 3.5 defines as the journal of external side effects. The failure mode (two pending actions naming one handle, the second refused at claim) is loud and recorded in the bounds.
 
 Scorecard after round 2: spec coverage 9/10 (unchanged; reconciliation and resumable recovery are Plan 5's by the spec's own gate); falsifiability 9/10 (up from 8: the two contradictions the review found, a test that could not pass and a resume that would fail on honest input, now have tests that fail if they return; the residual is four SDK and runtime behaviours the first run confirms, each with a named fallback); exactly-once 8/10 (up from 4: the key is recorded first, follows the holder, and settles in one batch; what remains is the crash window between a Gmail success and the settlement batch, which is reported rather than hidden); memory 8/10 (up from 5: the send path streams; the download path is bounded by the spec's own decision and measured in Plan 5). What moves it higher: Plan 5's 25 MB round-trips and its Claude Code run against a deployed Worker.
+
+---
+
+## Execution record (2026-09-10)
+
+Executed inline, task by task, on branch `plan-3-gmail-tools`. `npm run verify` exits 0: 250 tests, 243 of
+them inside workerd against real D1, R2 and KV emulation.
+
+Six defects in the plan were real code defects, each caught by a test written before the code it broke:
+
+- The MIME encoder sized its B-encoded words to RFC 2047's own 75-character ceiling and ignored the header
+  name sharing the first line, so a 998-character subject produced an 81-character line. `encodeWords` now
+  takes the caller's budget.
+- `claimPending` reported an already-executed pending action as `pending_not_approved`, which reads to a
+  retrying caller as "this never happened". `executing` and `executed` now answer `pending_replayed`.
+- A label tool that does not journal still runs under an operation when the run came through an approval
+  claim, and its executors never opened it, so settlement refused the batch and the call died as
+  `internal`. The four label helpers open the operation when the run carries one.
+- A credential failure raised in the token layer names an account id, not the alias, so `guarded` could not
+  answer with the connect page. `withAlias` names the account at the tool boundary, where it was resolved.
+- `DownloadAttachmentInput` carries a refinement and Zod refuses `.omit()` on a refined object, so the
+  executor could not parse its own payload. The two schemas are built from one field set instead.
+- `defineTool` planned before the gate looked up the idempotency key, and a send's plan reads its staged
+  handles, which a replay has already consumed. This is what the external review's B1 was reaching for and
+  the revision did not fully close: `replayIfKnown` now runs before `plan`.
+
+Three of the plan's own tests asserted behaviour the spec forbids and were corrected against the spec, not
+around it: removing INBOX is `+sensitive` because spec 2.2 reads the target label and not the direction; an
+`allow` policy still asks when any modifier is present, so a send carrying an attachment goes through an
+approval; and a reply derived from a message's headers keeps the address and drops a display name the
+restricted grammar of spec 2.7 refuses, rather than the grammar being widened.
+
+One prediction about the SDK was wrong: a routing-header mismatch is answered `-32020`, not `-32602`. The
+400 status was right, and the refusal does happen before dispatch. The other runtime facts the header asked
+the first run to confirm held: `requestState.verify` runs on the per-request instance the `agents` wrapper
+builds, `getClientCapabilities()` reports the envelope's capabilities, D1 accepts the `idempotency_keys`
+upsert with subqueries in its `WHERE` clause, `FixedLengthStream` pipes inside the vitest workerd pool, and
+the fake receives exactly the declared byte count.
+
+### Everything the run changed, task by task
+
+- Task 1: the plan's `gmail-client.test.ts` imported `GmailApiError` without using it and wrote
+  `sleep: async (ms) => void slept.push(ms)`, which `@typescript-eslint/require-await` rejects.
+  Import dropped; the recorder returns `Promise.resolve()` instead of being `async`.
+- Task 1: `npm run format` reflows the plan's own fenced code, so the committed plan is the
+  prettier-formatted one.
+- Task 2: `decodeBodyData` passed `{ fatal: false }` to `TextDecoder`, whose workerd constructor
+  options type requires both `fatal` and `ignoreBOM`; `GmailMessage.payload` needed the
+  `| undefined` that `exactOptionalPropertyTypes` demands before the MINIMAL test could pass a
+  payload-free message; the test's `TextEncoder.encode` results needed the boundary copy.
+- Task 3: the plan's fold test asserted `foldHeader` returned no trailing CRLF while `build.ts`
+  concatenates its results as whole lines, and asserted a two-mailbox `To:` stayed folded when the
+  documented behaviour is to re-flow a folded list. Both expectations were stale; the code is the
+  contract and the assertions now say so.
+- Task 3 (real defect): B-encoded words were sized to RFC 2047's own 75-character ceiling, so
+  `Subject: ` plus one word made an 81-character line. `encodeWords` now takes the caller's budget
+  and `foldHeader` passes `78 - name.length - 2`. The test that caught it is the 998-A subject.
+- Task 4: `testDeps.sleep` resolved a promise without yielding a macrotask, so the approval wait loop
+  starved the timer that the elicitation test used to approve the row and the call always came back
+  `pending_approval`. The fake sleep now yields with `setTimeout(r, 0)`.
+- Task 4 (real defect): `claimPending` reported an already-executed row as `pending_not_approved`,
+  which reads to a retrying caller as "this never happened". `executing` and `executed` now answer
+  `pending_replayed`; `denied`, `cancelled` and `failed` keep the old code.
+- Task 4: `AuditBase` carries `decision`, which the gate supplies per row, so gate and settle now name
+  the decision-less half `Omit<AuditBase, "decision">`. The codec's `verify` is wrapped rather than
+  passed by reference so it keeps its receiver.
+- Task 5 (real defect): an ask-path label tool runs under an operation created by the claim even though
+  it does not journal, and its executors never opened it, so settlement refused the batch and the call
+  died as `internal`. The four label helpers now open the operation when the run carries one.
+- Task 5 (real defect): a credential failure raised in the token layer carries an account id, not the
+  alias, so `guarded` could not answer with the connect page. `withAlias` names the account at the tool
+  boundary, where it was resolved.
+- Task 5: the plan's test asserted that removing INBOX executes, while spec 2.2 makes any system label
+  `+sensitive` whichever direction it moves. The test now removes a user label and asserts separately
+  that archiving asks.
+- Task 5: a schema rejection is a tool result with `isError` and a plain-text message, not a JSON-RPC
+  error, so `callTool` exposes `isError` and the refusal assertions read it.
+- Task 5: `registerTool` derives its argument type from the schema, which is a type parameter inside
+  `defineTool`, so the derivation never resolves; the handler is named as the SDK's `AnyToolHandler<S>`
+  at that one boundary.
+- Task 6 (real defect): `DownloadAttachmentInput` carries the attachment_id/part_id refinement, and
+  Zod refuses `.omit()` on a refined object, so the executor could not parse its own payload. The two
+  schemas are now built from one field set, with `DownloadAttachmentPayload` for the stored form.
+- Task 6: `getMessage` lives in `compose.ts`, which Task 8 writes in full; Task 6 needs it, so it moved
+  forward with `decodeInline` and `intentArgs`.
+- Task 7: the plan's Task 1 test asserted the resumable protocol through `gmailFetch`, which Task 7
+  removes; that half now drives `openResumableSession` and `putResumable` directly.
+- Task 7 runtime facts confirmed: `FixedLengthStream` pipes inside the vitest workerd pool and the fake
+  receives exactly the declared byte count.
+- Task 8: an update that omits the body merges it from the stored draft, which real Gmail serves back
+  as parsed parts; the fake kept only headers, so the merged body vanished. The fake now reads the
+  text/plain and text/html parts out of the MIME it was handed, re-spelling base64 as base64url rather
+  than decoding, so the bytes are unchanged.
+- Task 9 (real defect, and the one the external review's B1 was reaching for): `defineTool` planned
+  before the gate looked up the idempotency key, and a send's plan reads its staged handles, which a
+  replay has already consumed. `replayIfKnown` now runs before `plan`, so a replayed key touches
+  nothing; `runGated` calls the same function.
+- Task 9 (real defect): a reply derived its recipients from the original headers, which may hold a
+  display name the restricted address grammar refuses (`"Office, Dean" <office@uni.test>`). The
+  derivation keeps the address and drops the name rather than the grammar being loosened.
+- Task 9: three of the plan's tests expected an `allow` policy to execute a send that carried an
+  attachment, which invariant 4 forbids: any modifier raises. They now approve and execute the pending
+  action, which is what a real owner would see.
+- Task 9: the send summary carried a "Send · " prefix that spec 2.6's own example does not have. The
+  verb stays on reply and forward, where it says which of the three is being approved.
+- Task 10 runtime facts confirmed: the modern envelope plus the two routing headers is accepted as
+  modern, `requestState.verify` runs on the per-request instance the agents wrapper builds, and URL
+  elicitation is offered only when the envelope declares the capability. One prediction was wrong: a
+  routing-header mismatch is answered `-32020`, not `-32602`. Status 400 was right.
+
+### What is not built
+
+Resumable session recovery, reconciliation of `delivery_unknown` operations, the streaming download path,
+and fault injection at every checkpoint. All four are Plan 5's, and the spec amendments say so.

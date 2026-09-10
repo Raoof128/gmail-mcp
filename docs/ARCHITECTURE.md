@@ -120,6 +120,40 @@ The attachments an operation reserves are read back out of the approved payload.
 them. This is what makes approval mean something: you approved a specific payload, and the reservation
 comes from that payload rather than from whatever the next call happens to say.
 
+### The tool gate
+
+`worker/src/tools/`
+
+Every Gmail tool is registered through `defineTool`, which resolves the account from the verified
+principal, hashes the client's intent, answers a known idempotency key before anything else, and asks the
+tool for a plan: modifiers, a summary, audit facts, and a `build` that produces the execution payload.
+The gate hands that plan to `runGated`, which decides policy first and calls `build` only afterwards, so a
+denied or replayed call writes nothing at all.
+
+`allow` opens a journal row when the tool journals, reserves the handles and runs the executor. `ask`
+stores the canonical payload, holds the handles past the pending expiry, and answers with a URL
+elicitation on the 2026-07-28 revision when the client can open one, else with the approval URL as text.
+`deny` writes its intent row and stops.
+
+Executors are registered by tool name and version and receive nothing but the stored payload and the
+account, so a later request holding only the row can execute it, and never under code the payload was not
+approved for.
+
+### The send pipeline
+
+`worker/src/mime/`, `worker/src/operations/send.ts`
+
+`composeMime` reads staged bytes and any carried originals and builds one MIME message under
+`<op_…@host>` as a pull stream whose length is known before a byte moves. At or under 5 MB the upload is
+`media`, or `multipart` when a thread id must travel with it; above that a resumable session is opened
+first, because opening one moves no bytes and may be retried, and only then does the operation move to
+`executing` and the PUT open.
+
+A 4xx is Gmail's definitive no: `failed_safe`, reservations released, the error surfaced verbatim.
+Anything else after the upload opened leaves the row `executing`; the cron promotes it to
+`delivery_unknown` and the tool reports the same, with the instruction never to retry automatically.
+Reconciliation waits for Plan 5's Message-ID preservation gate.
+
 ### Operation journal
 
 `worker/src/operations/journal.ts`

@@ -8,10 +8,24 @@ release.
 
 The project is pre-release. Nothing here has sent an email.
 
-The suite is 146 tests, 139 of them inside the real Workers runtime against D1, R2 and KV emulation with
+The suite is 250 tests, 243 of them inside the real Workers runtime against D1, R2 and KV emulation with
 no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Added
+
+- The 38 remote tools. Reads, drafts, sends, labels, spam and trash all run through one gate that
+  applies the policy engine, stores an `ask` as a canonical payload, and journals every external
+  mutation. `execute_pending` runs an approved action once; a second call is a replay.
+- URL-mode elicitation on protocol revision 2026-07-28. When the client can open a URL, an `ask`
+  answers `input_required` with the approval page and HMAC-bound `requestState`; the accepted retry
+  waits for the owner's decision inside the same call. Every other client receives the approval URL as
+  text, which is spec 1.4's second path.
+- The send pipeline: staged attachments and carried originals become one MIME message with RFC 2047
+  headers and RFC 2231 filenames; media or multipart upload at or under 5 MB, resumable above; a 4xx is
+  `failed_safe`, anything else after the upload opened is `delivery_unknown` and never retried.
+- `download_attachment` stages the decoded bytes and returns a handle; bytes never enter a result.
+- An in-memory Gmail for the test suite that mirrors the discovery document (revision 20260907),
+  including both upload protocols and fault injection hooks for Plan 5.
 
 - Identity and the owner's web pages. Every route is now behind a real principal, and the development
   bearer is deleted rather than disabled.
@@ -61,6 +75,17 @@ no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Changed
 
+- `getAccessToken` accepts `forceRefresh`, which the Gmail client uses on a 401.
+- `Deps` carries `sleep` and the approval wait interval and deadline, so tests collapse time.
+- `draft.write` is journaled for updates as well as creates, because reserving an upload handle needs
+  an operation row. Journaling is decided per tool, not per policy action.
+- Idempotency keys live in their own table, keyed on the client's intent, and hold across the whole
+  approval lifecycle: the same key returns the same pending action, then replays its result.
+- Every local consequence of a Gmail result is one D1 batch.
+- A claim on a pending action that already ran answers `pending_replayed` rather than
+  `pending_not_approved`.
+- `create_label` no longer creates missing parent labels.
+
 - Staging ingest validates before it writes. The body is read to completion, length-checked and hashed
   before anything reaches R2. Streaming straight through aborted the in-flight upload when the declared
   length was wrong, which left a partial object behind and surfaced as an unhandled rejection that made
@@ -100,9 +125,8 @@ no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Not yet implemented
 
-The 38 Gmail tools and the send pipeline, including URL-mode elicitation and `execute_pending`. The local
-companion, with the upload intent and ticket routes it needs. The protected Gmail suite and fault
-injection against a real mailbox.
+The local companion with `/staging/intent` and the upload ticket (Plan 4). The protected Gmail suite,
+fault injection at every checkpoint, and reconciliation of `delivery_unknown` operations (Plan 5).
 
 Local development over plain HTTP is deferred by choice: the Worker builds its redirect URIs, token
 audiences and `Origin` check as `https://<WORKER_HOSTNAME>`, so `wrangler dev` cannot complete an OAuth
