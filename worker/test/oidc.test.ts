@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { FakeGoogle } from "./fake-google";
-import { testEnv } from "./test-env";
+import { testEnv, testDeps } from "./test-env";
 import {
   CONNECT_SCOPES,
   LOGIN_SCOPES,
@@ -17,7 +17,7 @@ let g: FakeGoogle;
 beforeAll(async () => {
   g = await FakeGoogle.create();
 });
-const deps = () => ({ googleFetch: g.fetch });
+const deps = () => testDeps(g);
 
 describe("oidc client", () => {
   it("builds the login and connect URLs with the right parameters", () => {

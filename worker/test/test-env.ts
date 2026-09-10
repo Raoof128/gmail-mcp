@@ -1,3 +1,5 @@
+import { defaultDeps, type Deps } from "../src/deps";
+import type { FakeGoogle } from "./fake-google";
 import { env } from "cloudflare:test";
 import type { Env } from "../src/env";
 
@@ -28,3 +30,14 @@ export function testEnv(overrides: Record<string, unknown> = {}): Env {
 }
 
 export const HOST = "https://gmail-mcp.example.workers.dev";
+
+/** Fake Google, no real sleeping, and an approval wait long enough for a browser approval to land inside it. */
+export function testDeps(g: FakeGoogle, overrides: Partial<Deps> = {}): Deps {
+  return {
+    ...defaultDeps,
+    googleFetch: g.fetch,
+    sleep: async () => {},
+    approvalWait: { intervalMs: 5, deadlineMs: 500 },
+    ...overrides,
+  };
+}

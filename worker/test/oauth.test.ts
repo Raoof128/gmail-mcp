@@ -4,7 +4,7 @@ import { createWorker } from "../src/index";
 import { Browser, csrfFrom, mintToken, registerClient } from "./browser";
 import { FakeGoogle } from "./fake-google";
 import { rpc } from "./mcp-client";
-import { HOST, testEnv } from "./test-env";
+import { HOST, testEnv, testDeps } from "./test-env";
 import { registerCompanionClient } from "../src/auth/companion";
 import { requireScope } from "../src/auth/principal";
 import { seedUserAndAccount } from "./fixtures";
@@ -14,7 +14,7 @@ let g: FakeGoogle;
 let worker: ReturnType<typeof createWorker>;
 beforeAll(async () => {
   g = await FakeGoogle.create();
-  worker = createWorker({ googleFetch: g.fetch });
+  worker = createWorker(testDeps(g));
   await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "oa", alias: "personal", isDefault: true });
 });
 

@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { createWorker } from "../src/index";
 import { Browser } from "./browser";
 import { FakeGoogle } from "./fake-google";
-import { testEnv } from "./test-env";
+import { testEnv, testDeps } from "./test-env";
 import { seedUserAndAccount } from "./fixtures";
 import { auditIntent } from "../src/audit/log";
 
@@ -11,7 +11,7 @@ let g: FakeGoogle;
 let worker: ReturnType<typeof createWorker>;
 beforeAll(async () => {
   g = await FakeGoogle.create();
-  worker = createWorker({ googleFetch: g.fetch });
+  worker = createWorker(testDeps(g));
   await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "au1", alias: "personal", isDefault: true });
   await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "au2", alias: "work" });
   await seedUserAndAccount(env.DB, { userId: "other-owner", accountId: "au3", alias: "personal", isDefault: true });

@@ -1,4 +1,5 @@
 import { SignJWT, exportJWK, generateKeyPair, type CryptoKey } from "jose";
+import { FakeGmail } from "./fake-gmail";
 
 type CodeRecord = { sub: string; email: string; nonce: string; refresh: string; scope: string };
 
@@ -20,6 +21,7 @@ export class FakeGoogle {
   readonly refreshTokens = new Map<string, "ok" | "invalid_grant">();
   readonly revoked = new Set<string>();
   sendAs: string[] = ["owner@example.test", "alias@example.test"];
+  readonly gmail = new FakeGmail();
   tokenCalls = 0;
   accessCounter = 0;
   /** When set, the next authorization_code exchange answers 200 with a body missing access_token. */
@@ -104,14 +106,17 @@ export class FakeGoogle {
       this.revoked.add(field(await req.formData(), "token"));
       return new Response(null, { status: 200 });
     }
-    if (url.href === "https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs") {
-      if (!req.headers.get("authorization")?.startsWith("Bearer at-")) return new Response("", { status: 401 });
-      return Response.json({
-        sendAs: [
-          ...this.sendAs.map((e) => ({ sendAsEmail: e, verificationStatus: "accepted" })),
-          { sendAsEmail: "pending@example.test", verificationStatus: "pending" },
-        ],
-      });
+    if (url.hostname === "gmail.googleapis.com") {
+      if (url.href === "https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs") {
+        if (!req.headers.get("authorization")?.startsWith("Bearer at-")) return new Response("", { status: 401 });
+        return Response.json({
+          sendAs: [
+            ...this.sendAs.map((e) => ({ sendAsEmail: e, verificationStatus: "accepted" })),
+            { sendAsEmail: "pending@example.test", verificationStatus: "pending" },
+          ],
+        });
+      }
+      return this.gmail.fetch(req);
     }
     return new Response("fake google: unknown url " + url.href, { status: 404 });
   };

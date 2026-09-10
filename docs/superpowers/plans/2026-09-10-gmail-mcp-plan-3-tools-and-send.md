@@ -242,7 +242,10 @@ describe("gmailFetch", () => {
     await expect(gmailFetch(e, deps, acct, { method: "GET", path: "labels", retry: "safe" })).rejects.toMatchObject({
       googleMessage: "Invalid attachment: nope.exe",
     });
-    gm.faults.push({ status: 403, reason: "userRateLimitExceeded" }, { status: 403, reason: "insufficientPermissions" });
+    gm.faults.push(
+      { status: 403, reason: "userRateLimitExceeded" },
+      { status: 403, reason: "insufficientPermissions" },
+    );
     await expect(gmailFetch(e, deps, acct, { method: "GET", path: "labels", retry: "safe" })).rejects.toMatchObject({
       status: 403,
       reason: "insufficientPermissions",
@@ -643,7 +646,16 @@ export class FakeGmail {
         }
       : null;
     const bodyParts: FakePart[] = htmlPart
-      ? [{ partId: "a", mimeType: "multipart/alternative", filename: "", headers: [], body: { size: 0 }, parts: [textPart, htmlPart] }]
+      ? [
+          {
+            partId: "a",
+            mimeType: "multipart/alternative",
+            filename: "",
+            headers: [],
+            body: { size: 0 },
+            parts: [textPart, htmlPart],
+          },
+        ]
       : [textPart];
     const attParts: FakePart[] = (o.attachments ?? []).map((a, i) => {
       const attachmentId = `att${id}_${i}`;
@@ -657,13 +669,22 @@ export class FakeGmail {
           { name: "Content-Type", value: `${a.mime}; name="${a.filename}"` },
           { name: "Content-Disposition", value: `attachment; filename="${a.filename}"` },
         ],
-        body: a.inline ? { size: a.bytes.byteLength, data: b64url(a.bytes) } : { size: a.bytes.byteLength, attachmentId },
+        body: a.inline
+          ? { size: a.bytes.byteLength, data: b64url(a.bytes) }
+          : { size: a.bytes.byteLength, attachmentId },
       };
     });
     const payload: FakePart =
       attParts.length === 0
         ? { ...bodyParts[0]!, headers: [...headers, ...bodyParts[0]!.headers] }
-        : { partId: "", mimeType: "multipart/mixed", filename: "", headers, body: { size: 0 }, parts: [...bodyParts, ...attParts] };
+        : {
+            partId: "",
+            mimeType: "multipart/mixed",
+            filename: "",
+            headers,
+            body: { size: 0 },
+            parts: [...bodyParts, ...attParts],
+          };
     const msg: FakeMessage = {
       id,
       threadId,
@@ -686,12 +707,37 @@ export class FakeGmail {
   }
 
   private view(m: FakeMessage, format: string, metadataHeaders: string[]): unknown {
-    if (format === "minimal") return { id: m.id, threadId: m.threadId, labelIds: m.labelIds, snippet: m.snippet, internalDate: m.internalDate, sizeEstimate: m.sizeEstimate };
-    if (format === "raw") return { id: m.id, threadId: m.threadId, labelIds: m.labelIds, snippet: m.snippet, internalDate: m.internalDate, raw: m.raw ?? utf8b64url("RAW-NOT-STORED") };
+    if (format === "minimal")
+      return {
+        id: m.id,
+        threadId: m.threadId,
+        labelIds: m.labelIds,
+        snippet: m.snippet,
+        internalDate: m.internalDate,
+        sizeEstimate: m.sizeEstimate,
+      };
+    if (format === "raw")
+      return {
+        id: m.id,
+        threadId: m.threadId,
+        labelIds: m.labelIds,
+        snippet: m.snippet,
+        internalDate: m.internalDate,
+        raw: m.raw ?? utf8b64url("RAW-NOT-STORED"),
+      };
     if (format === "metadata") {
       const wanted = new Set(metadataHeaders.map((h) => h.toLowerCase()));
-      const headers = wanted.size === 0 ? m.payload.headers : m.payload.headers.filter((h) => wanted.has(h.name.toLowerCase()));
-      return { id: m.id, threadId: m.threadId, labelIds: m.labelIds, snippet: m.snippet, internalDate: m.internalDate, sizeEstimate: m.sizeEstimate, payload: { partId: "", mimeType: m.payload.mimeType, filename: "", headers, body: { size: 0 } } };
+      const headers =
+        wanted.size === 0 ? m.payload.headers : m.payload.headers.filter((h) => wanted.has(h.name.toLowerCase()));
+      return {
+        id: m.id,
+        threadId: m.threadId,
+        labelIds: m.labelIds,
+        snippet: m.snippet,
+        internalDate: m.internalDate,
+        sizeEstimate: m.sizeEstimate,
+        payload: { partId: "", mimeType: m.payload.mimeType, filename: "", headers, body: { size: 0 } },
+      };
     }
     return m;
   }
@@ -738,7 +784,9 @@ export class FakeGmail {
     };
     const id = this.next("m");
     const inReplyTo = header("In-Reply-To");
-    const parent = [...this.messages.values()].find((m) => m.payload.headers.some((h) => h.name === "Message-ID" && h.value === inReplyTo));
+    const parent = [...this.messages.values()].find((m) =>
+      m.payload.headers.some((h) => h.name === "Message-ID" && h.value === inReplyTo),
+    );
     const threadId = threadIdHint ?? parent?.threadId ?? id;
     const msg: FakeMessage = {
       id,
@@ -770,7 +818,8 @@ export class FakeGmail {
     const early = this.before ? await this.before(req) : undefined;
     if (early) return early;
     const token = /^Bearer (.+)$/.exec(req.headers.get("authorization") ?? "")?.[1] ?? "";
-    if (!token.startsWith("at-") || this.rejectAll || this.rejectTokens.has(token)) return this.error(401, "Invalid Credentials", "authError");
+    if (!token.startsWith("at-") || this.rejectAll || this.rejectTokens.has(token))
+      return this.error(401, "Invalid Credentials", "authError");
     const fault = this.faults.shift();
     if (fault) {
       const res = this.error(fault.status, fault.message ?? `fault ${fault.status}`, fault.reason);
@@ -798,7 +847,9 @@ export class FakeGmail {
       this.sessions.set(uploadId, { path: rest, contentType: req.headers.get("x-upload-content-type") ?? "" });
       return new Response(null, {
         status: 200,
-        headers: { location: `https://gmail.googleapis.com/resumable/upload/gmail/v1/users/me/${rest}?uploadType=resumable&upload_id=${uploadId}` },
+        headers: {
+          location: `https://gmail.googleapis.com/resumable/upload/gmail/v1/users/me/${rest}?uploadType=resumable&upload_id=${uploadId}`,
+        },
       });
     }
     if (!p.startsWith("/gmail/v1/users/me/")) return this.error(404, `unknown path ${p}`);
@@ -811,7 +862,8 @@ export class FakeGmail {
       if (req.method === "POST" && seg.length === 1) {
         const body = await json();
         if (typeof body.name !== "string" || body.name === "") return this.error(400, "Invalid label name");
-        if ([...this.labels.values()].some((l) => l.name === body.name)) return this.error(409, "Label name exists or conflicts");
+        if ([...this.labels.values()].some((l) => l.name === body.name))
+          return this.error(409, "Label name exists or conflicts");
         const label: FakeLabel = { id: this.next("Label_"), name: body.name, type: "user", ...(body as object) };
         this.labels.set(label.id, label);
         return Response.json(label);
@@ -833,18 +885,33 @@ export class FakeGmail {
 
     if (seg[0] === "messages") {
       if (req.method === "GET" && seg.length === 1) {
-        const all = [...this.messages.values()].filter((m) => !m.labelIds.includes("DRAFT") && this.matches(m, url.searchParams.get("q"), url.searchParams.get("includeSpamTrash") === "true"));
+        const all = [...this.messages.values()].filter(
+          (m) =>
+            !m.labelIds.includes("DRAFT") &&
+            this.matches(m, url.searchParams.get("q"), url.searchParams.get("includeSpamTrash") === "true"),
+        );
         const { items, nextPageToken } = this.page(all, url);
-        return Response.json({ messages: items.map((m) => ({ id: m.id, threadId: m.threadId })), resultSizeEstimate: all.length, ...(nextPageToken ? { nextPageToken } : {}) });
+        return Response.json({
+          messages: items.map((m) => ({ id: m.id, threadId: m.threadId })),
+          resultSizeEstimate: all.length,
+          ...(nextPageToken ? { nextPageToken } : {}),
+        });
       }
       if (req.method === "POST" && seg[1] === "send" && seg.length === 2) {
         const body = await json();
         if (typeof body.raw !== "string") return this.error(400, "raw required");
-        return Response.json(this.publicMessage(this.storeSent(fromB64url(body.raw), "media", typeof body.threadId === "string" ? body.threadId : null)));
+        return Response.json(
+          this.publicMessage(
+            this.storeSent(fromB64url(body.raw), "media", typeof body.threadId === "string" ? body.threadId : null),
+          ),
+        );
       }
       const m = this.messages.get(seg[1] ?? "");
       if (!m || m.labelIds.includes("DRAFT")) return this.error(404, "Requested entity was not found.", "notFound");
-      if (req.method === "GET" && seg.length === 2) return Response.json(this.view(m, url.searchParams.get("format") ?? "full", url.searchParams.getAll("metadataHeaders")));
+      if (req.method === "GET" && seg.length === 2)
+        return Response.json(
+          this.view(m, url.searchParams.get("format") ?? "full", url.searchParams.getAll("metadataHeaders")),
+        );
       if (req.method === "GET" && seg[2] === "attachments") {
         const bytes = this.attachments.get(`${m.id}/${seg[3]}`);
         if (!bytes) return this.error(404, "Requested entity was not found.", "notFound");
@@ -869,19 +936,33 @@ export class FakeGmail {
     if (seg[0] === "threads") {
       const threads = () => {
         const byThread = new Map<string, FakeMessage[]>();
-        for (const m of this.messages.values()) if (!m.labelIds.includes("DRAFT")) byThread.set(m.threadId, [...(byThread.get(m.threadId) ?? []), m]);
+        for (const m of this.messages.values())
+          if (!m.labelIds.includes("DRAFT")) byThread.set(m.threadId, [...(byThread.get(m.threadId) ?? []), m]);
         return byThread;
       };
       if (req.method === "GET" && seg.length === 1) {
         const q = url.searchParams.get("q");
         const incl = url.searchParams.get("includeSpamTrash") === "true";
-        const all = [...threads().entries()].filter(([, ms]) => ms.some((m) => this.matches(m, q, incl))).map(([id, ms]) => ({ id, snippet: ms[ms.length - 1]!.snippet, historyId: "1" }));
+        const all = [...threads().entries()]
+          .filter(([, ms]) => ms.some((m) => this.matches(m, q, incl)))
+          .map(([id, ms]) => ({ id, snippet: ms[ms.length - 1]!.snippet, historyId: "1" }));
         const { items, nextPageToken } = this.page(all, url);
-        return Response.json({ threads: items, resultSizeEstimate: all.length, ...(nextPageToken ? { nextPageToken } : {}) });
+        return Response.json({
+          threads: items,
+          resultSizeEstimate: all.length,
+          ...(nextPageToken ? { nextPageToken } : {}),
+        });
       }
       const ms = threads().get(seg[1] ?? "");
       if (!ms) return this.error(404, "Requested entity was not found.", "notFound");
-      if (req.method === "GET" && seg.length === 2) return Response.json({ id: seg[1], historyId: "1", messages: ms.map((m) => this.view(m, url.searchParams.get("format") ?? "full", url.searchParams.getAll("metadataHeaders"))) });
+      if (req.method === "GET" && seg.length === 2)
+        return Response.json({
+          id: seg[1],
+          historyId: "1",
+          messages: ms.map((m) =>
+            this.view(m, url.searchParams.get("format") ?? "full", url.searchParams.getAll("metadataHeaders")),
+          ),
+        });
       if (req.method === "POST" && seg[2] === "modify") {
         const body = await json();
         for (const m of ms) this.applyModify(m, body);
@@ -902,7 +983,11 @@ export class FakeGmail {
       if (req.method === "GET" && seg.length === 1) {
         const all = [...this.drafts.values()].filter((d) => this.matches(d.message, url.searchParams.get("q"), true));
         const { items, nextPageToken } = this.page(all, url);
-        return Response.json({ drafts: items.map((d) => ({ id: d.id, message: { id: d.message.id, threadId: d.message.threadId } })), resultSizeEstimate: all.length, ...(nextPageToken ? { nextPageToken } : {}) });
+        return Response.json({
+          drafts: items.map((d) => ({ id: d.id, message: { id: d.message.id, threadId: d.message.threadId } })),
+          resultSizeEstimate: all.length,
+          ...(nextPageToken ? { nextPageToken } : {}),
+        });
       }
       if (req.method === "POST" && seg[1] === "send") {
         const body = await json();
@@ -910,7 +995,11 @@ export class FakeGmail {
         if (!d) return this.error(404, "Requested entity was not found.", "notFound");
         this.drafts.delete(d.id);
         this.messages.delete(d.message.id);
-        const rawBytes = d.message.raw ? fromB64url(d.message.raw) : new TextEncoder().encode(`Subject: ${d.message.payload.headers.find((h) => h.name === "Subject")?.value ?? ""}\r\n\r\n`);
+        const rawBytes = d.message.raw
+          ? fromB64url(d.message.raw)
+          : new TextEncoder().encode(
+              `Subject: ${d.message.payload.headers.find((h) => h.name === "Subject")?.value ?? ""}\r\n\r\n`,
+            );
         const sent = this.storeSent(rawBytes, "draft", d.message.threadId);
         return Response.json(this.publicMessage(sent));
       }
@@ -921,13 +1010,25 @@ export class FakeGmail {
       }
       const d = this.drafts.get(seg[1] ?? "");
       if (!d) return this.error(404, "Requested entity was not found.", "notFound");
-      if (req.method === "GET") return Response.json({ id: d.id, message: this.view(d.message, url.searchParams.get("format") ?? "full", url.searchParams.getAll("metadataHeaders")) });
+      if (req.method === "GET")
+        return Response.json({
+          id: d.id,
+          message: this.view(
+            d.message,
+            url.searchParams.get("format") ?? "full",
+            url.searchParams.getAll("metadataHeaders"),
+          ),
+        });
       if (req.method === "PUT") {
         const body = (await json()) as { message?: { raw?: string; threadId?: string } };
         if (typeof body.message?.raw !== "string") return this.error(400, "message.raw required");
         this.messages.delete(d.message.id);
         this.drafts.delete(d.id);
-        const created = this.createDraftFromRaw(fromB64url(body.message.raw), body.message.threadId ?? d.message.threadId, d.id);
+        const created = this.createDraftFromRaw(
+          fromB64url(body.message.raw),
+          body.message.threadId ?? d.message.threadId,
+          d.id,
+        );
         return Response.json(created);
       }
       if (req.method === "DELETE") return this.error(403, "drafts.delete must never be called", "forbidden");
@@ -935,8 +1036,15 @@ export class FakeGmail {
     return this.error(404, `unhandled ${req.method} ${p}`);
   };
 
-  private upload(path: string, method: string, bytes: Uint8Array, via: "media" | "resumable", threadId: string | null = null): Response {
-    if (path === "messages/send" && method === "POST") return Response.json(this.publicMessage(this.storeSent(bytes, via, threadId)));
+  private upload(
+    path: string,
+    method: string,
+    bytes: Uint8Array,
+    via: "media" | "resumable",
+    threadId: string | null = null,
+  ): Response {
+    if (path === "messages/send" && method === "POST")
+      return Response.json(this.publicMessage(this.storeSent(bytes, via, threadId)));
     if (path === "drafts" && method === "POST") return Response.json(this.createDraftFromRaw(bytes, threadId));
     const m = /^drafts\/([^/]+)$/.exec(path);
     if (m && method === "PUT") {
@@ -1006,13 +1114,29 @@ export async function seedAccessToken(
   o: { userId: string; accountId: string; access?: string; refresh?: string; expiresInMs?: number },
 ): Promise<void> {
   const ring = Keyring.fromEnv(e);
-  const at = await ring.encrypt(o.access ?? "at-seeded", { userId: o.userId, accountId: o.accountId, field: "access_token" });
-  const rt = await ring.encrypt(o.refresh ?? "rt-seeded", { userId: o.userId, accountId: o.accountId, field: "refresh_token" });
+  const at = await ring.encrypt(o.access ?? "at-seeded", {
+    userId: o.userId,
+    accountId: o.accountId,
+    field: "access_token",
+  });
+  const rt = await ring.encrypt(o.refresh ?? "rt-seeded", {
+    userId: o.userId,
+    accountId: o.accountId,
+    field: "refresh_token",
+  });
   await e.DB.prepare(
     `UPDATE accounts SET status = 'active', access_token_enc = ?, access_token_key_id = ?, access_expires_at = ?,
        refresh_token_enc = ?, refresh_token_key_id = ? WHERE id = ? AND user_id = ?`,
   )
-    .bind(at.ciphertext, at.keyId, Date.now() + (o.expiresInMs ?? 3_600_000), rt.ciphertext, rt.keyId, o.accountId, o.userId)
+    .bind(
+      at.ciphertext,
+      at.keyId,
+      Date.now() + (o.expiresInMs ?? 3_600_000),
+      rt.ciphertext,
+      rt.keyId,
+      o.accountId,
+      o.userId,
+    )
     .run();
 }
 ```
@@ -1128,7 +1252,9 @@ describe("messageView", () => {
     expect(JSON.stringify(v)).not.toContain("dGlueQ");
   });
   it("FULL_CONTENT adds the html body; METADATA_ONLY and MINIMAL carry no body", () => {
-    expect(messageView(m, { format: "FULL_CONTENT", bodyCharLimit: 10_000, includeBody: true }).html_body).toBe("<p>html body</p>");
+    expect(messageView(m, { format: "FULL_CONTENT", bodyCharLimit: 10_000, includeBody: true }).html_body).toBe(
+      "<p>html body</p>",
+    );
     const meta = messageView(m, { format: "METADATA_ONLY", bodyCharLimit: 10_000, includeBody: true });
     expect(meta.plaintext_body).toBeUndefined();
     expect(meta.subject).toBe("Hello 🚀");
@@ -1142,7 +1268,9 @@ describe("messageView", () => {
     expect(v.body_truncated).toBe(true);
     const emoji = gm.seedMessage({ from: "a@x.test", to: ["b@x.test"], subject: "s", text: "😀😀😀" });
     expect(messageView(emoji, { format: "PLAIN_TEXT", bodyCharLimit: 1, includeBody: true }).plaintext_body).toBe("😀");
-    expect(messageView(m, { format: "PLAIN_TEXT", bodyCharLimit: 25, includeBody: false }).plaintext_body).toBeUndefined();
+    expect(
+      messageView(m, { format: "PLAIN_TEXT", bodyCharLimit: 25, includeBody: false }).plaintext_body,
+    ).toBeUndefined();
   });
   it("finds an attachment by attachment id or part id, and reads inline part data", () => {
     expect(findAttachment(m, { attachmentId: `att${m.id}_0` })).toMatchObject({ filename: "notes.pdf", size: 4 });
@@ -1152,16 +1280,44 @@ describe("messageView", () => {
     expect(partData(m, "2")).toBeNull();
   });
   it("splits address lists like RFC 5322: quotes with escapes, comments, brackets, groups", () => {
-    expect(splitAddressList('"Doe, Jane" <jane@x.test>, bob@x.test , <c@x.test>')).toEqual(['"Doe, Jane" <jane@x.test>', "bob@x.test", "<c@x.test>"]);
-    expect(splitAddressList('"Say \\"hi\\", now" <q@x.test>, d@x.test')).toEqual(['"Say \\"hi\\", now" <q@x.test>', "d@x.test"]);
-    expect(splitAddressList("a@x.test (comma, inside (nested)), b@x.test")).toEqual(["a@x.test (comma, inside (nested))", "b@x.test"]);
-    expect(splitAddressList("Team: t1@x.test, t2@x.test; solo@x.test")).toEqual(["t1@x.test", "t2@x.test", "solo@x.test"]);
+    expect(splitAddressList('"Doe, Jane" <jane@x.test>, bob@x.test , <c@x.test>')).toEqual([
+      '"Doe, Jane" <jane@x.test>',
+      "bob@x.test",
+      "<c@x.test>",
+    ]);
+    expect(splitAddressList('"Say \\"hi\\", now" <q@x.test>, d@x.test')).toEqual([
+      '"Say \\"hi\\", now" <q@x.test>',
+      "d@x.test",
+    ]);
+    expect(splitAddressList("a@x.test (comma, inside (nested)), b@x.test")).toEqual([
+      "a@x.test (comma, inside (nested))",
+      "b@x.test",
+    ]);
+    expect(splitAddressList("Team: t1@x.test, t2@x.test; solo@x.test")).toEqual([
+      "t1@x.test",
+      "t2@x.test",
+      "solo@x.test",
+    ]);
     expect(splitAddressList("Empty:; solo@x.test")).toEqual(["solo@x.test"]);
     expect(splitAddressList("")).toEqual([]);
   });
   it("maps formats to Gmail's wire values", () => {
     expect(gmailFormatFor("PLAIN_TEXT")).toEqual({ format: "full" });
-    expect(gmailFormatFor("METADATA_ONLY")).toEqual({ format: "metadata", metadataHeaders: ["Subject", "From", "To", "Cc", "Bcc", "Reply-To", "Date", "Message-ID", "In-Reply-To", "References"] });
+    expect(gmailFormatFor("METADATA_ONLY")).toEqual({
+      format: "metadata",
+      metadataHeaders: [
+        "Subject",
+        "From",
+        "To",
+        "Cc",
+        "Bcc",
+        "Reply-To",
+        "Date",
+        "Message-ID",
+        "In-Reply-To",
+        "References",
+      ],
+    });
     expect(gmailFormatFor("RAW")).toEqual({ format: "raw" });
     expect(gmailFormatFor("MINIMAL")).toEqual({ format: "minimal" });
   });
@@ -1192,13 +1348,46 @@ import type { MessageFormat } from "@gmail-mcp/shared/schemas";
 import { fromB64url } from "../crypto/random";
 
 export type GmailHeader = { name: string; value: string };
-export type GmailPart = { partId?: string; mimeType?: string; filename?: string; headers?: GmailHeader[]; body?: { size?: number; data?: string; attachmentId?: string }; parts?: GmailPart[] };
-export type GmailMessage = { id: string; threadId: string; labelIds?: string[]; snippet?: string; internalDate?: string; sizeEstimate?: number; payload?: GmailPart; raw?: string };
+export type GmailPart = {
+  partId?: string;
+  mimeType?: string;
+  filename?: string;
+  headers?: GmailHeader[];
+  body?: { size?: number; data?: string; attachmentId?: string };
+  parts?: GmailPart[];
+};
+export type GmailMessage = {
+  id: string;
+  threadId: string;
+  labelIds?: string[];
+  snippet?: string;
+  internalDate?: string;
+  sizeEstimate?: number;
+  payload?: GmailPart;
+  raw?: string;
+};
 export type GmailThread = { id: string; historyId?: string; messages?: GmailMessage[] };
 export type GmailDraft = { id: string; message: GmailMessage };
-export type GmailLabel = { id: string; name: string; type?: "system" | "user"; labelListVisibility?: string; messageListVisibility?: string; color?: { textColor: string; backgroundColor: string }; messagesTotal?: number; messagesUnread?: number; threadsTotal?: number; threadsUnread?: number };
+export type GmailLabel = {
+  id: string;
+  name: string;
+  type?: "system" | "user";
+  labelListVisibility?: string;
+  messageListVisibility?: string;
+  color?: { textColor: string; backgroundColor: string };
+  messagesTotal?: number;
+  messagesUnread?: number;
+  threadsTotal?: number;
+  threadsUnread?: number;
+};
 
-export type AttachmentMeta = { part_id: string; attachment_id: string | null; filename: string; mime: string; size: number };
+export type AttachmentMeta = {
+  part_id: string;
+  attachment_id: string | null;
+  filename: string;
+  mime: string;
+  size: number;
+};
 export type MessageView = {
   id: string;
   thread_id: string;
@@ -1221,9 +1410,23 @@ export type MessageView = {
   attachments: AttachmentMeta[];
 };
 
-export const METADATA_HEADERS = ["Subject", "From", "To", "Cc", "Bcc", "Reply-To", "Date", "Message-ID", "In-Reply-To", "References"] as const;
+export const METADATA_HEADERS = [
+  "Subject",
+  "From",
+  "To",
+  "Cc",
+  "Bcc",
+  "Reply-To",
+  "Date",
+  "Message-ID",
+  "In-Reply-To",
+  "References",
+] as const;
 
-export function gmailFormatFor(f: MessageFormat): { format: "minimal" | "metadata" | "full" | "raw"; metadataHeaders?: string[] } {
+export function gmailFormatFor(f: MessageFormat): {
+  format: "minimal" | "metadata" | "full" | "raw";
+  metadataHeaders?: string[];
+} {
   switch (f) {
     case "MINIMAL":
       return { format: "minimal" };
@@ -1339,7 +1542,13 @@ function attachmentsOf(p: GmailPart | undefined): AttachmentMeta[] {
     if (!part.filename) return;
     // A named part is an attachment whether Gmail parked its bytes behind attachmentId or inlined them in data.
     if (part.body?.attachmentId || part.body?.data) {
-      out.push({ part_id: part.partId ?? "", attachment_id: part.body.attachmentId ?? null, filename: part.filename, mime: part.mimeType ?? "application/octet-stream", size: part.body.size ?? 0 });
+      out.push({
+        part_id: part.partId ?? "",
+        attachment_id: part.body.attachmentId ?? null,
+        filename: part.filename,
+        mime: part.mimeType ?? "application/octet-stream",
+        size: part.body.size ?? 0,
+      });
     }
   });
   return out;
@@ -1348,7 +1557,8 @@ function attachmentsOf(p: GmailPart | undefined): AttachmentMeta[] {
 function bodyOfType(p: GmailPart | undefined, type: "text/plain" | "text/html"): string | undefined {
   const chunks: string[] = [];
   walk(p, (part) => {
-    if ((part.mimeType ?? "").toLowerCase() === type && !part.filename && part.body?.data) chunks.push(decodeBodyData(part.body.data));
+    if ((part.mimeType ?? "").toLowerCase() === type && !part.filename && part.body?.data)
+      chunks.push(decodeBodyData(part.body.data));
   });
   return chunks.length === 0 ? undefined : chunks.join("\n");
 }
@@ -1365,7 +1575,10 @@ function cut(s: string, max: number): { text: string; truncated: boolean } {
   return { text: out, truncated: false };
 }
 
-export function messageView(m: GmailMessage, o: { format: MessageFormat; bodyCharLimit: number; includeBody: boolean }): MessageView {
+export function messageView(
+  m: GmailMessage,
+  o: { format: MessageFormat; bodyCharLimit: number; includeBody: boolean },
+): MessageView {
   const p = m.payload;
   const view: MessageView = {
     id: m.id,
@@ -1410,8 +1623,15 @@ export function messageView(m: GmailMessage, o: { format: MessageFormat; bodyCha
   return view;
 }
 
-export function findAttachment(m: GmailMessage, by: { attachmentId: string } | { partId: string }): AttachmentMeta | null {
-  return attachmentsOf(m.payload).find((a) => ("attachmentId" in by ? a.attachment_id === by.attachmentId : a.part_id === by.partId)) ?? null;
+export function findAttachment(
+  m: GmailMessage,
+  by: { attachmentId: string } | { partId: string },
+): AttachmentMeta | null {
+  return (
+    attachmentsOf(m.payload).find((a) =>
+      "attachmentId" in by ? a.attachment_id === by.attachmentId : a.part_id === by.partId,
+    ) ?? null
+  );
 }
 
 export function partData(m: GmailMessage, partId: string): string | null {
@@ -1444,6 +1664,7 @@ Claude-Session: https://claude.ai/code/session_01NBfkjWcEGDFghet3APnUjU"
 ```
 
 ---
+
 ### Task 3: MIME as a stream, with tested header encoders and folding
 
 **Files:**
@@ -1465,20 +1686,32 @@ Claude-Session: https://claude.ai/code/session_01NBfkjWcEGDFghet3APnUjU"
 - Produces in `build.ts`:
 
 ```ts
-export type MimeAttachment = { filename: string; mime: string; size: number; open: () => Promise<ReadableStream<Uint8Array>> };
+export type MimeAttachment = {
+  filename: string;
+  mime: string;
+  size: number;
+  open: () => Promise<ReadableStream<Uint8Array>>;
+};
 export type MimeInput = {
-  from: string; to: string[]; cc: string[]; bcc: string[];
-  subject: string; messageId: string;
-  inReplyTo?: string | undefined; references?: string | undefined; date?: Date | undefined;
-  text?: string | undefined; html?: string | undefined;
+  from: string;
+  to: string[];
+  cc: string[];
+  bcc: string[];
+  subject: string;
+  messageId: string;
+  inReplyTo?: string | undefined;
+  references?: string | undefined;
+  date?: Date | undefined;
+  text?: string | undefined;
+  html?: string | undefined;
   attachments: MimeAttachment[];
 };
 export function buildMimeStream(o: MimeInput): { stream: ReadableStream<Uint8Array>; length: number };
-export async function buildMime(o: MimeInput): Promise<Uint8Array>;   // collects the stream; tests and small uploads
+export async function buildMime(o: MimeInput): Promise<Uint8Array>; // collects the stream; tests and small uploads
 export function fromBytes(bytes: Uint8Array): () => Promise<ReadableStream<Uint8Array>>;
 ```
 
-  The stream is pull-based: headers and text parts are small byte segments, and each attachment is read from its `open()` stream through `base64LinesTransform` one chunk at a time, so the isolate holds a few chunks, never the message. `length` is exact and known before a byte is read, because every segment's length is computable from the attachment sizes; the stream errors if an attachment yields a different byte count than its declared size. Every header value passes `assertHeaderSafe` and `foldHeader`; every attachment `mime` passes `assertMediaType`.
+The stream is pull-based: headers and text parts are small byte segments, and each attachment is read from its `open()` stream through `base64LinesTransform` one chunk at a time, so the isolate holds a few chunks, never the message. `length` is exact and known before a byte is read, because every segment's length is computable from the attachment sizes; the stream errors if an attachment yields a different byte count than its declared size. Every header value passes `assertHeaderSafe` and `foldHeader`; every attachment `mime` passes `assertMediaType`.
 
 - [ ] **Step 1 (RED): tests**
 
@@ -1486,7 +1719,16 @@ export function fromBytes(bytes: Uint8Array): () => Promise<ReadableStream<Uint8
 
 ```ts
 import { describe, it, expect } from "vitest";
-import { encodeWord, encodeParam, formatMailbox, base64Lines, base64LineLength, base64LinesTransform, foldHeader, assertMediaType } from "../src/mime/encode";
+import {
+  encodeWord,
+  encodeParam,
+  formatMailbox,
+  base64Lines,
+  base64LineLength,
+  base64LinesTransform,
+  foldHeader,
+  assertMediaType,
+} from "../src/mime/encode";
 import { buildMime, buildMimeStream, fromBytes } from "../src/mime/build";
 
 const text = (b: Uint8Array) => new TextDecoder().decode(b);
@@ -1527,7 +1769,15 @@ describe("encoders", () => {
   it("media types: type/subtype only", () => {
     assertMediaType("application/pdf");
     assertMediaType("image/svg+xml");
-    for (const bad of ["pdf", "text/plain; charset=UTF-8", "text/", "/x", "a b/c", "text/plain\r\nX: y", "x".repeat(300) + "/y"]) {
+    for (const bad of [
+      "pdf",
+      "text/plain; charset=UTF-8",
+      "text/",
+      "/x",
+      "a b/c",
+      "text/plain\r\nX: y",
+      "x".repeat(300) + "/y",
+    ]) {
       expect(() => assertMediaType(bad)).toThrow(/invalid_header/);
     }
   });
@@ -1542,7 +1792,9 @@ describe("encoders", () => {
       // Streaming with awkward chunk boundaries yields byte-identical output.
       const chunks: Uint8Array[] = [];
       for (let i = 0; i < n; i += 13) chunks.push(data.subarray(i, Math.min(n, i + 13)));
-      const streamed = new Uint8Array(await new Response(new Response(new Blob(chunks)).body!.pipeThrough(base64LinesTransform())).arrayBuffer());
+      const streamed = new Uint8Array(
+        await new Response(new Response(new Blob(chunks)).body!.pipeThrough(base64LinesTransform())).arrayBuffer(),
+      );
       expect(streamed).toEqual(whole);
     }
   });
@@ -1558,7 +1810,12 @@ describe("buildMime", () => {
     messageId: "<op_x@gmail-mcp.example.workers.dev>",
     date: new Date("2026-09-10T00:00:00Z"),
   };
-  const att = (filename: string, mime: string, bytes: Uint8Array) => ({ filename, mime, size: bytes.byteLength, open: fromBytes(bytes) });
+  const att = (filename: string, mime: string, bytes: Uint8Array) => ({
+    filename,
+    mime,
+    size: bytes.byteLength,
+    open: fromBytes(bytes),
+  });
   it("plain text message: headers, encoded subject, Message-ID, base64 body, exact length", async () => {
     const input = { ...base, text: "hello\n", attachments: [] };
     const bytes = await buildMime(input);
@@ -1598,13 +1855,23 @@ describe("buildMime", () => {
     expect(out).toContain(btoa("%PDF-1.4"));
   });
   it("refuses header injection and bad media types anywhere", async () => {
-    expect(() => buildMimeStream({ ...base, subject: "x\r\nBcc: evil@x.test", text: "t", attachments: [] })).toThrow(/invalid_header/);
-    expect(() => buildMimeStream({ ...base, text: "t", attachments: [att("a\nb.pdf", "application/pdf", new Uint8Array(1))] })).toThrow(/invalid_header/);
-    expect(() => buildMimeStream({ ...base, text: "t", attachments: [att("a.pdf", "application/pdf; x=y", new Uint8Array(1))] })).toThrow(/invalid_header/);
+    expect(() => buildMimeStream({ ...base, subject: "x\r\nBcc: evil@x.test", text: "t", attachments: [] })).toThrow(
+      /invalid_header/,
+    );
+    expect(() =>
+      buildMimeStream({ ...base, text: "t", attachments: [att("a\nb.pdf", "application/pdf", new Uint8Array(1))] }),
+    ).toThrow(/invalid_header/);
+    expect(() =>
+      buildMimeStream({ ...base, text: "t", attachments: [att("a.pdf", "application/pdf; x=y", new Uint8Array(1))] }),
+    ).toThrow(/invalid_header/);
   });
   it("streams a 6 MB attachment with bounded chunks and errors when the source is shorter than declared", async () => {
     const big = new Uint8Array(6 * 1024 * 1024).fill(65);
-    const { stream, length } = buildMimeStream({ ...base, text: "t", attachments: [att("big.bin", "application/octet-stream", big)] });
+    const { stream, length } = buildMimeStream({
+      ...base,
+      text: "t",
+      attachments: [att("big.bin", "application/octet-stream", big)],
+    });
     let total = 0;
     let largest = 0;
     const reader = stream.getReader();
@@ -1616,7 +1883,13 @@ describe("buildMime", () => {
     }
     expect(total).toBe(length);
     expect(largest).toBeLessThan(1024 * 1024);
-    const lying = { ...base, text: "t", attachments: [{ filename: "short.bin", mime: "application/octet-stream", size: 100, open: fromBytes(new Uint8Array(50)) }] };
+    const lying = {
+      ...base,
+      text: "t",
+      attachments: [
+        { filename: "short.bin", mime: "application/octet-stream", size: 100, open: fromBytes(new Uint8Array(50)) },
+      ],
+    };
     await expect(new Response(buildMimeStream(lying).stream).arrayBuffer()).rejects.toThrow(/handle_invalid/);
   });
 });
@@ -1678,7 +1951,12 @@ function encodeWords(s: string): string {
 
 const pctEncode = (s: string) =>
   Array.from(enc.encode(s), (b) =>
-    (b >= 0x30 && b <= 0x39) || (b >= 0x41 && b <= 0x5a) || (b >= 0x61 && b <= 0x7a) || b === 0x2e || b === 0x2d || b === 0x5f
+    (b >= 0x30 && b <= 0x39) ||
+    (b >= 0x41 && b <= 0x5a) ||
+    (b >= 0x61 && b <= 0x7a) ||
+    b === 0x2e ||
+    b === 0x2d ||
+    b === 0x5f
       ? String.fromCharCode(b)
       : `%${b.toString(16).toUpperCase().padStart(2, "0")}`,
   ).join("");
@@ -1735,14 +2013,16 @@ export function foldHeader(name: string, value: string): string {
   }
   lines.push(cur);
   for (const l of lines) {
-    if (l.length > HARD_LINE) throw new GmailMcpError("invalid_header", `invalid_header: ${name} line exceeds ${HARD_LINE} characters`);
+    if (l.length > HARD_LINE)
+      throw new GmailMcpError("invalid_header", `invalid_header: ${name} line exceeds ${HARD_LINE} characters`);
   }
   return lines.join("\r\n") + "\r\n";
 }
 
 const RESTRICTED = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$/;
 export function assertMediaType(mime: string): void {
-  if (!RESTRICTED.test(mime)) throw new GmailMcpError("invalid_header", `invalid_header: media type ${mime.slice(0, 40)}`);
+  if (!RESTRICTED.test(mime))
+    throw new GmailMcpError("invalid_header", `invalid_header: media type ${mime.slice(0, 40)}`);
 }
 
 export function base64LineLength(n: number): number {
@@ -1791,9 +2071,23 @@ export function base64LinesTransform(): TransformStream<Uint8Array, Uint8Array> 
 import { GmailMcpError } from "@gmail-mcp/shared/errors";
 import { assertHeaderSafe } from "../policy/limits";
 import { b64url } from "../crypto/random";
-import { assertMediaType, base64LineLength, base64Lines, base64LinesTransform, encodeParam, encodeWord, foldHeader, formatMailbox } from "./encode";
+import {
+  assertMediaType,
+  base64LineLength,
+  base64Lines,
+  base64LinesTransform,
+  encodeParam,
+  encodeWord,
+  foldHeader,
+  formatMailbox,
+} from "./encode";
 
-export type MimeAttachment = { filename: string; mime: string; size: number; open: () => Promise<ReadableStream<Uint8Array>> };
+export type MimeAttachment = {
+  filename: string;
+  mime: string;
+  size: number;
+  open: () => Promise<ReadableStream<Uint8Array>>;
+};
 export type MimeInput = {
   from: string;
   to: string[];
@@ -1819,17 +2113,23 @@ function boundary(): string {
   return `=_gm_${b64url(b)}`;
 }
 
-const addressHeader = (name: string, list: string[]): string => (list.length === 0 ? "" : foldHeader(name, list.map(formatMailbox).join(",\r\n ")));
+const addressHeader = (name: string, list: string[]): string =>
+  list.length === 0 ? "" : foldHeader(name, list.map(formatMailbox).join(",\r\n "));
 
 function textPart(type: "text/plain" | "text/html", body: string): Segment[] {
-  return [bytes(`Content-Type: ${type}; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n`), { kind: "bytes", bytes: base64Lines(enc.encode(body)) }];
+  return [
+    bytes(`Content-Type: ${type}; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n`),
+    { kind: "bytes", bytes: base64Lines(enc.encode(body)) },
+  ];
 }
 
 function attachmentPart(a: MimeAttachment): Segment[] {
   assertHeaderSafe("filename", a.filename);
   assertMediaType(a.mime);
   return [
-    bytes(`Content-Type: ${a.mime}; ${encodeParam("name", a.filename)}\r\nContent-Transfer-Encoding: base64\r\nContent-Disposition: attachment; ${encodeParam("filename", a.filename)}\r\n\r\n`),
+    bytes(
+      `Content-Type: ${a.mime}; ${encodeParam("name", a.filename)}\r\nContent-Transfer-Encoding: base64\r\nContent-Disposition: attachment; ${encodeParam("filename", a.filename)}\r\n\r\n`,
+    ),
     { kind: "attachment", att: a },
   ];
 }
@@ -1866,7 +2166,11 @@ function segments(o: MimeInput): Segment[] {
     const raw = new TextDecoder().decode((only![0] as { bytes: Uint8Array }).bytes);
     content = { header: raw.slice(0, -2), body: [only![1]!] };
   }
-  if (o.attachments.length > 0) content = multipart("mixed", [[bytes(content.header + "\r\n"), ...content.body], ...o.attachments.map(attachmentPart)]);
+  if (o.attachments.length > 0)
+    content = multipart("mixed", [
+      [bytes(content.header + "\r\n"), ...content.body],
+      ...o.attachments.map(attachmentPart),
+    ]);
   return [bytes(head + content.header + "\r\n"), ...content.body];
 }
 
@@ -1897,7 +2201,12 @@ export function buildMimeStream(o: MimeInput): { stream: ReadableStream<Uint8Arr
             return;
           }
           if (seen !== expected) {
-            controller.error(new GmailMcpError("handle_invalid", `handle_invalid: ${current?.filename ?? "attachment"} yielded ${seen} encoded bytes, expected ${expected}`));
+            controller.error(
+              new GmailMcpError(
+                "handle_invalid",
+                `handle_invalid: ${current?.filename ?? "attachment"} yielded ${seen} encoded bytes, expected ${expected}`,
+              ),
+            );
             return;
           }
           reader = null;
@@ -1960,6 +2269,7 @@ Claude-Session: https://claude.ai/code/session_01NBfkjWcEGDFghet3APnUjU"
 ```
 
 ---
+
 ### Task 4: The gate: intent, idempotency, `requestState`, settlement, `execute_pending`
 
 **Files:**
@@ -2003,7 +2313,14 @@ import { approvePending, denyPending, getPending } from "../src/approval/pending
 import { setPolicy } from "../src/policy/engine";
 import { beginOperation } from "../src/operations/journal";
 import { GmailApiError } from "../src/google/gmail";
-import { executePending, registerExecutor, resumeGated, runGated, type GateInput, type ToolContext } from "../src/tools/gate";
+import {
+  executePending,
+  registerExecutor,
+  resumeGated,
+  runGated,
+  type GateInput,
+  type ToolContext,
+} from "../src/tools/gate";
 import { guarded } from "../src/tools/results";
 import { resolveAccount } from "../src/tools/accounts";
 import { APPROVAL_STATE_VERSION, type ApprovalState } from "../src/approval/state";
@@ -2016,13 +2333,24 @@ const principal: Principal = { userId: "tg", email: "tg@example.test", scope: "m
 const calls: unknown[] = [];
 const staged: string[] = [];
 
-function ctx(o: { url?: boolean; state?: ApprovalState; answer?: "accept" | "decline" | "cancel" | "missing"; deadlineMs?: number } = {}): ToolContext {
+function ctx(
+  o: {
+    url?: boolean;
+    state?: ApprovalState;
+    answer?: "accept" | "decline" | "cancel" | "missing";
+    deadlineMs?: number;
+  } = {},
+): ToolContext {
   return {
     env: e,
     deps: testDeps(g, o.deadlineMs ? { approvalWait: { intervalMs: 5, deadlineMs: o.deadlineMs } } : {}),
     principal,
     urlElicitation: o.url ?? false,
-    round: { requestState: () => o.state, answer: () => o.answer ?? "missing", mint: async (s) => `minted:${s.pending_id}` },
+    round: {
+      requestState: () => o.state,
+      answer: () => o.answer ?? "missing",
+      mint: async (s) => `minted:${s.pending_id}`,
+    },
   };
 }
 
@@ -2039,7 +2367,17 @@ const run = (t: ToolContext, i: GateInput) => guarded(t, () => runGated(t, i));
 const parse = (r: unknown) => JSON.parse((r as { content: { text: string }[] }).content[0]!.text);
 
 /** A send-shaped input. `args` is the client intent; `handles` become the payload's attachments at build time. */
-async function input(o: { args?: Record<string, unknown>; handles?: string[]; key?: string; tool?: string; action?: GateInput["action"]; journal?: boolean; stage?: boolean } = {}): Promise<GateInput> {
+async function input(
+  o: {
+    args?: Record<string, unknown>;
+    handles?: string[];
+    key?: string;
+    tool?: string;
+    action?: GateInput["action"];
+    journal?: boolean;
+    stage?: boolean;
+  } = {},
+): Promise<GateInput> {
   const account = await resolveAccount(e, "tg", "main");
   const tool = o.tool ?? "test_send";
   const args = o.args ?? { to: ["x@example.test"] };
@@ -2063,10 +2401,21 @@ async function input(o: { args?: Record<string, unknown>; handles?: string[]; ke
 }
 
 const audit = (pendingId?: string) =>
-  env.DB.prepare(`SELECT phase, decision, operation_id, pending_id, summary FROM audit_log WHERE user_id = 'tg' ${pendingId ? "AND pending_id = ?" : ""} ORDER BY id`)
+  env.DB.prepare(
+    `SELECT phase, decision, operation_id, pending_id, summary FROM audit_log WHERE user_id = 'tg' ${pendingId ? "AND pending_id = ?" : ""} ORDER BY id`,
+  )
     .bind(...(pendingId ? [pendingId] : []))
-    .all<{ phase: string; decision: string; operation_id: string | null; pending_id: string | null; summary: string }>();
-const opRow = (id: string) => env.DB.prepare("SELECT state, gmail_result_id, result_json, rfc822_message_id FROM operations WHERE id = ?").bind(id).first<any>();
+    .all<{
+      phase: string;
+      decision: string;
+      operation_id: string | null;
+      pending_id: string | null;
+      summary: string;
+    }>();
+const opRow = (id: string) =>
+  env.DB.prepare("SELECT state, gmail_result_id, result_json, rfc822_message_id FROM operations WHERE id = ?")
+    .bind(id)
+    .first<any>();
 
 beforeAll(async () => {
   g = await FakeGoogle.create();
@@ -2089,14 +2438,31 @@ describe("allow", () => {
   it("builds the payload only after the decision, runs the executor, settles the operation, writes intent and outcome, no pending row", async () => {
     await setPolicy(env.DB, { userId: "tg", accountId: null, action: "send.message", level: "allow" });
     const body = parse(await run(ctx(), await input({ stage: true })));
-    expect(body).toMatchObject({ status: "executed", account: "main", gmail_result_id: "gm1", echoed: ["x@example.test"] });
-    expect(await opRow(body.operation_id)).toMatchObject({ state: "executed", gmail_result_id: "gm1", rfc822_message_id: "<x@test>" });
-    expect(JSON.parse((await opRow(body.operation_id)).result_json)).toEqual({ gmail_result_id: "gm1", echoed: ["x@example.test"] });
+    expect(body).toMatchObject({
+      status: "executed",
+      account: "main",
+      gmail_result_id: "gm1",
+      echoed: ["x@example.test"],
+    });
+    expect(await opRow(body.operation_id)).toMatchObject({
+      state: "executed",
+      gmail_result_id: "gm1",
+      rfc822_message_id: "<x@test>",
+    });
+    expect(JSON.parse((await opRow(body.operation_id)).result_json)).toEqual({
+      gmail_result_id: "gm1",
+      echoed: ["x@example.test"],
+    });
     const rows = (await audit()).results.slice(-2);
-    expect(rows.map((r) => [r.phase, r.decision])).toEqual([["intent", "allow"], ["outcome", "executed"]]);
+    expect(rows.map((r) => [r.phase, r.decision])).toEqual([
+      ["intent", "allow"],
+      ["outcome", "executed"],
+    ]);
     expect(rows[1]!.operation_id).toBe(body.operation_id);
     expect(rows[0]!.summary).toBe("recipients=1 attachments=0");
-    expect((await env.DB.prepare("SELECT count(*) AS n FROM pending_actions WHERE user_id = 'tg'").first<any>()).n).toBe(0);
+    expect(
+      (await env.DB.prepare("SELECT count(*) AS n FROM pending_actions WHERE user_id = 'tg'").first<any>()).n,
+    ).toBe(0);
     expect(staged).toEqual(["staged"]);
   });
   it("idempotency: the same key and intent replays the stored result without building or running; a different intent conflicts", async () => {
@@ -2106,63 +2472,133 @@ describe("allow", () => {
     const b = parse(await run(ctx(), await input({ key: "k1", stage: true })));
     expect(calls.length).toBe(before + 1);
     expect(staged).toEqual(["staged"]);
-    expect(b).toMatchObject({ status: "executed", replayed: true, operation_id: a.operation_id, gmail_result_id: "gm1", echoed: ["x@example.test"] });
+    expect(b).toMatchObject({
+      status: "executed",
+      replayed: true,
+      operation_id: a.operation_id,
+      gmail_result_id: "gm1",
+      echoed: ["x@example.test"],
+    });
     const c = parse(await run(ctx(), await input({ key: "k1", args: { to: ["y@example.test"] } })));
     expect(c).toMatchObject({ error: "idempotency_conflict" });
   });
   it("idempotency survives a consumed attachment: the replay is answered before handles are validated", async () => {
     await stageUpload(H("h1"));
-    const a = parse(await run(ctx(), await input({ key: "k2", handles: [H("h1")], args: { to: ["x@example.test"], files: ["h1"] } })));
+    const a = parse(
+      await run(ctx(), await input({ key: "k2", handles: [H("h1")], args: { to: ["x@example.test"], files: ["h1"] } })),
+    );
     expect(a.status).toBe("executed");
-    const row = await env.DB.prepare("SELECT consumed_at, reserved_by_operation_id FROM staging_objects WHERE handle = ?").bind(H("h1")).first<any>();
+    const row = await env.DB.prepare(
+      "SELECT consumed_at, reserved_by_operation_id FROM staging_objects WHERE handle = ?",
+    )
+      .bind(H("h1"))
+      .first<any>();
     expect(row.consumed_at).not.toBeNull();
     expect(row.reserved_by_operation_id).toBeNull();
-    const b = parse(await run(ctx(), await input({ key: "k2", handles: [H("h1")], args: { to: ["x@example.test"], files: ["h1"] } })));
+    const b = parse(
+      await run(ctx(), await input({ key: "k2", handles: [H("h1")], args: { to: ["x@example.test"], files: ["h1"] } })),
+    );
     expect(b).toMatchObject({ status: "executed", replayed: true, operation_id: a.operation_id });
     // Without a key, the consumed handle fails the reservation inside the gate batch, which rolls back the operation row too.
     const ops = (await env.DB.prepare("SELECT count(*) AS n FROM operations WHERE user_id = 'tg'").first<any>()).n;
     const c = parse(await run(ctx(), await input({ handles: [H("h1")] })));
     expect(c).toMatchObject({ error: "handle_reserved" });
-    expect((await env.DB.prepare("SELECT count(*) AS n FROM operations WHERE user_id = 'tg'").first<any>()).n).toBe(ops);
+    expect((await env.DB.prepare("SELECT count(*) AS n FROM operations WHERE user_id = 'tg'").first<any>()).n).toBe(
+      ops,
+    );
   });
   it("after failed_safe the key is rebound to the fresh operation, and a later replay returns that one", async () => {
-    const a = parse(await run(ctx(), await input({ key: "k3", args: { to: ["x@example.test"], fail: "before_open" } })));
+    const a = parse(
+      await run(ctx(), await input({ key: "k3", args: { to: ["x@example.test"], fail: "before_open" } })),
+    );
     expect(a).toMatchObject({ error: "internal" });
-    const first = (await env.DB.prepare("SELECT operation_id FROM idempotency_keys WHERE key = 'k3'").first<any>()).operation_id;
+    const first = (await env.DB.prepare("SELECT operation_id FROM idempotency_keys WHERE key = 'k3'").first<any>())
+      .operation_id;
     expect((await opRow(first)).state).toBe("failed_safe");
-    const b = parse(await run(ctx(), await input({ key: "k3", args: { to: ["x@example.test"], fail: "before_open" } })));
+    const b = parse(
+      await run(ctx(), await input({ key: "k3", args: { to: ["x@example.test"], fail: "before_open" } })),
+    );
     expect(b).toMatchObject({ error: "internal" });
-    const second = (await env.DB.prepare("SELECT operation_id FROM idempotency_keys WHERE key = 'k3'").first<any>()).operation_id;
+    const second = (await env.DB.prepare("SELECT operation_id FROM idempotency_keys WHERE key = 'k3'").first<any>())
+      .operation_id;
     expect(second).not.toBe(first);
-    expect((await env.DB.prepare("SELECT count(*) AS n FROM operations WHERE user_id='tg' AND action='send.message' AND state='failed_safe' AND payload_hash = (SELECT payload_hash FROM operations WHERE id = ?)").bind(first).first<any>()).n).toBe(2);
+    expect(
+      (
+        await env.DB.prepare(
+          "SELECT count(*) AS n FROM operations WHERE user_id='tg' AND action='send.message' AND state='failed_safe' AND payload_hash = (SELECT payload_hash FROM operations WHERE id = ?)",
+        )
+          .bind(first)
+          .first<any>()
+      ).n,
+    ).toBe(2);
   });
   it("a failure before the request was opened is failed_safe with handles released; a Gmail 4xx after is failed_safe too; anything else after is delivery_unknown", async () => {
     await stageUpload(H("h2"));
-    const r1 = parse(await run(ctx(), await input({ handles: [H("h2")], args: { to: ["x@example.test"], fail: "before_open" } })));
+    const r1 = parse(
+      await run(ctx(), await input({ handles: [H("h2")], args: { to: ["x@example.test"], fail: "before_open" } })),
+    );
     expect(r1).toMatchObject({ error: "internal" });
-    expect((await env.DB.prepare("SELECT reserved_by_operation_id FROM staging_objects WHERE handle = ?").bind(H("h2")).first<any>()).reserved_by_operation_id).toBeNull();
-    const r2 = parse(await run(ctx(), await input({ handles: [H("h2")], args: { to: ["x@example.test"], fail: "gmail_4xx" } })));
+    expect(
+      (
+        await env.DB.prepare("SELECT reserved_by_operation_id FROM staging_objects WHERE handle = ?")
+          .bind(H("h2"))
+          .first<any>()
+      ).reserved_by_operation_id,
+    ).toBeNull();
+    const r2 = parse(
+      await run(ctx(), await input({ handles: [H("h2")], args: { to: ["x@example.test"], fail: "gmail_4xx" } })),
+    );
     expect(r2).toMatchObject({ error: "gmail_error", details: { status: 400 } });
     expect(r2.message).toContain("Invalid To header");
-    expect((await env.DB.prepare("SELECT state FROM operations WHERE user_id='tg' ORDER BY created_at DESC LIMIT 1").first<any>()).state).toBe("failed_safe");
-    expect((await env.DB.prepare("SELECT reserved_by_operation_id FROM staging_objects WHERE handle = ?").bind(H("h2")).first<any>()).reserved_by_operation_id).toBeNull();
-    const r3 = parse(await run(ctx(), await input({ handles: [H("h2")], args: { to: ["x@example.test"], fail: "after_open" } })));
+    expect(
+      (
+        await env.DB.prepare(
+          "SELECT state FROM operations WHERE user_id='tg' ORDER BY created_at DESC LIMIT 1",
+        ).first<any>()
+      ).state,
+    ).toBe("failed_safe");
+    expect(
+      (
+        await env.DB.prepare("SELECT reserved_by_operation_id FROM staging_objects WHERE handle = ?")
+          .bind(H("h2"))
+          .first<any>()
+      ).reserved_by_operation_id,
+    ).toBeNull();
+    const r3 = parse(
+      await run(ctx(), await input({ handles: [H("h2")], args: { to: ["x@example.test"], fail: "after_open" } })),
+    );
     expect(r3).toMatchObject({ error: "delivery_unknown" });
     expect(r3.message).toContain("Do not retry automatically");
     expect(await opRow(r3.details.operation_id)).toMatchObject({ state: "executing", rfc822_message_id: "<x@test>" });
-    expect((await env.DB.prepare("SELECT reserved_by_operation_id FROM staging_objects WHERE handle = ?").bind(H("h2")).first<any>()).reserved_by_operation_id).toBe(r3.details.operation_id);
+    expect(
+      (
+        await env.DB.prepare("SELECT reserved_by_operation_id FROM staging_objects WHERE handle = ?")
+          .bind(H("h2"))
+          .first<any>()
+      ).reserved_by_operation_id,
+    ).toBe(r3.details.operation_id);
     expect((await audit()).results.at(-1)).toMatchObject({ phase: "outcome", decision: "delivery_unknown" });
   });
   it("an executor that never opened its operation is a loud internal error, never a success", async () => {
     const r = parse(await run(ctx(), await input({ tool: "test_forgot", args: { to: ["x@example.test"] } })));
     expect(r).toMatchObject({ error: "internal" });
-    expect((await env.DB.prepare("SELECT state FROM operations WHERE user_id='tg' ORDER BY created_at DESC LIMIT 1").first<any>()).state).toBe("failed_safe");
+    expect(
+      (
+        await env.DB.prepare(
+          "SELECT state FROM operations WHERE user_id='tg' ORDER BY created_at DESC LIMIT 1",
+        ).first<any>()
+      ).state,
+    ).toBe("failed_safe");
   });
   it("non-journaled reads run with no operation row and one intent row", async () => {
     const before = (await env.DB.prepare("SELECT count(*) AS n FROM operations WHERE user_id='tg'").first<any>()).n;
-    const res = parse(await run(ctx(), await input({ tool: "test_read", action: "read.search", journal: false, args: { q: "hi" } })));
+    const res = parse(
+      await run(ctx(), await input({ tool: "test_read", action: "read.search", journal: false, args: { q: "hi" } })),
+    );
     expect(res).toMatchObject({ read: "hi", account: "main" });
-    expect((await env.DB.prepare("SELECT count(*) AS n FROM operations WHERE user_id='tg'").first<any>()).n).toBe(before);
+    expect((await env.DB.prepare("SELECT count(*) AS n FROM operations WHERE user_id='tg'").first<any>()).n).toBe(
+      before,
+    );
     expect((await audit()).results.at(-1)).toMatchObject({ phase: "intent", decision: "allow" });
   });
 });
@@ -2186,24 +2622,40 @@ describe("ask without URL elicitation", () => {
     const i = await input({ handles: [H("h3")] });
     i.modifiers = ["+attachment"];
     const body = PendingApprovalResult.parse(parse(await run(ctx(), i)));
-    expect(body).toMatchObject({ status: "pending_approval", action: "send.message", modifiers: ["+attachment"], account: "main", summary: "To: x@example.test" });
+    expect(body).toMatchObject({
+      status: "pending_approval",
+      action: "send.message",
+      modifiers: ["+attachment"],
+      account: "main",
+      summary: "To: x@example.test",
+    });
     expect(body.approval.url).toBe(`https://gmail-mcp.example.workers.dev/approve/${body.action_id}`);
     const row = (await getPending(env.DB, body.action_id, "tg"))!;
     expect(row.payload_json).toBe(`{"attachments":["${H("h3")}"],"to":["x@example.test"],"tool":"test_send","v":1}`);
     expect(row.intent_hash).toBe(i.intentHash);
-    expect((await env.DB.prepare("SELECT expires_at FROM staging_objects WHERE handle = ?").bind(H("h3")).first<any>()).expires_at).toBe(row.expires_at + 5 * 60_000);
+    expect(
+      (await env.DB.prepare("SELECT expires_at FROM staging_objects WHERE handle = ?").bind(H("h3")).first<any>())
+        .expires_at,
+    ).toBe(row.expires_at + 5 * 60_000);
     expect((await audit(body.action_id)).results.map((r) => r.decision)).toEqual(["ask"]);
   });
   it("idempotency on the ask path: the same key returns the same pending action, and after execution replays its result", async () => {
     const a = PendingApprovalResult.parse(parse(await run(ctx(), await input({ key: "k4" }))));
     const b = PendingApprovalResult.parse(parse(await run(ctx(), await input({ key: "k4" }))));
     expect(b.action_id).toBe(a.action_id);
-    expect((await env.DB.prepare("SELECT count(*) AS n FROM pending_actions WHERE idempotency_key = 'k4'").first<any>()).n).toBe(1);
+    expect(
+      (await env.DB.prepare("SELECT count(*) AS n FROM pending_actions WHERE idempotency_key = 'k4'").first<any>()).n,
+    ).toBe(1);
     await approvePending(env.DB, { id: a.action_id, userId: "tg", via: "browser" });
     const done = await executePending(ctx(), a.action_id);
     expect(done).toMatchObject({ status: "executed", action_id: a.action_id });
     const c = parse(await run(ctx(), await input({ key: "k4" })));
-    expect(c).toMatchObject({ status: "executed", replayed: true, operation_id: done.operation_id, gmail_result_id: "gm1" });
+    expect(c).toMatchObject({
+      status: "executed",
+      replayed: true,
+      operation_id: done.operation_id,
+      gmail_result_id: "gm1",
+    });
     // A cancelled pending releases the key for a fresh attempt.
     const d = PendingApprovalResult.parse(parse(await run(ctx(), await input({ key: "k5" }))));
     await denyPending(env.DB, { id: d.action_id, userId: "tg" });
@@ -2220,7 +2672,8 @@ describe("ask with URL elicitation and resume", () => {
     account_id: "ta",
     intent_hash: (await getPending(env.DB, id, "tg"))!.intent_hash!,
   });
-  const resume = (t: ToolContext, i: GateInput, state: ApprovalState) => guarded(t, () => resumeGated(t, { tool: i.tool, account: i.account, intentHash: i.intentHash, state }));
+  const resume = (t: ToolContext, i: GateInput, state: ApprovalState) =>
+    guarded(t, () => resumeGated(t, { tool: i.tool, account: i.account, intentHash: i.intentHash, state }));
   it("returns input_required with the approval URL and minted state; the accepted retry waits, then executes, without building again", async () => {
     staged.length = 0;
     const first = await run(ctx({ url: true }), await input({ stage: true }));
@@ -2234,14 +2687,23 @@ describe("ask with URL elicitation and resume", () => {
     const body = parse(await resume(ctx({ url: true, answer: "accept" }), await input({ stage: true }), state));
     expect(body).toMatchObject({ status: "executed", action_id: id, gmail_result_id: "gm1" });
     expect(staged).toEqual(["staged"]);
-    expect((await getPending(env.DB, id, "tg"))!).toMatchObject({ state: "executed", payload_json: null, summary: "redacted" });
-    expect((await audit(id)).results.map((r) => [r.phase, r.decision])).toEqual([["intent", "ask"], ["outcome", "executed"]]);
+    expect((await getPending(env.DB, id, "tg"))!).toMatchObject({
+      state: "executed",
+      payload_json: null,
+      summary: "redacted",
+    });
+    expect((await audit(id)).results.map((r) => [r.phase, r.decision])).toEqual([
+      ["intent", "ask"],
+      ["outcome", "executed"],
+    ]);
   });
   it("a retry whose arguments changed is denied and audited; tampered state is refused; the row stays pending", async () => {
     const first = await run(ctx({ url: true }), await input());
     const id = (first as any).inputRequests.approval.params.url.split("/approve/")[1];
     const good = await stateFor(id);
-    const changed = parse(await resume(ctx({ url: true, answer: "accept" }), await input({ args: { to: ["evil@example.test"] } }), good));
+    const changed = parse(
+      await resume(ctx({ url: true, answer: "accept" }), await input({ args: { to: ["evil@example.test"] } }), good),
+    );
     expect(changed).toMatchObject({ error: "payload_mismatch" });
     expect((await audit(id)).results.at(-1)).toMatchObject({ phase: "intent", decision: "payload_mismatch" });
     for (const bad of [
@@ -2259,20 +2721,26 @@ describe("ask with URL elicitation and resume", () => {
   it("deadline without approval returns pending_approval and leaves the row pending", async () => {
     const first = await run(ctx({ url: true }), await input());
     const id = (first as any).inputRequests.approval.params.url.split("/approve/")[1];
-    const res = parse(await resume(ctx({ url: true, answer: "accept", deadlineMs: 30 }), await input(), await stateFor(id)));
+    const res = parse(
+      await resume(ctx({ url: true, answer: "accept", deadlineMs: 30 }), await input(), await stateFor(id)),
+    );
     expect(PendingApprovalResult.parse(res).action_id).toBe(id);
     expect((await getPending(env.DB, id, "tg"))!.state).toBe("pending");
   });
   it("a declined elicitation cancels; a denied row surfaces as pending_not_approved", async () => {
     const first = await run(ctx({ url: true }), await input());
     const id = (first as any).inputRequests.approval.params.url.split("/approve/")[1];
-    expect(parse(await resume(ctx({ url: true, answer: "decline" }), await input(), await stateFor(id)))).toMatchObject({ error: "pending_not_approved" });
+    expect(parse(await resume(ctx({ url: true, answer: "decline" }), await input(), await stateFor(id)))).toMatchObject(
+      { error: "pending_not_approved" },
+    );
     expect((await getPending(env.DB, id, "tg"))!.state).toBe("cancelled");
     const second = await run(ctx({ url: true }), await input());
     const id2 = (second as any).inputRequests.approval.params.url.split("/approve/")[1];
     const st = await stateFor(id2);
     await denyPending(env.DB, { id: id2, userId: "tg" });
-    expect(parse(await resume(ctx({ url: true, answer: "accept" }), await input(), st))).toMatchObject({ error: "pending_not_approved" });
+    expect(parse(await resume(ctx({ url: true, answer: "accept" }), await input(), st))).toMatchObject({
+      error: "pending_not_approved",
+    });
   });
 });
 
@@ -2288,7 +2756,9 @@ describe("executePending", () => {
     expect((await getPending(env.DB, id, "tg"))!).toMatchObject({ state: "executed", payload_json: null });
     expect((await opRow(out.operation_id as string)).state).toBe("executed");
     await expect(executePending(ctx(), id)).rejects.toMatchObject({ code: "pending_replayed" });
-    await expect(executePending({ ...ctx(), principal: { userId: "tg2", email: "x", scope: "mcp" } }, id)).rejects.toMatchObject({ code: "pending_not_approved" });
+    await expect(
+      executePending({ ...ctx(), principal: { userId: "tg2", email: "x", scope: "mcp" } }, id),
+    ).rejects.toMatchObject({ code: "pending_not_approved" });
   });
   it("a policy tightened to deny between approval and execution wins", async () => {
     const id = await pendingId();
@@ -2303,7 +2773,11 @@ describe("executePending", () => {
   });
   it("a payload whose executor version moved on is refused, never run", async () => {
     const id = await pendingId();
-    await env.DB.prepare("UPDATE pending_actions SET payload_json = replace(payload_json, '\"v\":1', '\"v\":0') WHERE id = ?").bind(id).run();
+    await env.DB.prepare(
+      "UPDATE pending_actions SET payload_json = replace(payload_json, '\"v\":1', '\"v\":0') WHERE id = ?",
+    )
+      .bind(id)
+      .run();
     await approvePending(env.DB, { id, userId: "tg", via: "browser" });
     const before = calls.length;
     await expect(executePending(ctx(), id)).rejects.toMatchObject({ code: "payload_mismatch" });
@@ -2313,7 +2787,9 @@ describe("executePending", () => {
   it("an unapproved or expired row cannot be executed; a needs_reconnect account refuses before claiming", async () => {
     const id = await pendingId();
     await expect(executePending(ctx(), id)).rejects.toMatchObject({ code: "pending_not_approved" });
-    await env.DB.prepare("UPDATE pending_actions SET state = 'approved', expires_at = ? WHERE id = ?").bind(Date.now() - 1, id).run();
+    await env.DB.prepare("UPDATE pending_actions SET state = 'approved', expires_at = ? WHERE id = ?")
+      .bind(Date.now() - 1, id)
+      .run();
     await expect(executePending(ctx(), id)).rejects.toMatchObject({ code: "pending_expired" });
     const id2 = await pendingId();
     await approvePending(env.DB, { id: id2, userId: "tg", via: "browser" });
@@ -2384,7 +2860,20 @@ export function createPendingStatement(db: D1Database, o: PendingInsert): D1Prep
       `INSERT INTO pending_actions (id, user_id, account_id, action, modifiers, payload_json, payload_hash, intent_hash, idempotency_key, summary, state, created_at, expires_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
     )
-    .bind(o.id, o.userId, o.accountId, o.action, JSON.stringify(o.modifiers), o.canonical, o.hash, o.intentHash, o.idempotencyKey, o.summary, o.now, o.now + (o.ttlMs ?? PENDING_TTL_MS));
+    .bind(
+      o.id,
+      o.userId,
+      o.accountId,
+      o.action,
+      JSON.stringify(o.modifiers),
+      o.canonical,
+      o.hash,
+      o.intentHash,
+      o.idempotencyKey,
+      o.summary,
+      o.now,
+      o.now + (o.ttlMs ?? PENDING_TTL_MS),
+    );
 }
 ```
 
@@ -2393,7 +2882,10 @@ and rewrite `createPending` to build `canonical`, `hash`, `id`, `now` and run `c
 `worker/src/staging/store.ts` additions:
 
 ```ts
-export function reserveStatements(db: D1Database, o: { operationId: string; handles: string[]; userId: string; accountId: string; now: number }): D1PreparedStatement[] {
+export function reserveStatements(
+  db: D1Database,
+  o: { operationId: string; handles: string[]; userId: string; accountId: string; now: number },
+): D1PreparedStatement[] {
   if (o.handles.length === 0) return [];
   return [
     db
@@ -2404,19 +2896,32 @@ export function reserveStatements(db: D1Database, o: { operationId: string; hand
       )
       .bind(o.operationId, ...o.handles, o.userId, o.accountId, o.now),
     db
-      .prepare(`INSERT INTO _assert (x) SELECT 1 WHERE (SELECT count(*) FROM staging_objects WHERE reserved_by_operation_id = ?) != ?`)
+      .prepare(
+        `INSERT INTO _assert (x) SELECT 1 WHERE (SELECT count(*) FROM staging_objects WHERE reserved_by_operation_id = ?) != ?`,
+      )
       .bind(o.operationId, o.handles.length),
   ];
 }
 
-export function extendExpiryStatement(db: D1Database, handles: string[], userId: string, accountId: string, until: number): D1PreparedStatement | null {
+export function extendExpiryStatement(
+  db: D1Database,
+  handles: string[],
+  userId: string,
+  accountId: string,
+  until: number,
+): D1PreparedStatement | null {
   if (handles.length === 0) return null;
   return db
-    .prepare(`UPDATE staging_objects SET expires_at = MAX(expires_at, ?) WHERE handle IN (${handles.map(() => "?").join(",")}) AND user_id = ? AND account_id = ?`)
+    .prepare(
+      `UPDATE staging_objects SET expires_at = MAX(expires_at, ?) WHERE handle IN (${handles.map(() => "?").join(",")}) AND user_id = ? AND account_id = ?`,
+    )
     .bind(until, ...handles, userId, accountId);
 }
 
-export async function listUploadHandles(db: D1Database, o: { handles: string[]; userId: string; accountId: string }): Promise<StagingRow[]> {
+export async function listUploadHandles(
+  db: D1Database,
+  o: { handles: string[]; userId: string; accountId: string },
+): Promise<StagingRow[]> {
   if (o.handles.length === 0) return [];
   const rows = await db
     .prepare(
@@ -2427,7 +2932,8 @@ export async function listUploadHandles(db: D1Database, o: { handles: string[]; 
     .all<StagingRow>();
   const found = new Set(rows.results.map((r) => r.handle));
   const missing = o.handles.filter((h) => !found.has(h));
-  if (missing.length > 0) throw new GmailMcpError("handle_invalid", `handle_invalid: ${missing.join(", ")}`, { handles: missing });
+  if (missing.length > 0)
+    throw new GmailMcpError("handle_invalid", `handle_invalid: ${missing.join(", ")}`, { handles: missing });
   return o.handles.map((h) => rows.results.find((r) => r.handle === h)!);
 }
 
@@ -2445,13 +2951,20 @@ export async function openStaged(env: Env, row: StagingRow): Promise<ReadableStr
 
 ```ts
 /** Spec 3.5 step 3: the executor calls this immediately before the first request that can change Gmail. */
-export async function beginOperation(db: D1Database, operationId: string, patch: { rfc822_message_id?: string } = {}): Promise<void> {
+export async function beginOperation(
+  db: D1Database,
+  operationId: string,
+  patch: { rfc822_message_id?: string } = {},
+): Promise<void> {
   if (!(await transition(db, operationId, ["claimed"], "executing", patch))) {
     throw new GmailMcpError("internal", `operation ${operationId} was not claimed`);
   }
 }
 
-export function insertOperationStatement(db: D1Database, o: { id: string; userId: string; accountId: string; action: Action; payloadHash: string; now: number }): D1PreparedStatement {
+export function insertOperationStatement(
+  db: D1Database,
+  o: { id: string; userId: string; accountId: string; action: Action; payloadHash: string; now: number },
+): D1PreparedStatement {
   return db
     .prepare(
       `INSERT INTO operations (id, user_id, account_id, action, idempotency_key, state, payload_hash, created_at, updated_at)
@@ -2503,14 +3016,38 @@ import { GmailMcpError } from "@gmail-mcp/shared/errors";
 import type { Env } from "../env";
 import type { TrustContext } from "../policy/recipients";
 
-export type AccountRef = { id: string; alias: string; email: string; sendAs: string[]; orgDomains: string[]; sendLimitBytes: number };
-type Row = { id: string; alias: string; google_email: string; send_as: string; org_domains: string | null; send_limit_bytes: number; status: string };
+export type AccountRef = {
+  id: string;
+  alias: string;
+  email: string;
+  sendAs: string[];
+  orgDomains: string[];
+  sendLimitBytes: number;
+};
+type Row = {
+  id: string;
+  alias: string;
+  google_email: string;
+  send_as: string;
+  org_domains: string | null;
+  send_limit_bytes: number;
+  status: string;
+};
 
 function toRef(row: Row): AccountRef {
   if (row.status !== "active") {
-    throw new GmailMcpError("account_needs_reconnect", `account_needs_reconnect: ${row.alias} is ${row.status}`, { alias: row.alias });
+    throw new GmailMcpError("account_needs_reconnect", `account_needs_reconnect: ${row.alias} is ${row.status}`, {
+      alias: row.alias,
+    });
   }
-  return { id: row.id, alias: row.alias, email: row.google_email, sendAs: JSON.parse(row.send_as) as string[], orgDomains: JSON.parse(row.org_domains ?? "[]") as string[], sendLimitBytes: row.send_limit_bytes };
+  return {
+    id: row.id,
+    alias: row.alias,
+    email: row.google_email,
+    sendAs: JSON.parse(row.send_as) as string[],
+    orgDomains: JSON.parse(row.org_domains ?? "[]") as string[],
+    sendLimitBytes: row.send_limit_bytes,
+  };
 }
 
 const COLS = "id, alias, google_email, send_as, org_domains, send_limit_bytes, status";
@@ -2518,22 +3055,38 @@ const COLS = "id, alias, google_email, send_as, org_domains, send_limit_bytes, s
 /** Explicit alias, or the default. Ownership is in the query. */
 export async function resolveAccount(env: Env, userId: string, alias?: string): Promise<AccountRef> {
   const row = alias
-    ? await env.DB.prepare(`SELECT ${COLS} FROM accounts WHERE user_id = ? AND alias = ?`).bind(userId, alias).first<Row>()
-    : await env.DB.prepare(`SELECT ${COLS} FROM accounts WHERE user_id = ? AND is_default = 1`).bind(userId).first<Row>();
-  if (!row) throw new GmailMcpError("account_not_found", alias ? `account_not_found: ${alias}` : "account_not_found: no default account");
+    ? await env.DB.prepare(`SELECT ${COLS} FROM accounts WHERE user_id = ? AND alias = ?`)
+        .bind(userId, alias)
+        .first<Row>()
+    : await env.DB.prepare(`SELECT ${COLS} FROM accounts WHERE user_id = ? AND is_default = 1`)
+        .bind(userId)
+        .first<Row>();
+  if (!row)
+    throw new GmailMcpError(
+      "account_not_found",
+      alias ? `account_not_found: ${alias}` : "account_not_found: no default account",
+    );
   return toRef(row);
 }
 
 export async function accountById(env: Env, userId: string, accountId: string): Promise<AccountRef> {
-  const row = await env.DB.prepare(`SELECT ${COLS} FROM accounts WHERE user_id = ? AND id = ?`).bind(userId, accountId).first<Row>();
+  const row = await env.DB.prepare(`SELECT ${COLS} FROM accounts WHERE user_id = ? AND id = ?`)
+    .bind(userId, accountId)
+    .first<Row>();
   if (!row) throw new GmailMcpError("account_not_found", "account_not_found");
   return toRef(row);
 }
 
 /** Spec 2.8: self addresses, the allowlist, and (Workspace only) the organisation domains. */
 export async function trustContext(env: Env, userId: string, acct: AccountRef): Promise<TrustContext> {
-  const rows = await env.DB.prepare("SELECT pattern FROM contact_allowlist WHERE user_id = ? AND account_id = ?").bind(userId, acct.id).all<{ pattern: string }>();
-  return { selfAddresses: [acct.email, ...acct.sendAs], allowlist: rows.results.map((r) => r.pattern), orgDomains: acct.orgDomains };
+  const rows = await env.DB.prepare("SELECT pattern FROM contact_allowlist WHERE user_id = ? AND account_id = ?")
+    .bind(userId, acct.id)
+    .all<{ pattern: string }>();
+  return {
+    selfAddresses: [acct.email, ...acct.sendAs],
+    allowlist: rows.results.map((r) => r.pattern),
+    orgDomains: acct.orgDomains,
+  };
 }
 ```
 
@@ -2557,9 +3110,20 @@ export function text(obj: unknown): CallToolResult {
 
 /** Every failure a tool reports is a structured, non-throwing result the model can read. */
 export function toolError(e: unknown): CallToolResult {
-  const err = e instanceof GmailMcpError ? e : new GmailMcpError("internal", "internal: the request failed before it could be classified");
+  const err =
+    e instanceof GmailMcpError
+      ? e
+      : new GmailMcpError("internal", "internal: the request failed before it could be classified");
   if (!(e instanceof GmailMcpError)) console.error("tool failure", (e as Error)?.message ?? e);
-  return { isError: true, content: [{ type: "text", text: JSON.stringify({ error: err.code, message: err.message, details: err.details ?? {} }, null, 2) }] };
+  return {
+    isError: true,
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({ error: err.code, message: err.message, details: err.details ?? {} }, null, 2),
+      },
+    ],
+  };
 }
 
 export function approvalUrl(env: Env, pendingId: string): string {
@@ -2584,7 +3148,11 @@ export function pendingApprovalResult(env: Env, row: PendingRow, alias: string):
 export async function connectRequired(t: ToolContext, alias: string): Promise<ToolResult> {
   const url = await connectUrl(t.env, t.principal.userId, alias);
   if (t.urlElicitation) {
-    return inputRequired({ inputRequests: { connect: inputRequired.elicitUrl({ message: `Reconnect the Gmail account "${alias}" to continue.`, url }) } });
+    return inputRequired({
+      inputRequests: {
+        connect: inputRequired.elicitUrl({ message: `Reconnect the Gmail account "${alias}" to continue.`, url }),
+      },
+    });
   }
   return text({ status: "connect_required", account: alias, url });
 }
@@ -2594,7 +3162,8 @@ export async function guarded(t: ToolContext, fn: () => Promise<ToolResult>): Pr
   try {
     return await fn();
   } catch (e) {
-    if (e instanceof GmailMcpError && e.code === "account_needs_reconnect" && typeof e.details?.alias === "string") return connectRequired(t, e.details.alias);
+    if (e instanceof GmailMcpError && e.code === "account_needs_reconnect" && typeof e.details?.alias === "string")
+      return connectRequired(t, e.details.alias);
     return toolError(e);
   }
 }
@@ -2619,8 +3188,14 @@ export type IdempotencyRow = {
   operation_id: string | null;
 };
 
-export function lookupIdempotency(db: D1Database, o: { userId: string; accountId: string; key: string }): Promise<IdempotencyRow | null> {
-  return db.prepare("SELECT * FROM idempotency_keys WHERE user_id = ? AND account_id = ? AND key = ?").bind(o.userId, o.accountId, o.key).first<IdempotencyRow>();
+export function lookupIdempotency(
+  db: D1Database,
+  o: { userId: string; accountId: string; key: string },
+): Promise<IdempotencyRow | null> {
+  return db
+    .prepare("SELECT * FROM idempotency_keys WHERE user_id = ? AND account_id = ? AND key = ?")
+    .bind(o.userId, o.accountId, o.key)
+    .first<IdempotencyRow>();
 }
 
 /**
@@ -2631,7 +3206,16 @@ export function lookupIdempotency(db: D1Database, o: { userId: string; accountId
  */
 export function bindIdempotencyStatements(
   db: D1Database,
-  o: { userId: string; accountId: string; key: string; tool: string; intentHash: string; pendingId: string | null; operationId: string | null; now: number },
+  o: {
+    userId: string;
+    accountId: string;
+    key: string;
+    tool: string;
+    intentHash: string;
+    pendingId: string | null;
+    operationId: string | null;
+    now: number;
+  },
 ): D1PreparedStatement[] {
   return [
     db
@@ -2657,14 +3241,27 @@ export function bindIdempotencyStatements(
   ];
 }
 
-const opRow = (db: D1Database, id: string) => db.prepare("SELECT * FROM operations WHERE id = ?").bind(id).first<OperationRow>();
+const opRow = (db: D1Database, id: string) =>
+  db.prepare("SELECT * FROM operations WHERE id = ?").bind(id).first<OperationRow>();
 
 function replayOperation(op: OperationRow, alias: string): Record<string, unknown> | "fresh" {
   if (op.state === "failed_safe") return "fresh";
   if (op.state === "executed") {
-    return { status: "executed", replayed: true, account: alias, operation_id: op.id, gmail_result_id: op.gmail_result_id, ...(JSON.parse(op.result_json ?? "{}") as object) };
+    return {
+      status: "executed",
+      replayed: true,
+      account: alias,
+      operation_id: op.id,
+      gmail_result_id: op.gmail_result_id,
+      ...(JSON.parse(op.result_json ?? "{}") as object),
+    };
   }
-  return { status: "delivery_unknown", account: alias, operation_id: op.id, message: "The Gmail request may have succeeded. Do not retry automatically." };
+  return {
+    status: "delivery_unknown",
+    account: alias,
+    operation_id: op.id,
+    message: "The Gmail request may have succeeded. Do not retry automatically.",
+  };
 }
 
 /**
@@ -2672,9 +3269,16 @@ function replayOperation(op: OperationRow, alias: string): Record<string, unknow
  * answers delivery_unknown, a live pending action is returned again, and a retired holder yields "fresh".
  * A key reused with a different tool or intent is a conflict, never a quiet replay.
  */
-export async function replayFor(env: Env, row: IdempotencyRow, o: { tool: string; intentHash: string; alias: string; userId: string }): Promise<Record<string, unknown> | "fresh"> {
+export async function replayFor(
+  env: Env,
+  row: IdempotencyRow,
+  o: { tool: string; intentHash: string; alias: string; userId: string },
+): Promise<Record<string, unknown> | "fresh"> {
   if (row.tool !== o.tool || row.intent_hash !== o.intentHash) {
-    throw new GmailMcpError("idempotency_conflict", "idempotency_conflict: key previously used for a different request");
+    throw new GmailMcpError(
+      "idempotency_conflict",
+      "idempotency_conflict: key previously used for a different request",
+    );
   }
   if (row.operation_id) {
     const op = await opRow(env.DB, row.operation_id);
@@ -2687,7 +3291,8 @@ export async function replayFor(env: Env, row: IdempotencyRow, o: { tool: string
       const op = await opRow(env.DB, p.operation_id);
       return op ? replayOperation(op, o.alias) : "fresh";
     }
-    if (p.state === "pending" || p.state === "approved") return pendingApprovalResult(env, p, o.alias) as unknown as Record<string, unknown>;
+    if (p.state === "pending" || p.state === "approved")
+      return pendingApprovalResult(env, p, o.alias) as unknown as Record<string, unknown>;
     return "fresh";
   }
   return "fresh";
@@ -2712,20 +3317,43 @@ export type Settlement = {
  * pending row's purge, and the outcome audit row. A crash cannot leave the operation executed with its
  * handles still reserved, or the pending row executing after its operation finished.
  */
-export async function settleExecuted(db: D1Database, s: Settlement & { gmailResultId: string | null; result: Record<string, unknown> }): Promise<void> {
+export async function settleExecuted(
+  db: D1Database,
+  s: Settlement & { gmailResultId: string | null; result: Record<string, unknown> },
+): Promise<void> {
   const now = Date.now();
   const stmts: D1PreparedStatement[] = [];
   if (s.operationId) {
     stmts.push(
-      db.prepare(`UPDATE operations SET state = 'executed', gmail_result_id = ?, result_json = ?, updated_at = ? WHERE id = ? AND state = 'executing'`).bind(s.gmailResultId, JSON.stringify(s.result), now, s.operationId),
-      db.prepare(`INSERT INTO _assert (x) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM operations WHERE id = ? AND state = 'executed')`).bind(s.operationId),
-      db.prepare(`UPDATE staging_objects SET consumed_at = ?, reserved_by_operation_id = NULL WHERE reserved_by_operation_id = ? AND consumed_at IS NULL`).bind(now, s.operationId),
+      db
+        .prepare(
+          `UPDATE operations SET state = 'executed', gmail_result_id = ?, result_json = ?, updated_at = ? WHERE id = ? AND state = 'executing'`,
+        )
+        .bind(s.gmailResultId, JSON.stringify(s.result), now, s.operationId),
+      db
+        .prepare(
+          `INSERT INTO _assert (x) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM operations WHERE id = ? AND state = 'executed')`,
+        )
+        .bind(s.operationId),
+      db
+        .prepare(
+          `UPDATE staging_objects SET consumed_at = ?, reserved_by_operation_id = NULL WHERE reserved_by_operation_id = ? AND consumed_at IS NULL`,
+        )
+        .bind(now, s.operationId),
     );
   }
   if (s.pendingId) {
     stmts.push(
-      db.prepare(`UPDATE pending_actions SET state = 'executed', payload_json = NULL, summary = 'redacted', executed_at = ? WHERE id = ? AND state = 'executing'`).bind(now, s.pendingId),
-      db.prepare(`INSERT INTO _assert (x) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM pending_actions WHERE id = ? AND state = 'executed')`).bind(s.pendingId),
+      db
+        .prepare(
+          `UPDATE pending_actions SET state = 'executed', payload_json = NULL, summary = 'redacted', executed_at = ? WHERE id = ? AND state = 'executing'`,
+        )
+        .bind(now, s.pendingId),
+      db
+        .prepare(
+          `INSERT INTO _assert (x) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM pending_actions WHERE id = ? AND state = 'executed')`,
+        )
+        .bind(s.pendingId),
     );
   }
   if (s.audit) stmts.push(auditStatement(db, "outcome", { ...s.audit, decision: "executed" }));
@@ -2733,18 +3361,39 @@ export async function settleExecuted(db: D1Database, s: Settlement & { gmailResu
 }
 
 /** Gmail provably did nothing: the operation is failed_safe, its reservations return to the pool, the pending row fails. */
-export async function settleFailedSafe(db: D1Database, s: Settlement & { error: string; decision?: string }): Promise<void> {
+export async function settleFailedSafe(
+  db: D1Database,
+  s: Settlement & { error: string; decision?: string },
+): Promise<void> {
   const now = Date.now();
   const stmts: D1PreparedStatement[] = [];
   if (s.operationId) {
     stmts.push(
-      db.prepare(`UPDATE operations SET state = 'failed_safe', updated_at = ? WHERE id = ? AND state IN ('claimed','executing')`).bind(now, s.operationId),
-      db.prepare(`INSERT INTO _assert (x) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM operations WHERE id = ? AND state = 'failed_safe')`).bind(s.operationId),
-      db.prepare(`UPDATE staging_objects SET reserved_by_operation_id = NULL WHERE reserved_by_operation_id = ? AND consumed_at IS NULL`).bind(s.operationId),
+      db
+        .prepare(
+          `UPDATE operations SET state = 'failed_safe', updated_at = ? WHERE id = ? AND state IN ('claimed','executing')`,
+        )
+        .bind(now, s.operationId),
+      db
+        .prepare(
+          `INSERT INTO _assert (x) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM operations WHERE id = ? AND state = 'failed_safe')`,
+        )
+        .bind(s.operationId),
+      db
+        .prepare(
+          `UPDATE staging_objects SET reserved_by_operation_id = NULL WHERE reserved_by_operation_id = ? AND consumed_at IS NULL`,
+        )
+        .bind(s.operationId),
     );
   }
   if (s.pendingId) {
-    stmts.push(db.prepare(`UPDATE pending_actions SET state = 'failed', payload_json = NULL, summary = 'redacted', error = ?, executed_at = ? WHERE id = ? AND state = 'executing'`).bind(s.error, now, s.pendingId));
+    stmts.push(
+      db
+        .prepare(
+          `UPDATE pending_actions SET state = 'failed', payload_json = NULL, summary = 'redacted', error = ?, executed_at = ? WHERE id = ? AND state = 'executing'`,
+        )
+        .bind(s.error, now, s.pendingId),
+    );
   }
   if (s.audit) stmts.push(auditStatement(db, "outcome", { ...s.audit, decision: s.decision ?? "failed" }));
   if (stmts.length > 0) await db.batch(stmts);
@@ -2755,7 +3404,13 @@ export async function settleUnknown(db: D1Database, s: Settlement): Promise<void
   const now = Date.now();
   const stmts: D1PreparedStatement[] = [];
   if (s.pendingId) {
-    stmts.push(db.prepare(`UPDATE pending_actions SET state = 'failed', payload_json = NULL, summary = 'redacted', error = 'delivery_unknown', executed_at = ? WHERE id = ? AND state = 'executing'`).bind(now, s.pendingId));
+    stmts.push(
+      db
+        .prepare(
+          `UPDATE pending_actions SET state = 'failed', payload_json = NULL, summary = 'redacted', error = 'delivery_unknown', executed_at = ? WHERE id = ? AND state = 'executing'`,
+        )
+        .bind(now, s.pendingId),
+    );
   }
   if (s.audit) stmts.push(auditStatement(db, "outcome", { ...s.audit, decision: "delivery_unknown" }));
   if (stmts.length > 0) await db.batch(stmts);
@@ -2775,7 +3430,13 @@ import type { Deps } from "../deps";
 import type { Principal } from "../auth/principal";
 import { auditIntent, auditStatement, type AuditBase, type AuditFacts } from "../audit/log";
 import { claimPending, handlesFromPayload } from "../approval/claim";
-import { cancelPending, createPendingStatement, getPending, PENDING_TTL_MS, type PendingRow } from "../approval/pending";
+import {
+  cancelPending,
+  createPendingStatement,
+  getPending,
+  PENDING_TTL_MS,
+  type PendingRow,
+} from "../approval/pending";
 import { APPROVAL_STATE_VERSION, type ApprovalState } from "../approval/state";
 import { canonicalize, hashCanonical } from "../crypto/canonical";
 import { randomId } from "../crypto/random";
@@ -2810,7 +3471,13 @@ export function roundOf(ctx: ServerContext, codec: RequestStateCodec<ApprovalSta
 
 export type ToolContext = { env: Env; deps: Deps; principal: Principal; urlElicitation: boolean; round: Round };
 
-export type ExecRun = { userId: string; account: AccountRef; payload: Record<string, unknown>; operationId: string | null; pendingId: string | null };
+export type ExecRun = {
+  userId: string;
+  account: AccountRef;
+  payload: Record<string, unknown>;
+  operationId: string | null;
+  pendingId: string | null;
+};
 export type Executor = (env: Env, deps: Deps, run: ExecRun) => Promise<Record<string, unknown>>;
 
 const executors = new Map<string, { fn: Executor; version: number }>();
@@ -2840,9 +3507,17 @@ export type GateInput = {
 };
 
 /** Spec 3.10: reads write one intent row only. read.attachment creates staging state, so it keeps its outcome. */
-const INTENT_ONLY: ReadonlySet<Action> = new Set<Action>(["read.search", "read.message", "account.read", "policy.read"]);
+const INTENT_ONLY: ReadonlySet<Action> = new Set<Action>([
+  "read.search",
+  "read.message",
+  "account.read",
+  "policy.read",
+]);
 
-const base = (t: ToolContext, i: { tool: string; action: Action; account: AccountRef; modifiers: Modifier[]; facts: AuditFacts }): AuditBase => ({
+const base = (
+  t: ToolContext,
+  i: { tool: string; action: Action; account: AccountRef; modifiers: Modifier[]; facts: AuditFacts },
+): AuditBase => ({
   userId: t.principal.userId,
   accountId: i.account.id,
   tool: i.tool,
@@ -2870,11 +3545,21 @@ export async function runGated(t: ToolContext, input: GateInput): Promise<ToolRe
   if (input.idempotencyKey) {
     const known = await lookupIdempotency(db, { userId, accountId: input.account.id, key: input.idempotencyKey });
     if (known) {
-      const replay = await replayFor(t.env, known, { tool: input.tool, intentHash: input.intentHash, alias: input.account.alias, userId });
+      const replay = await replayFor(t.env, known, {
+        tool: input.tool,
+        intentHash: input.intentHash,
+        alias: input.account.alias,
+        userId,
+      });
       if (replay !== "fresh") return text(replay);
     }
   }
-  const decision = await decide(db, { userId, accountId: input.account.id, action: input.action, modifiers: input.modifiers });
+  const decision = await decide(db, {
+    userId,
+    accountId: input.account.id,
+    action: input.action,
+    modifiers: input.modifiers,
+  });
   if (decision.level === "deny") {
     await auditIntent(db, { ...base(t, input), decision: "deny" });
     throw new GmailMcpError("policy_denied", `policy_denied: ${input.action}`, { modifiers: input.modifiers });
@@ -2888,12 +3573,42 @@ export async function runGated(t: ToolContext, input: GateInput): Promise<ToolRe
   if (decision.level === "ask") {
     const id = randomId("pa");
     const stmts: D1PreparedStatement[] = [
-      createPendingStatement(db, { id, userId, accountId: input.account.id, action: input.action, modifiers: input.modifiers, canonical, hash, intentHash: input.intentHash, idempotencyKey: input.idempotencyKey ?? null, summary: input.summary, now }),
+      createPendingStatement(db, {
+        id,
+        userId,
+        accountId: input.account.id,
+        action: input.action,
+        modifiers: input.modifiers,
+        canonical,
+        hash,
+        intentHash: input.intentHash,
+        idempotencyKey: input.idempotencyKey ?? null,
+        summary: input.summary,
+        now,
+      }),
     ];
     // Spec 3.7: a handle staged 29 minutes ago must not expire between approval and execution.
-    const hold = extendExpiryStatement(db, built.handles, userId, input.account.id, now + PENDING_TTL_MS + HOLD_MARGIN_MS);
+    const hold = extendExpiryStatement(
+      db,
+      built.handles,
+      userId,
+      input.account.id,
+      now + PENDING_TTL_MS + HOLD_MARGIN_MS,
+    );
     if (hold) stmts.push(hold);
-    if (input.idempotencyKey) stmts.push(...bindIdempotencyStatements(db, { userId, accountId: input.account.id, key: input.idempotencyKey, tool: input.tool, intentHash: input.intentHash, pendingId: id, operationId: null, now }));
+    if (input.idempotencyKey)
+      stmts.push(
+        ...bindIdempotencyStatements(db, {
+          userId,
+          accountId: input.account.id,
+          key: input.idempotencyKey,
+          tool: input.tool,
+          intentHash: input.intentHash,
+          pendingId: id,
+          operationId: null,
+          now,
+        }),
+      );
     stmts.push(auditStatement(db, "intent", { ...base(t, input), decision: "ask", pendingId: id }));
     try {
       await db.batch(stmts);
@@ -2906,10 +3621,37 @@ export async function runGated(t: ToolContext, input: GateInput): Promise<ToolRe
 
   const operationId = input.journal || built.handles.length > 0 ? randomId("op") : null;
   const stmts: D1PreparedStatement[] = [];
-  if (operationId) stmts.push(insertOperationStatement(db, { id: operationId, userId, accountId: input.account.id, action: input.action, payloadHash: hash, now }));
-  if (input.idempotencyKey) stmts.push(...bindIdempotencyStatements(db, { userId, accountId: input.account.id, key: input.idempotencyKey, tool: input.tool, intentHash: input.intentHash, pendingId: null, operationId, now }));
-  if (operationId) stmts.push(...reserveStatements(db, { operationId, handles: built.handles, userId, accountId: input.account.id, now }));
-  stmts.push(auditStatement(db, "intent", { ...base(t, input), decision: "allow", ...(operationId ? { operationId } : {}) }));
+  if (operationId)
+    stmts.push(
+      insertOperationStatement(db, {
+        id: operationId,
+        userId,
+        accountId: input.account.id,
+        action: input.action,
+        payloadHash: hash,
+        now,
+      }),
+    );
+  if (input.idempotencyKey)
+    stmts.push(
+      ...bindIdempotencyStatements(db, {
+        userId,
+        accountId: input.account.id,
+        key: input.idempotencyKey,
+        tool: input.tool,
+        intentHash: input.intentHash,
+        pendingId: null,
+        operationId,
+        now,
+      }),
+    );
+  if (operationId)
+    stmts.push(
+      ...reserveStatements(db, { operationId, handles: built.handles, userId, accountId: input.account.id, now }),
+    );
+  stmts.push(
+    auditStatement(db, "intent", { ...base(t, input), decision: "allow", ...(operationId ? { operationId } : {}) }),
+  );
   try {
     await db.batch(stmts);
   } catch (e) {
@@ -2917,7 +3659,9 @@ export async function runGated(t: ToolContext, input: GateInput): Promise<ToolRe
       // Distinguish a lost idempotency race from an unavailable handle by re-reading the key.
       const replay = await lostRace(t, input, e, true);
       if (replay) return replay;
-      throw new GmailMcpError("handle_reserved", "handle_reserved: one or more attachments are unavailable", { handles: built.handles });
+      throw new GmailMcpError("handle_reserved", "handle_reserved: one or more attachments are unavailable", {
+        handles: built.handles,
+      });
     }
     return lostRace(t, input, e);
   }
@@ -2930,9 +3674,18 @@ export async function runGated(t: ToolContext, input: GateInput): Promise<ToolRe
  */
 async function lostRace(t: ToolContext, input: GateInput, e: unknown, quiet = false): Promise<ToolResult | never> {
   if (input.idempotencyKey) {
-    const known = await lookupIdempotency(t.env.DB, { userId: t.principal.userId, accountId: input.account.id, key: input.idempotencyKey });
+    const known = await lookupIdempotency(t.env.DB, {
+      userId: t.principal.userId,
+      accountId: input.account.id,
+      key: input.idempotencyKey,
+    });
     if (known) {
-      const replay = await replayFor(t.env, known, { tool: input.tool, intentHash: input.intentHash, alias: input.account.alias, userId: t.principal.userId });
+      const replay = await replayFor(t.env, known, {
+        tool: input.tool,
+        intentHash: input.intentHash,
+        alias: input.account.alias,
+        userId: t.principal.userId,
+      });
       if (replay !== "fresh") return text(replay);
     }
   }
@@ -2943,9 +3696,20 @@ async function lostRace(t: ToolContext, input: GateInput, e: unknown, quiet = fa
 async function ask(t: ToolContext, input: GateInput, row: PendingRow): Promise<ToolResult> {
   const url = approvalUrl(t.env, row.id);
   if (!t.urlElicitation) return text(pendingApprovalResult(t.env, row, input.account.alias));
-  const requestState = await t.round.mint({ v: APPROVAL_STATE_VERSION, tool: input.tool, pending_id: row.id, account_id: input.account.id, intent_hash: input.intentHash });
+  const requestState = await t.round.mint({
+    v: APPROVAL_STATE_VERSION,
+    tool: input.tool,
+    pending_id: row.id,
+    account_id: input.account.id,
+    intent_hash: input.intentHash,
+  });
   return inputRequired({
-    inputRequests: { approval: inputRequired.elicitUrl({ message: `Approve ${input.action} on ${input.account.alias}: ${input.summary}`, url }) },
+    inputRequests: {
+      approval: inputRequired.elicitUrl({
+        message: `Approve ${input.action} on ${input.account.alias}: ${input.summary}`,
+        url,
+      }),
+    },
     requestState,
   });
 }
@@ -2955,16 +3719,33 @@ async function ask(t: ToolContext, input: GateInput, row: PendingRow): Promise<T
  * retried arguments must hash to the intent the pending row was created from; then poll until approved,
  * declined or the deadline. The retried call never rebuilds the payload: what executes is the row.
  */
-export async function resumeGated(t: ToolContext, o: { tool: string; account: AccountRef; intentHash: string; state: ApprovalState }): Promise<ToolResult> {
+export async function resumeGated(
+  t: ToolContext,
+  o: { tool: string; account: AccountRef; intentHash: string; state: ApprovalState },
+): Promise<ToolResult> {
   const db = t.env.DB;
   const userId = t.principal.userId;
-  const auditBase: AuditBase = { userId, accountId: o.account.id, tool: o.tool, action: "send.message", modifiers: [], facts: {} };
+  const auditBase: AuditBase = {
+    userId,
+    accountId: o.account.id,
+    tool: o.tool,
+    action: "send.message",
+    modifiers: [],
+    facts: {},
+  };
   const mismatch = async (why: string, row?: PendingRow): Promise<never> => {
-    await auditIntent(db, { ...auditBase, ...(row ? { action: row.action as Action, modifiers: JSON.parse(row.modifiers) as Modifier[], pendingId: row.id } : {}), decision: "payload_mismatch" });
+    await auditIntent(db, {
+      ...auditBase,
+      ...(row
+        ? { action: row.action as Action, modifiers: JSON.parse(row.modifiers) as Modifier[], pendingId: row.id }
+        : {}),
+      decision: "payload_mismatch",
+    });
     throw new GmailMcpError("payload_mismatch", `payload_mismatch: ${why}`);
   };
   const s = o.state;
-  if (s.v !== APPROVAL_STATE_VERSION || s.tool !== o.tool || s.account_id !== o.account.id) return mismatch("state does not belong to this call");
+  if (s.v !== APPROVAL_STATE_VERSION || s.tool !== o.tool || s.account_id !== o.account.id)
+    return mismatch("state does not belong to this call");
   const row = await getPending(db, s.pending_id, userId);
   if (!row) throw new GmailMcpError("pending_not_approved", "pending_not_approved: unknown");
   if (row.intent_hash !== o.intentHash || s.intent_hash !== row.intent_hash) return mismatch("arguments changed", row);
@@ -2978,7 +3759,8 @@ export async function resumeGated(t: ToolContext, o: { tool: string; account: Ac
   for (;;) {
     const cur = await getPending(db, row.id, userId);
     if (!cur) throw new GmailMcpError("pending_not_approved", "pending_not_approved: unknown");
-    if (cur.expires_at <= Date.now() && (cur.state === "pending" || cur.state === "approved")) throw new GmailMcpError("pending_expired", "pending_expired");
+    if (cur.expires_at <= Date.now() && (cur.state === "pending" || cur.state === "approved"))
+      throw new GmailMcpError("pending_expired", "pending_expired");
     switch (cur.state) {
       case "approved":
         return text(await executePending(t, cur.id));
@@ -3018,20 +3800,48 @@ export type ExecutorRun = {
  */
 export async function runExecutor(t: ToolContext, run: ExecutorRun): Promise<Record<string, unknown>> {
   const db = t.env.DB;
-  const audit = INTENT_ONLY.has(run.action) ? null : { ...base(t, run), ...(run.pendingId ? { pendingId: run.pendingId } : {}), ...(run.operationId ? { operationId: run.operationId } : {}) };
+  const audit = INTENT_ONLY.has(run.action)
+    ? null
+    : {
+        ...base(t, run),
+        ...(run.pendingId ? { pendingId: run.pendingId } : {}),
+        ...(run.operationId ? { operationId: run.operationId } : {}),
+      };
   let out: Record<string, unknown>;
   try {
-    out = await executorFor(run.tool).fn(t.env, t.deps, { userId: t.principal.userId, account: run.account, payload: run.payload, operationId: run.operationId, pendingId: run.pendingId });
+    out = await executorFor(run.tool).fn(t.env, t.deps, {
+      userId: t.principal.userId,
+      account: run.account,
+      payload: run.payload,
+      operationId: run.operationId,
+      pendingId: run.pendingId,
+    });
   } catch (e) {
-    const state = run.operationId ? (await db.prepare("SELECT state FROM operations WHERE id = ?").bind(run.operationId).first<{ state: string }>())?.state : null;
-    const err = e instanceof GmailMcpError ? e : new GmailMcpError("internal", "internal: the executor failed", { cause: e instanceof Error ? e.message : String(e) });
-    if (!run.operationId || state === "claimed" || (state === "executing" && e instanceof GmailApiError && e.status >= 400 && e.status < 500)) {
+    const state = run.operationId
+      ? (await db.prepare("SELECT state FROM operations WHERE id = ?").bind(run.operationId).first<{ state: string }>())
+          ?.state
+      : null;
+    const err =
+      e instanceof GmailMcpError
+        ? e
+        : new GmailMcpError("internal", "internal: the executor failed", {
+            cause: e instanceof Error ? e.message : String(e),
+          });
+    if (
+      !run.operationId ||
+      state === "claimed" ||
+      (state === "executing" && e instanceof GmailApiError && e.status >= 400 && e.status < 500)
+    ) {
       await settleFailedSafe(db, { operationId: run.operationId, pendingId: run.pendingId, audit, error: err.code });
       throw err;
     }
     if (state === "executing") {
       await settleUnknown(db, { operationId: run.operationId, pendingId: run.pendingId, audit });
-      throw new GmailMcpError("delivery_unknown", "delivery_unknown: The Gmail request may have succeeded. Do not retry automatically.", { operation_id: run.operationId, cause: err.message });
+      throw new GmailMcpError(
+        "delivery_unknown",
+        "delivery_unknown: The Gmail request may have succeeded. Do not retry automatically.",
+        { operation_id: run.operationId, cause: err.message },
+      );
     }
     await settleFailedSafe(db, { operationId: run.operationId, pendingId: run.pendingId, audit, error: err.code });
     throw err;
@@ -3045,9 +3855,18 @@ export async function runExecutor(t: ToolContext, run: ExecutorRun): Promise<Rec
     ...out,
   };
   try {
-    await settleExecuted(db, { operationId: run.operationId, pendingId: run.pendingId, audit: audit && gmailResultId ? { ...audit, gmailResultId } : audit, gmailResultId, result: out });
+    await settleExecuted(db, {
+      operationId: run.operationId,
+      pendingId: run.pendingId,
+      audit: audit && gmailResultId ? { ...audit, gmailResultId } : audit,
+      gmailResultId,
+      result: out,
+    });
   } catch (e) {
-    const state = run.operationId ? (await db.prepare("SELECT state FROM operations WHERE id = ?").bind(run.operationId).first<{ state: string }>())?.state : null;
+    const state = run.operationId
+      ? (await db.prepare("SELECT state FROM operations WHERE id = ?").bind(run.operationId).first<{ state: string }>())
+          ?.state
+      : null;
     if (state === "claimed") {
       // The executor returned success without ever opening its operation: a programming error, made loud.
       await settleFailedSafe(db, { operationId: run.operationId, pendingId: run.pendingId, audit, error: "internal" });
@@ -3076,7 +3895,16 @@ export async function executePending(t: ToolContext, pendingId: string): Promise
   const action = pending.action;
   const modifiers = JSON.parse(pending.modifiers) as Modifier[];
   const tool = typeof payload?.tool === "string" ? payload.tool : "unknown";
-  const audit: AuditBase = { userId, accountId: account.id, tool, action, modifiers, pendingId, operationId, facts: factsOf(payload ?? {}) };
+  const audit: AuditBase = {
+    userId,
+    accountId: account.id,
+    tool,
+    action,
+    modifiers,
+    pendingId,
+    operationId,
+    facts: factsOf(payload ?? {}),
+  };
 
   const refuse = async (code: "payload_mismatch" | "policy_denied", why: string, decision: string): Promise<never> => {
     await settleFailedSafe(db, { operationId, pendingId, audit, error: code, decision });
@@ -3084,17 +3912,34 @@ export async function executePending(t: ToolContext, pendingId: string): Promise
   };
   if (!payload || tool === "unknown") return refuse("payload_mismatch", "no tool in payload", "failed");
   const executor = executorFor(tool);
-  if (payload.v !== executor.version) return refuse("payload_mismatch", `payload was approved for ${tool} v${String(payload.v)}, executor is v${executor.version}`, "failed");
+  if (payload.v !== executor.version)
+    return refuse(
+      "payload_mismatch",
+      `payload was approved for ${tool} v${String(payload.v)}, executor is v${executor.version}`,
+      "failed",
+    );
   const decision = await decide(db, { userId, accountId: account.id, action, modifiers });
   if (decision.level === "deny") return refuse("policy_denied", `${action} was tightened after approval`, "denied");
 
-  return runExecutor(t, { tool, action, account, payload, modifiers, facts: audit.facts, handles: handlesFromPayload(pending.payload_json), operationId, pendingId });
+  return runExecutor(t, {
+    tool,
+    action,
+    account,
+    payload,
+    modifiers,
+    facts: audit.facts,
+    handles: handlesFromPayload(pending.payload_json),
+    operationId,
+    pendingId,
+  });
 }
 
 /** Counts and ids from a payload, so audit rows never see content. */
 export function factsOf(p: Record<string, unknown>): AuditFacts {
   const arr = (k: string) => (Array.isArray(p[k]) ? (p[k] as unknown[]).length : 0);
-  const ids = ["message_id", "thread_id", "draft_id", "label_id"].map((k) => p[k]).filter((v): v is string => typeof v === "string");
+  const ids = ["message_id", "thread_id", "draft_id", "label_id"]
+    .map((k) => p[k])
+    .filter((v): v is string => typeof v === "string");
   const facts: AuditFacts = {};
   const recipients = arr("to") + arr("cc") + arr("bcc");
   if (recipients > 0 || "to" in p) facts.recipients = recipients;
@@ -3148,28 +3993,46 @@ export function buildServer(env: Env, principal: Principal, deps: Deps, era: Era
 
   server.registerTool(
     "list_accounts",
-    { description: "List connected Gmail accounts: alias, email, status, default flag. Never returns tokens.", inputSchema: z.object({}), annotations: { readOnlyHint: true } },
+    {
+      description: "List connected Gmail accounts: alias, email, status, default flag. Never returns tokens.",
+      inputSchema: z.object({}),
+      annotations: { readOnlyHint: true },
+    },
     async () => {
-      const rows = await env.DB.prepare("SELECT alias, google_email AS email, status, is_default, scopes FROM accounts WHERE user_id = ? ORDER BY alias").bind(principal.userId).all();
+      const rows = await env.DB.prepare(
+        "SELECT alias, google_email AS email, status, is_default, scopes FROM accounts WHERE user_id = ? ORDER BY alias",
+      )
+        .bind(principal.userId)
+        .all();
       return text({ accounts: rows.results });
     },
   );
 
   server.registerTool(
     "get_policy",
-    { description: "Effective allow/ask/deny policy for an account after overrides.", inputSchema: z.object({ account: AccountAlias.optional() }), annotations: { readOnlyHint: true } },
+    {
+      description: "Effective allow/ask/deny policy for an account after overrides.",
+      inputSchema: z.object({ account: AccountAlias.optional() }),
+      annotations: { readOnlyHint: true },
+    },
     async ({ account }, ctx) =>
       guarded(toolContext(ctx), async () => {
         const acc = await resolveAccount(env, principal.userId, account);
         const policy: Record<string, string> = {};
-        for (const a of ACTIONS) policy[a] = DEFAULT_POLICY[a] === "browser" ? "browser" : await effectiveLevel(env.DB, principal.userId, acc.id, a);
+        for (const a of ACTIONS)
+          policy[a] =
+            DEFAULT_POLICY[a] === "browser" ? "browser" : await effectiveLevel(env.DB, principal.userId, acc.id, a);
         return text({ account: acc.alias, policy });
       }),
   );
 
   server.registerTool(
     "list_pending",
-    { description: "List pending and approved-but-unexecuted approvals for the caller.", inputSchema: z.object({}), annotations: { readOnlyHint: true } },
+    {
+      description: "List pending and approved-but-unexecuted approvals for the caller.",
+      inputSchema: z.object({}),
+      annotations: { readOnlyHint: true },
+    },
     async () => {
       const rows = await env.DB.prepare(
         `SELECT p.id, a.alias AS account, p.action, p.modifiers, p.summary, p.state, p.expires_at
@@ -3184,7 +4047,11 @@ export function buildServer(env: Env, principal: Principal, deps: Deps, era: Era
 
   server.registerTool(
     "execute_pending",
-    { description: "Execute an action the owner approved in the browser. Claimable once; a replay is refused.", inputSchema: z.object({ action_id: z.string().regex(/^pa_[A-Za-z0-9_-]{22}$/) }), annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true } },
+    {
+      description: "Execute an action the owner approved in the browser. Claimable once; a replay is refused.",
+      inputSchema: z.object({ action_id: z.string().regex(/^pa_[A-Za-z0-9_-]{22}$/) }),
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+    },
     async ({ action_id }, ctx) => {
       const t = toolContext(ctx);
       return guarded(t, async () => text(await executePending(t, action_id)));
@@ -3193,24 +4060,54 @@ export function buildServer(env: Env, principal: Principal, deps: Deps, era: Era
 
   server.registerTool(
     "cancel_pending",
-    { description: "Withdraw a pending or approved action before it executes.", inputSchema: z.object({ action_id: z.string().regex(/^pa_[A-Za-z0-9_-]{22}$/) }), annotations: { readOnlyHint: false, destructiveHint: false } },
-    async ({ action_id }) => text({ cancelled: await cancelPending(env.DB, { id: action_id, userId: principal.userId }) }),
+    {
+      description: "Withdraw a pending or approved action before it executes.",
+      inputSchema: z.object({ action_id: z.string().regex(/^pa_[A-Za-z0-9_-]{22}$/) }),
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+    async ({ action_id }) =>
+      text({ cancelled: await cancelPending(env.DB, { id: action_id, userId: principal.userId }) }),
   );
 
   server.registerTool(
     "connect_account",
-    { description: "Connect or reconnect a Google account under an alias. Completes in the owner's browser; opens the page when the client can, else returns its URL.", inputSchema: z.object({ alias: AccountAlias }), annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false } },
+    {
+      description:
+        "Connect or reconnect a Google account under an alias. Completes in the owner's browser; opens the page when the client can, else returns its URL.",
+      inputSchema: z.object({ alias: AccountAlias }),
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    },
     async ({ alias }, ctx) => {
-      await auditIntent(env.DB, { userId: principal.userId, accountId: null, tool: "connect_account", action: "account.connect", modifiers: [], decision: "browser", facts: {} });
+      await auditIntent(env.DB, {
+        userId: principal.userId,
+        accountId: null,
+        tool: "connect_account",
+        action: "account.connect",
+        modifiers: [],
+        decision: "browser",
+        facts: {},
+      });
       return connectRequired(toolContext(ctx), alias);
     },
   );
 
   server.registerTool(
     "open_policy_editor",
-    { description: "Policy is edited in the browser only. Returns the policy page URL.", inputSchema: z.object({}), annotations: { readOnlyHint: true } },
+    {
+      description: "Policy is edited in the browser only. Returns the policy page URL.",
+      inputSchema: z.object({}),
+      annotations: { readOnlyHint: true },
+    },
     async () => {
-      await auditIntent(env.DB, { userId: principal.userId, accountId: null, tool: "open_policy_editor", action: "policy.read", modifiers: [], decision: "browser", facts: {} });
+      await auditIntent(env.DB, {
+        userId: principal.userId,
+        accountId: null,
+        tool: "open_policy_editor",
+        action: "policy.read",
+        modifiers: [],
+        decision: "browser",
+        facts: {},
+      });
       return text({ url: `https://${env.WORKER_HOSTNAME}/policy` });
     },
   );
@@ -3244,6 +4141,7 @@ Claude-Session: https://claude.ai/code/session_01NBfkjWcEGDFghet3APnUjU"
 ```
 
 ---
+
 ### Task 5: `defineTool`, then the label, spam and trash tools
 
 **Files:**
@@ -3283,9 +4181,10 @@ export type ToolSpec<S extends z.ZodObject<z.ZodRawShape>> = {
 ```
 
     `defineTool` registers the executor under `(name, version)` and registers the MCP tool. Its handler: resolve the account; `decodeInline(args.inline_attachments)`; compute `intentHash = sha256(JCS({ tool, v, account: alias, args: intentArgs(args, inline) }))`; if the round carries `requestState`, hand over to `resumeGated` without calling `plan` (nothing is derived or staged on a resume); else call `plan` and hand its result to `runGated`.
-  - `registerLabelTools(server, toolContext, env)`.
-  - Payload shapes, rendered by `approvalView` as the `targets` and `label` views: message targets carry `message_id`, thread targets `thread_id`, label changes `add` and `remove` arrays; label management carries `op`, `label_id`, `name`.
-  - `callTool(worker, env, token, name, args, id?)` in `test/mcp-client.ts`.
+
+- `registerLabelTools(server, toolContext, env)`.
+- Payload shapes, rendered by `approvalView` as the `targets` and `label` views: message targets carry `message_id`, thread targets `thread_id`, label changes `add` and `remove` arrays; label management carries `op`, `label_id`, `name`.
+- `callTool(worker, env, token, name, args, id?)` in `test/mcp-client.ts`.
 
 - [ ] **Step 1 (RED): tests**
 
@@ -3319,7 +4218,8 @@ beforeAll(async () => {
 });
 
 const call = (name: string, args: Record<string, unknown>) => callTool(worker, e, token, name, args);
-const opCount = async () => (await env.DB.prepare("SELECT count(*) AS n FROM operations WHERE user_id = 'owner-sub'").first<any>()).n as number;
+const opCount = async () =>
+  (await env.DB.prepare("SELECT count(*) AS n FROM operations WHERE user_id = 'owner-sub'").first<any>()).n as number;
 
 describe("label.apply", () => {
   it("label_message adds user labels (allow), echoes the message, and creates no operation row", async () => {
@@ -3327,63 +4227,124 @@ describe("label.apply", () => {
     gm().labels.set("Label_1", { id: "Label_1", name: "Receipts", type: "user" });
     const before = await opCount();
     const r = await call("label_message", { account: "personal", message_id: m.id, label_ids: ["Label_1"] });
-    expect(r.result).toMatchObject({ status: "executed", account: "personal", message: { id: m.id, label_ids: expect.arrayContaining(["Label_1", "INBOX"]) } });
+    expect(r.result).toMatchObject({
+      status: "executed",
+      account: "personal",
+      message: { id: m.id, label_ids: expect.arrayContaining(["Label_1", "INBOX"]) },
+    });
     expect(gm().messages.get(m.id)!.labelIds).toContain("Label_1");
     expect(await opCount()).toBe(before);
-    const rows = await env.DB.prepare("SELECT phase, decision FROM audit_log WHERE user_id='owner-sub' AND tool='label_message' ORDER BY id DESC LIMIT 2").all<any>();
-    expect(rows.results.map((x) => [x.phase, x.decision]).reverse()).toEqual([["intent", "allow"], ["outcome", "executed"]]);
+    const rows = await env.DB.prepare(
+      "SELECT phase, decision FROM audit_log WHERE user_id='owner-sub' AND tool='label_message' ORDER BY id DESC LIMIT 2",
+    ).all<any>();
+    expect(rows.results.map((x) => [x.phase, x.decision]).reverse()).toEqual([
+      ["intent", "allow"],
+      ["outcome", "executed"],
+    ]);
   });
   it("a system label raises +sensitive to ask; TRASH and SPAM are refused outright", async () => {
     const m = gm().seedMessage({ from: "a@x.test", to: ["me@x.test"], subject: "s2", text: "t" });
     const r = await call("label_message", { account: "personal", message_id: m.id, label_ids: ["STARRED"] });
     expect(r.result).toMatchObject({ status: "pending_approval", action: "label.apply", modifiers: ["+sensitive"] });
     expect(gm().messages.get(m.id)!.labelIds).not.toContain("STARRED");
-    expect(JSON.parse((await getPending(env.DB, r.result.action_id, "owner-sub"))!.payload_json!)).toEqual({ add: ["STARRED"], message_id: m.id, remove: [], tool: "label_message", v: 1 });
-    expect((await call("label_message", { account: "personal", message_id: m.id, label_ids: ["TRASH"] })).result).toMatchObject({ error: "forbidden" });
+    expect(JSON.parse((await getPending(env.DB, r.result.action_id, "owner-sub"))!.payload_json!)).toEqual({
+      add: ["STARRED"],
+      message_id: m.id,
+      remove: [],
+      tool: "label_message",
+      v: 1,
+    });
+    expect(
+      (await call("label_message", { account: "personal", message_id: m.id, label_ids: ["TRASH"] })).result,
+    ).toMatchObject({ error: "forbidden" });
   });
   it("unlabel, thread variants and update_message_labels reach Gmail with add and remove; overlapping sets are refused", async () => {
-    const m = gm().seedMessage({ from: "a@x.test", to: ["me@x.test"], subject: "s3", text: "t", labelIds: ["INBOX", "Label_1", "Label_2"] });
+    const m = gm().seedMessage({
+      from: "a@x.test",
+      to: ["me@x.test"],
+      subject: "s3",
+      text: "t",
+      labelIds: ["INBOX", "Label_1", "Label_2"],
+    });
     gm().labels.set("Label_2", { id: "Label_2", name: "Two", type: "user" });
-    expect((await call("unlabel_message", { account: "personal", message_id: m.id, label_ids: ["Label_1"] })).result.status).toBe("executed");
+    expect(
+      (await call("unlabel_message", { account: "personal", message_id: m.id, label_ids: ["Label_1"] })).result.status,
+    ).toBe("executed");
     expect(gm().messages.get(m.id)!.labelIds).not.toContain("Label_1");
-    expect((await call("label_thread", { account: "personal", thread_id: m.threadId, label_ids: ["Label_1"] })).result).toMatchObject({ status: "executed", thread: { id: m.threadId } });
-    expect((await call("unlabel_thread", { account: "personal", thread_id: m.threadId, label_ids: ["Label_1", "Label_2"] })).result.status).toBe("executed");
-    const r = await call("update_message_labels", { account: "personal", message_id: m.id, add_label_ids: ["Label_2"], remove_label_ids: ["INBOX"] });
+    expect(
+      (await call("label_thread", { account: "personal", thread_id: m.threadId, label_ids: ["Label_1"] })).result,
+    ).toMatchObject({ status: "executed", thread: { id: m.threadId } });
+    expect(
+      (await call("unlabel_thread", { account: "personal", thread_id: m.threadId, label_ids: ["Label_1", "Label_2"] }))
+        .result.status,
+    ).toBe("executed");
+    const r = await call("update_message_labels", {
+      account: "personal",
+      message_id: m.id,
+      add_label_ids: ["Label_2"],
+      remove_label_ids: ["INBOX"],
+    });
     expect(r.result.status).toBe("executed");
     expect(gm().messages.get(m.id)!.labelIds).toEqual(["Label_2"]);
     const empty = await call("update_message_labels", { account: "personal", message_id: m.id });
     expect(empty.error ?? empty.result?.error).toBeTruthy();
-    const overlap = await call("update_message_labels", { account: "personal", message_id: m.id, add_label_ids: ["Label_2"], remove_label_ids: ["Label_2"] });
+    const overlap = await call("update_message_labels", {
+      account: "personal",
+      message_id: m.id,
+      add_label_ids: ["Label_2"],
+      remove_label_ids: ["Label_2"],
+    });
     expect(overlap.error ?? overlap.result?.error).toBeTruthy();
   });
   it("apply_sensitive_* carry +sensitive and, once approved and executed, trash or spam the target", async () => {
     const m = gm().seedMessage({ from: "a@x.test", to: ["me@x.test"], subject: "s4", text: "t" });
-    const r = await call("apply_sensitive_message_label", { account: "personal", message_id: m.id, label_option: "TRASH" });
+    const r = await call("apply_sensitive_message_label", {
+      account: "personal",
+      message_id: m.id,
+      label_option: "TRASH",
+    });
     expect(r.result).toMatchObject({ status: "pending_approval", modifiers: ["+sensitive"] });
     await approvePending(env.DB, { id: r.result.action_id, userId: "owner-sub", via: "browser" });
     const done = await call("execute_pending", { action_id: r.result.action_id });
     expect(done.result).toMatchObject({ status: "executed", action_id: r.result.action_id });
     expect(gm().messages.get(m.id)!.labelIds).toContain("TRASH");
-    expect((await call("apply_sensitive_thread_label", { account: "personal", thread_id: m.threadId, label_option: "SPAM" })).result.status).toBe("pending_approval");
+    expect(
+      (await call("apply_sensitive_thread_label", { account: "personal", thread_id: m.threadId, label_option: "SPAM" }))
+        .result.status,
+    ).toBe("pending_approval");
   });
 });
 
 describe("spam and trash", () => {
   it("mark spam asks by default; unmark spam is allowed; the wire shapes are modify calls", async () => {
-    const m = gm().seedMessage({ from: "a@x.test", to: ["me@x.test"], subject: "s5", text: "t", labelIds: ["INBOX", "SPAM"] });
-    expect((await call("mark_message_spam", { account: "personal", message_id: m.id })).result.status).toBe("pending_approval");
+    const m = gm().seedMessage({
+      from: "a@x.test",
+      to: ["me@x.test"],
+      subject: "s5",
+      text: "t",
+      labelIds: ["INBOX", "SPAM"],
+    });
+    expect((await call("mark_message_spam", { account: "personal", message_id: m.id })).result.status).toBe(
+      "pending_approval",
+    );
     const u = await call("unmark_message_spam", { account: "personal", message_id: m.id });
     expect(u.result.status).toBe("executed");
     expect(gm().messages.get(m.id)!.labelIds).not.toContain("SPAM");
     const last = gm().requests.at(-1)!;
     expect(last.url).toContain(`/messages/${m.id}/modify`);
     expect(await last.clone().json()).toEqual({ addLabelIds: ["INBOX"], removeLabelIds: ["SPAM"] });
-    expect((await call("mark_thread_spam", { account: "personal", thread_id: m.threadId })).result.status).toBe("pending_approval");
-    expect((await call("unmark_thread_spam", { account: "personal", thread_id: m.threadId })).result.status).toBe("executed");
+    expect((await call("mark_thread_spam", { account: "personal", thread_id: m.threadId })).result.status).toBe(
+      "pending_approval",
+    );
+    expect((await call("unmark_thread_spam", { account: "personal", thread_id: m.threadId })).result.status).toBe(
+      "executed",
+    );
   });
   it("trash asks by default and executes once allowed; untrash is allowed", async () => {
     const m = gm().seedMessage({ from: "a@x.test", to: ["me@x.test"], subject: "s6", text: "t" });
-    expect((await call("trash_message", { account: "personal", message_id: m.id })).result.status).toBe("pending_approval");
+    expect((await call("trash_message", { account: "personal", message_id: m.id })).result.status).toBe(
+      "pending_approval",
+    );
     await setPolicy(env.DB, { userId: "owner-sub", accountId: "la", action: "trash.move", level: "allow" });
     expect((await call("trash_message", { account: "personal", message_id: m.id })).result.status).toBe("executed");
     expect(gm().requests.at(-1)!.url).toContain(`/messages/${m.id}/trash`);
@@ -3391,7 +4352,9 @@ describe("spam and trash", () => {
     expect((await call("untrash_message", { account: "personal", message_id: m.id })).result.status).toBe("executed");
     expect(gm().messages.get(m.id)!.labelIds).not.toContain("TRASH");
     expect((await call("trash_thread", { account: "personal", thread_id: m.threadId })).result.status).toBe("executed");
-    expect((await call("untrash_thread", { account: "personal", thread_id: m.threadId })).result.status).toBe("executed");
+    expect((await call("untrash_thread", { account: "personal", thread_id: m.threadId })).result.status).toBe(
+      "executed",
+    );
     await setPolicy(env.DB, { userId: "owner-sub", accountId: "la", action: "trash.move", level: "ask" });
   });
   it("a write without an explicit account is a schema error, never a guess", async () => {
@@ -3409,20 +4372,36 @@ describe("spam and trash", () => {
     const r = await call("untrash_message", { account: "personal", message_id: "does-not-exist" });
     expect(r.result).toMatchObject({ error: "gmail_error", details: { status: 404 } });
     expect(r.result.message).toContain("Requested entity was not found.");
-    const row = await env.DB.prepare("SELECT phase, decision FROM audit_log WHERE user_id = 'owner-sub' AND tool = 'untrash_message' ORDER BY id DESC LIMIT 1").first<any>();
+    const row = await env.DB.prepare(
+      "SELECT phase, decision FROM audit_log WHERE user_id = 'owner-sub' AND tool = 'untrash_message' ORDER BY id DESC LIMIT 1",
+    ).first<any>();
     expect(row).toEqual({ phase: "outcome", decision: "failed" });
   });
 });
 
 describe("label.manage", () => {
   it("create_label asks by default, executes through the browser approval, and journals with the label id as the result", async () => {
-    const r = await call("create_label", { account: "personal", display_name: "Uni/2026/Thesis", label_list_visibility: "LABEL_SHOW" });
+    const r = await call("create_label", {
+      account: "personal",
+      display_name: "Uni/2026/Thesis",
+      label_list_visibility: "LABEL_SHOW",
+    });
     expect(r.result).toMatchObject({ status: "pending_approval", action: "label.manage" });
-    expect(JSON.parse((await getPending(env.DB, r.result.action_id, "owner-sub"))!.payload_json!)).toMatchObject({ op: "create", name: "Uni/2026/Thesis", tool: "create_label", v: 1 });
+    expect(JSON.parse((await getPending(env.DB, r.result.action_id, "owner-sub"))!.payload_json!)).toMatchObject({
+      op: "create",
+      name: "Uni/2026/Thesis",
+      tool: "create_label",
+      v: 1,
+    });
     await approvePending(env.DB, { id: r.result.action_id, userId: "owner-sub", via: "browser" });
     const done = await call("execute_pending", { action_id: r.result.action_id });
-    expect(done.result).toMatchObject({ status: "executed", label: { name: "Uni/2026/Thesis", label_list_visibility: "LABEL_SHOW" } });
-    const op = await env.DB.prepare("SELECT state, gmail_result_id FROM operations WHERE id = ?").bind(done.result.operation_id).first<any>();
+    expect(done.result).toMatchObject({
+      status: "executed",
+      label: { name: "Uni/2026/Thesis", label_list_visibility: "LABEL_SHOW" },
+    });
+    const op = await env.DB.prepare("SELECT state, gmail_result_id FROM operations WHERE id = ?")
+      .bind(done.result.operation_id)
+      .first<any>();
     expect(op).toEqual({ state: "executed", gmail_result_id: done.result.label.id });
     expect((await call("execute_pending", { action_id: r.result.action_id })).result.error).toBe("pending_replayed");
   });
@@ -3431,18 +4410,39 @@ describe("label.manage", () => {
     gm().labels.set("Label_dup", { id: "Label_dup", name: "Dup", type: "user" });
     const r = await call("create_label", { account: "personal", display_name: "Dup" });
     expect(r.result).toMatchObject({ error: "gmail_error", details: { status: 409 } });
-    expect((await env.DB.prepare("SELECT state FROM operations WHERE user_id='owner-sub' ORDER BY created_at DESC LIMIT 1").first<any>()).state).toBe("failed_safe");
+    expect(
+      (
+        await env.DB.prepare(
+          "SELECT state FROM operations WHERE user_id='owner-sub' ORDER BY created_at DESC LIMIT 1",
+        ).first<any>()
+      ).state,
+    ).toBe("failed_safe");
   });
   it("update_label and delete_label do not journal; system labels are refused before Gmail; colours pass through", async () => {
-    const created = await call("create_label", { account: "personal", display_name: "Temp", text_color: "#000000", background_color: "#ffffff" });
+    const created = await call("create_label", {
+      account: "personal",
+      display_name: "Temp",
+      text_color: "#000000",
+      background_color: "#ffffff",
+    });
     expect(created.result.label.color).toEqual({ text_color: "#000000", background_color: "#ffffff" });
     const id = created.result.label.id as string;
     const before = await opCount();
-    const up = await call("update_label", { account: "personal", label_id: id, display_name: "Temp2", message_list_visibility: "HIDE" });
+    const up = await call("update_label", {
+      account: "personal",
+      label_id: id,
+      display_name: "Temp2",
+      message_list_visibility: "HIDE",
+    });
     expect(up.result.label).toMatchObject({ id, name: "Temp2", message_list_visibility: "HIDE" });
     expect(gm().labels.get(id)).toMatchObject({ name: "Temp2", messageListVisibility: "hide" });
-    expect((await call("delete_label", { account: "personal", label_id: "INBOX" })).result).toMatchObject({ error: "forbidden" });
-    expect((await call("delete_label", { account: "personal", label_id: id })).result).toMatchObject({ status: "executed", deleted: id });
+    expect((await call("delete_label", { account: "personal", label_id: "INBOX" })).result).toMatchObject({
+      error: "forbidden",
+    });
+    expect((await call("delete_label", { account: "personal", label_id: id })).result).toMatchObject({
+      status: "executed",
+      deleted: id,
+    });
     expect(gm().labels.has(id)).toBe(false);
     expect(await opCount()).toBe(before);
     await setPolicy(env.DB, { userId: "owner-sub", accountId: "la", action: "label.manage", level: "ask" });
@@ -3462,7 +4462,11 @@ Expected: FAIL, unknown tool `label_message`.
 Append to `shared/src/schemas.ts`:
 
 ```ts
-export const GmailId = z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/);
+export const GmailId = z
+  .string()
+  .min(1)
+  .max(256)
+  .regex(/^[A-Za-z0-9_-]+$/);
 export const LabelId = GmailId;
 export const LabelName = z.string().min(1).max(225);
 export const LabelListVisibility = z.enum(["LABEL_SHOW", "LABEL_SHOW_IF_UNREAD", "LABEL_HIDE"]);
@@ -3481,8 +4485,12 @@ export const UpdateMessageLabelsInput = MessageTargetInput.extend({
   add_label_ids: z.array(LabelId).max(100).default([]),
   remove_label_ids: z.array(LabelId).max(100).default([]),
 })
-  .refine((v) => v.add_label_ids.length + v.remove_label_ids.length > 0, { message: "add or remove at least one label" })
-  .refine((v) => !v.add_label_ids.some((id) => v.remove_label_ids.includes(id)), { message: "a label cannot be both added and removed" });
+  .refine((v) => v.add_label_ids.length + v.remove_label_ids.length > 0, {
+    message: "add or remove at least one label",
+  })
+  .refine((v) => !v.add_label_ids.some((id) => v.remove_label_ids.includes(id)), {
+    message: "a label cannot be both added and removed",
+  });
 export const ApplySensitiveMessageLabelInput = MessageTargetInput.extend({ label_option: LabelOption });
 export const ApplySensitiveThreadLabelInput = ThreadTargetInput.extend({ label_option: LabelOption });
 export const CreateLabelInput = z.object({
@@ -3549,22 +4557,45 @@ export type ToolSpec<S extends z.ZodObject<z.ZodRawShape>> = {
  * hash covers what the client asked for and nothing the server generated, so a resume never re-plans:
  * what executes is the stored row, and the retried arguments only have to match the intent it came from.
  */
-export function defineTool<S extends z.ZodObject<z.ZodRawShape>>(server: McpServer, toolContext: (ctx: ServerContext) => ToolContext, env: Env, spec: ToolSpec<S>): void {
+export function defineTool<S extends z.ZodObject<z.ZodRawShape>>(
+  server: McpServer,
+  toolContext: (ctx: ServerContext) => ToolContext,
+  env: Env,
+  spec: ToolSpec<S>,
+): void {
   registerExecutor(spec.name, spec.version, spec.execute);
-  server.registerTool(spec.name, { description: spec.description, inputSchema: spec.input, annotations: spec.annotations }, async (args, ctx) => {
-    const t = toolContext(ctx);
-    return guarded(t, async () => {
-      const a = args as Record<string, unknown> & { account?: string; inline_attachments?: InlineAttachment[] };
-      const account = await resolveAccount(env, t.principal.userId, a.account);
-      const inline = await decodeInline(a.inline_attachments);
-      const { account: _alias, ...rest } = intentArgs(a, inline);
-      const intentHash = await hashCanonical(canonicalize({ tool: spec.name, v: spec.version, account: account.alias, args: rest }));
-      const state = t.round.requestState();
-      if (state) return resumeGated(t, { tool: spec.name, account, intentHash, state });
-      const plan = await spec.plan(env, t, account, args as z.infer<S>, inline);
-      return runGated(t, { tool: spec.name, version: spec.version, action: spec.action, journal: spec.journal, account, intentHash, idempotencyKey: plan.idempotencyKey, modifiers: plan.modifiers, summary: plan.summary, facts: plan.facts, build: plan.build });
-    });
-  });
+  server.registerTool(
+    spec.name,
+    { description: spec.description, inputSchema: spec.input, annotations: spec.annotations },
+    async (args, ctx) => {
+      const t = toolContext(ctx);
+      return guarded(t, async () => {
+        const a = args as Record<string, unknown> & { account?: string; inline_attachments?: InlineAttachment[] };
+        const account = await resolveAccount(env, t.principal.userId, a.account);
+        const inline = await decodeInline(a.inline_attachments);
+        const { account: _alias, ...rest } = intentArgs(a, inline);
+        const intentHash = await hashCanonical(
+          canonicalize({ tool: spec.name, v: spec.version, account: account.alias, args: rest }),
+        );
+        const state = t.round.requestState();
+        if (state) return resumeGated(t, { tool: spec.name, account, intentHash, state });
+        const plan = await spec.plan(env, t, account, args as z.infer<S>, inline);
+        return runGated(t, {
+          tool: spec.name,
+          version: spec.version,
+          action: spec.action,
+          journal: spec.journal,
+          account,
+          intentHash,
+          idempotencyKey: plan.idempotencyKey,
+          modifiers: plan.modifiers,
+          summary: plan.summary,
+          facts: plan.facts,
+          build: plan.build,
+        });
+      });
+    },
+  );
 }
 ```
 
@@ -3575,7 +4606,14 @@ export function defineTool<S extends z.ZodObject<z.ZodRawShape>>(server: McpServ
 `worker/test/mcp-client.ts` gains
 
 ```ts
-export async function callTool(worker: Worker, env: Env, token: string, name: string, args: Record<string, unknown>, id = 7): Promise<{ status: number; json: any; result: any; error: any }> {
+export async function callTool(
+  worker: Worker,
+  env: Env,
+  token: string,
+  name: string,
+  args: Record<string, unknown>,
+  id = 7,
+): Promise<{ status: number; json: any; result: any; error: any }> {
   const res = await rpc(worker, env, token, "tools/call", { name, arguments: args }, id);
   const textBlock = res.json?.result?.content?.find((c: { type: string }) => c.type === "text");
   let result: any = null;
@@ -3620,7 +4658,11 @@ import type { ExecRun, ToolContext } from "./gate";
 export const isSystemLabel = (id: string): boolean => /^[A-Z][A-Z0-9_]*$/.test(id);
 const SENSITIVE = new Set(["TRASH", "SPAM"]);
 
-const LIST_VIS: Record<string, string> = { LABEL_SHOW: "labelShow", LABEL_SHOW_IF_UNREAD: "labelShowIfUnread", LABEL_HIDE: "labelHide" };
+const LIST_VIS: Record<string, string> = {
+  LABEL_SHOW: "labelShow",
+  LABEL_SHOW_IF_UNREAD: "labelShowIfUnread",
+  LABEL_HIDE: "labelHide",
+};
 const MSG_VIS: Record<string, string> = { SHOW: "show", HIDE: "hide" };
 const invert = (m: Record<string, string>) => Object.fromEntries(Object.entries(m).map(([k, v]) => [v, k]));
 const LIST_VIS_BACK = invert(LIST_VIS);
@@ -3631,40 +4673,80 @@ export function labelView(l: GmailLabel) {
     id: l.id,
     name: l.name,
     type: l.type ?? "user",
-    ...(l.labelListVisibility ? { label_list_visibility: LIST_VIS_BACK[l.labelListVisibility] ?? l.labelListVisibility } : {}),
-    ...(l.messageListVisibility ? { message_list_visibility: MSG_VIS_BACK[l.messageListVisibility] ?? l.messageListVisibility } : {}),
+    ...(l.labelListVisibility
+      ? { label_list_visibility: LIST_VIS_BACK[l.labelListVisibility] ?? l.labelListVisibility }
+      : {}),
+    ...(l.messageListVisibility
+      ? { message_list_visibility: MSG_VIS_BACK[l.messageListVisibility] ?? l.messageListVisibility }
+      : {}),
     ...(l.color ? { color: { text_color: l.color.textColor, background_color: l.color.backgroundColor } } : {}),
-    ...(l.messagesTotal !== undefined ? { messages_total: l.messagesTotal, messages_unread: l.messagesUnread ?? 0 } : {}),
+    ...(l.messagesTotal !== undefined
+      ? { messages_total: l.messagesTotal, messages_unread: l.messagesUnread ?? 0 }
+      : {}),
   };
 }
 
 type Modified = { id: string; threadId: string; labelIds?: string[] };
 const messageOut = (m: Modified) => ({ message: { id: m.id, thread_id: m.threadId, label_ids: m.labelIds ?? [] } });
-const threadOut = (t: { id: string; messages?: Modified[] }) => ({ thread: { id: t.id, messages: (t.messages ?? []).map((m) => ({ id: m.id, label_ids: m.labelIds ?? [] })) } });
+const threadOut = (t: { id: string; messages?: Modified[] }) => ({
+  thread: { id: t.id, messages: (t.messages ?? []).map((m) => ({ id: m.id, label_ids: m.labelIds ?? [] })) },
+});
 const acct = (run: ExecRun) => ({ userId: run.userId, accountId: run.account.id });
 
 async function modifyMessage(env: Env, deps: Deps, run: ExecRun, id: string, add: string[], remove: string[]) {
-  return messageOut(await gmailJson<Modified>(env, deps, acct(run), { method: "POST", path: `messages/${encodeURIComponent(id)}/modify`, json: { addLabelIds: add, removeLabelIds: remove }, retry: "safe" }));
+  return messageOut(
+    await gmailJson<Modified>(env, deps, acct(run), {
+      method: "POST",
+      path: `messages/${encodeURIComponent(id)}/modify`,
+      json: { addLabelIds: add, removeLabelIds: remove },
+      retry: "safe",
+    }),
+  );
 }
 async function modifyThread(env: Env, deps: Deps, run: ExecRun, id: string, add: string[], remove: string[]) {
-  return threadOut(await gmailJson<{ id: string; messages?: Modified[] }>(env, deps, acct(run), { method: "POST", path: `threads/${encodeURIComponent(id)}/modify`, json: { addLabelIds: add, removeLabelIds: remove }, retry: "safe" }));
+  return threadOut(
+    await gmailJson<{ id: string; messages?: Modified[] }>(env, deps, acct(run), {
+      method: "POST",
+      path: `threads/${encodeURIComponent(id)}/modify`,
+      json: { addLabelIds: add, removeLabelIds: remove },
+      retry: "safe",
+    }),
+  );
 }
 async function postMessage(env: Env, deps: Deps, run: ExecRun, id: string, verb: "trash" | "untrash") {
-  return messageOut(await gmailJson<Modified>(env, deps, acct(run), { method: "POST", path: `messages/${encodeURIComponent(id)}/${verb}`, retry: "safe" }));
+  return messageOut(
+    await gmailJson<Modified>(env, deps, acct(run), {
+      method: "POST",
+      path: `messages/${encodeURIComponent(id)}/${verb}`,
+      retry: "safe",
+    }),
+  );
 }
 async function postThread(env: Env, deps: Deps, run: ExecRun, id: string, verb: "trash" | "untrash") {
-  return threadOut(await gmailJson<{ id: string; messages?: Modified[] }>(env, deps, acct(run), { method: "POST", path: `threads/${encodeURIComponent(id)}/${verb}`, retry: "safe" }));
+  return threadOut(
+    await gmailJson<{ id: string; messages?: Modified[] }>(env, deps, acct(run), {
+      method: "POST",
+      path: `threads/${encodeURIComponent(id)}/${verb}`,
+      retry: "safe",
+    }),
+  );
 }
 
 /** label_* and unlabel_* refuse TRASH and SPAM: those go through the sensitive tools, which say what they do. */
 function refuseSensitive(ids: string[]): void {
   const hit = ids.find((id) => SENSITIVE.has(id));
-  if (hit) throw new GmailMcpError("forbidden", `forbidden: use apply_sensitive_* or the trash and spam tools for ${hit}`);
+  if (hit)
+    throw new GmailMcpError("forbidden", `forbidden: use apply_sensitive_* or the trash and spam tools for ${hit}`);
 }
 const sensitiveModifiers = (ids: string[]): Plan["modifiers"] => (ids.some(isSystemLabel) ? ["+sensitive"] : []);
 
 /** A plan for a tool whose payload is fixed at plan time and that writes nothing before execution. */
-const simple = (payload: Record<string, unknown>, modifiers: Plan["modifiers"], summary: string, ids: string[]): Plan => ({
+const simple = (
+  payload: Record<string, unknown>,
+  modifiers: Plan["modifiers"],
+  summary: string,
+  ids: string[],
+): Plan => ({
   modifiers,
   summary,
   facts: { ids },
@@ -3674,7 +4756,11 @@ const simple = (payload: Record<string, unknown>, modifiers: Plan["modifiers"], 
 const apply = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
 const destructive = { readOnlyHint: false, destructiveHint: true, openWorldHint: false } as const;
 
-export function registerLabelTools(server: McpServer, toolContext: (ctx: ServerContext) => ToolContext, env: Env): void {
+export function registerLabelTools(
+  server: McpServer,
+  toolContext: (ctx: ServerContext) => ToolContext,
+  env: Env,
+): void {
   defineTool(server, toolContext, env, {
     name: "label_message",
     version: 1,
@@ -3685,7 +4771,12 @@ export function registerLabelTools(server: McpServer, toolContext: (ctx: ServerC
     journal: false,
     plan: async (_e, _t, _a, args) => {
       refuseSensitive(args.label_ids);
-      return simple({ message_id: args.message_id, add: args.label_ids, remove: [] }, sensitiveModifiers(args.label_ids), `Add ${args.label_ids.join(", ")} to message ${args.message_id}`, [args.message_id]);
+      return simple(
+        { message_id: args.message_id, add: args.label_ids, remove: [] },
+        sensitiveModifiers(args.label_ids),
+        `Add ${args.label_ids.join(", ")} to message ${args.message_id}`,
+        [args.message_id],
+      );
     },
     execute: async (e, d, run) => {
       const p = run.payload as { message_id: string; add: string[]; remove: string[] };
@@ -3702,7 +4793,12 @@ export function registerLabelTools(server: McpServer, toolContext: (ctx: ServerC
     journal: false,
     plan: async (_e, _t, _a, args) => {
       refuseSensitive(args.label_ids);
-      return simple({ message_id: args.message_id, add: [], remove: args.label_ids }, sensitiveModifiers(args.label_ids), `Remove ${args.label_ids.join(", ")} from message ${args.message_id}`, [args.message_id]);
+      return simple(
+        { message_id: args.message_id, add: [], remove: args.label_ids },
+        sensitiveModifiers(args.label_ids),
+        `Remove ${args.label_ids.join(", ")} from message ${args.message_id}`,
+        [args.message_id],
+      );
     },
     execute: async (e, d, run) => {
       const p = run.payload as { message_id: string; add: string[]; remove: string[] };
@@ -3719,7 +4815,12 @@ export function registerLabelTools(server: McpServer, toolContext: (ctx: ServerC
     journal: false,
     plan: async (_e, _t, _a, args) => {
       refuseSensitive(args.label_ids);
-      return simple({ thread_id: args.thread_id, add: args.label_ids, remove: [] }, sensitiveModifiers(args.label_ids), `Add ${args.label_ids.join(", ")} to thread ${args.thread_id}`, [args.thread_id]);
+      return simple(
+        { thread_id: args.thread_id, add: args.label_ids, remove: [] },
+        sensitiveModifiers(args.label_ids),
+        `Add ${args.label_ids.join(", ")} to thread ${args.thread_id}`,
+        [args.thread_id],
+      );
     },
     execute: async (e, d, run) => {
       const p = run.payload as { thread_id: string; add: string[]; remove: string[] };
@@ -3736,7 +4837,12 @@ export function registerLabelTools(server: McpServer, toolContext: (ctx: ServerC
     journal: false,
     plan: async (_e, _t, _a, args) => {
       refuseSensitive(args.label_ids);
-      return simple({ thread_id: args.thread_id, add: [], remove: args.label_ids }, sensitiveModifiers(args.label_ids), `Remove ${args.label_ids.join(", ")} from thread ${args.thread_id}`, [args.thread_id]);
+      return simple(
+        { thread_id: args.thread_id, add: [], remove: args.label_ids },
+        sensitiveModifiers(args.label_ids),
+        `Remove ${args.label_ids.join(", ")} from thread ${args.thread_id}`,
+        [args.thread_id],
+      );
     },
     execute: async (e, d, run) => {
       const p = run.payload as { thread_id: string; add: string[]; remove: string[] };
@@ -3754,7 +4860,12 @@ export function registerLabelTools(server: McpServer, toolContext: (ctx: ServerC
     plan: async (_e, _t, _a, args) => {
       const all = [...args.add_label_ids, ...args.remove_label_ids];
       refuseSensitive(all);
-      return simple({ message_id: args.message_id, add: args.add_label_ids, remove: args.remove_label_ids }, sensitiveModifiers(all), `Message ${args.message_id}: add ${args.add_label_ids.join(", ") || "none"}, remove ${args.remove_label_ids.join(", ") || "none"}`, [args.message_id]);
+      return simple(
+        { message_id: args.message_id, add: args.add_label_ids, remove: args.remove_label_ids },
+        sensitiveModifiers(all),
+        `Message ${args.message_id}: add ${args.add_label_ids.join(", ") || "none"}, remove ${args.remove_label_ids.join(", ") || "none"}`,
+        [args.message_id],
+      );
     },
     execute: async (e, d, run) => {
       const p = run.payload as { message_id: string; add: string[]; remove: string[] };
@@ -3769,10 +4880,18 @@ export function registerLabelTools(server: McpServer, toolContext: (ctx: ServerC
     annotations: destructive,
     action: "label.apply",
     journal: false,
-    plan: async (_e, _t, _a, args) => simple({ message_id: args.message_id, add: [args.label_option], remove: ["INBOX"] }, ["+sensitive"], `${args.label_option} message ${args.message_id}`, [args.message_id]),
+    plan: async (_e, _t, _a, args) =>
+      simple(
+        { message_id: args.message_id, add: [args.label_option], remove: ["INBOX"] },
+        ["+sensitive"],
+        `${args.label_option} message ${args.message_id}`,
+        [args.message_id],
+      ),
     execute: async (e, d, run) => {
       const p = run.payload as { message_id: string; add: string[]; remove: string[] };
-      return p.add[0] === "TRASH" ? postMessage(e, d, run, p.message_id, "trash") : modifyMessage(e, d, run, p.message_id, p.add, p.remove);
+      return p.add[0] === "TRASH"
+        ? postMessage(e, d, run, p.message_id, "trash")
+        : modifyMessage(e, d, run, p.message_id, p.add, p.remove);
     },
   });
   defineTool(server, toolContext, env, {
@@ -3783,10 +4902,18 @@ export function registerLabelTools(server: McpServer, toolContext: (ctx: ServerC
     annotations: destructive,
     action: "label.apply",
     journal: false,
-    plan: async (_e, _t, _a, args) => simple({ thread_id: args.thread_id, add: [args.label_option], remove: ["INBOX"] }, ["+sensitive"], `${args.label_option} thread ${args.thread_id}`, [args.thread_id]),
+    plan: async (_e, _t, _a, args) =>
+      simple(
+        { thread_id: args.thread_id, add: [args.label_option], remove: ["INBOX"] },
+        ["+sensitive"],
+        `${args.label_option} thread ${args.thread_id}`,
+        [args.thread_id],
+      ),
     execute: async (e, d, run) => {
       const p = run.payload as { thread_id: string; add: string[]; remove: string[] };
-      return p.add[0] === "TRASH" ? postThread(e, d, run, p.thread_id, "trash") : modifyThread(e, d, run, p.thread_id, p.add, p.remove);
+      return p.add[0] === "TRASH"
+        ? postThread(e, d, run, p.thread_id, "trash")
+        : modifyThread(e, d, run, p.thread_id, p.add, p.remove);
     },
   });
 
@@ -3800,12 +4927,22 @@ export function registerLabelTools(server: McpServer, toolContext: (ctx: ServerC
       action: mark ? "spam.mark" : "spam.unmark",
       journal: false,
       plan: async (_e, _t, _a, args) => {
-        const id = target === "message" ? (args as { message_id: string }).message_id : (args as { thread_id: string }).thread_id;
-        return simple({ [`${target}_id`]: id, add: mark ? ["SPAM"] : ["INBOX"], remove: mark ? ["INBOX"] : ["SPAM"] }, [], `${mark ? "Mark" : "Unmark"} spam: ${target} ${id}`, [id]);
+        const id =
+          target === "message"
+            ? (args as { message_id: string }).message_id
+            : (args as { thread_id: string }).thread_id;
+        return simple(
+          { [`${target}_id`]: id, add: mark ? ["SPAM"] : ["INBOX"], remove: mark ? ["INBOX"] : ["SPAM"] },
+          [],
+          `${mark ? "Mark" : "Unmark"} spam: ${target} ${id}`,
+          [id],
+        );
       },
       execute: async (e, d, run) => {
         const p = run.payload as { message_id?: string; thread_id?: string; add: string[]; remove: string[] };
-        return target === "message" ? modifyMessage(e, d, run, p.message_id!, p.add, p.remove) : modifyThread(e, d, run, p.thread_id!, p.add, p.remove);
+        return target === "message"
+          ? modifyMessage(e, d, run, p.message_id!, p.add, p.remove)
+          : modifyThread(e, d, run, p.thread_id!, p.add, p.remove);
       },
     });
   spam("mark_message_spam", "message", true);
@@ -3823,12 +4960,22 @@ export function registerLabelTools(server: McpServer, toolContext: (ctx: ServerC
       action: move ? "trash.move" : "trash.restore",
       journal: false,
       plan: async (_e, _t, _a, args) => {
-        const id = target === "message" ? (args as { message_id: string }).message_id : (args as { thread_id: string }).thread_id;
-        return simple({ [`${target}_id`]: id, op: move ? "trash" : "untrash" }, [], `${move ? "Trash" : "Untrash"} ${target} ${id}`, [id]);
+        const id =
+          target === "message"
+            ? (args as { message_id: string }).message_id
+            : (args as { thread_id: string }).thread_id;
+        return simple(
+          { [`${target}_id`]: id, op: move ? "trash" : "untrash" },
+          [],
+          `${move ? "Trash" : "Untrash"} ${target} ${id}`,
+          [id],
+        );
       },
       execute: async (e, d, run) => {
         const p = run.payload as { message_id?: string; thread_id?: string; op: "trash" | "untrash" };
-        return target === "message" ? postMessage(e, d, run, p.message_id!, p.op) : postThread(e, d, run, p.thread_id!, p.op);
+        return target === "message"
+          ? postMessage(e, d, run, p.message_id!, p.op)
+          : postThread(e, d, run, p.thread_id!, p.op);
       },
     });
   trash("trash_message", "message", true);
@@ -3836,19 +4983,29 @@ export function registerLabelTools(server: McpServer, toolContext: (ctx: ServerC
   trash("untrash_message", "message", false);
   trash("untrash_thread", "thread", false);
 
-  const labelBody = (a: { display_name?: string; label_list_visibility?: string; message_list_visibility?: string; text_color?: string; background_color?: string }) => ({
+  const labelBody = (a: {
+    display_name?: string;
+    label_list_visibility?: string;
+    message_list_visibility?: string;
+    text_color?: string;
+    background_color?: string;
+  }) => ({
     ...(a.display_name !== undefined ? { name: a.display_name } : {}),
     ...(a.label_list_visibility ? { labelListVisibility: LIST_VIS[a.label_list_visibility] } : {}),
     ...(a.message_list_visibility ? { messageListVisibility: MSG_VIS[a.message_list_visibility] } : {}),
-    ...(a.text_color && a.background_color ? { color: { textColor: a.text_color, backgroundColor: a.background_color } } : {}),
+    ...(a.text_color && a.background_color
+      ? { color: { textColor: a.text_color, backgroundColor: a.background_color } }
+      : {}),
   });
   const colourPair = (a: { text_color?: string; background_color?: string }) => {
-    if ((a.text_color === undefined) !== (a.background_color === undefined)) throw new GmailMcpError("invalid_header", "invalid_header: text_color and background_color go together");
+    if ((a.text_color === undefined) !== (a.background_color === undefined))
+      throw new GmailMcpError("invalid_header", "invalid_header: text_color and background_color go together");
   };
   defineTool(server, toolContext, env, {
     name: "create_label",
     version: 1,
-    description: "Create a label. Nest with '/'. The name is sent as given; Gmail decides whether a missing parent is acceptable.",
+    description:
+      "Create a label. Nest with '/'. The name is sent as given; Gmail decides whether a missing parent is acceptable.",
     input: CreateLabelInput,
     annotations: apply,
     action: "label.manage",
@@ -3863,7 +5020,12 @@ export function registerLabelTools(server: McpServer, toolContext: (ctx: ServerC
       if (!run.operationId) throw new GmailMcpError("internal", "label.manage create runs with an operation");
       // The one request that changes Gmail comes after the operation is executing, and there is no other.
       await beginOperation(e.DB, run.operationId);
-      const label = await gmailJson<GmailLabel>(e, d, acct(run), { method: "POST", path: "labels", json: labelBody(p), retry: "none" });
+      const label = await gmailJson<GmailLabel>(e, d, acct(run), {
+        method: "POST",
+        path: "labels",
+        json: labelBody(p),
+        retry: "none",
+      });
       return { gmail_result_id: label.id, label: labelView(label) };
     },
   });
@@ -3876,14 +5038,22 @@ export function registerLabelTools(server: McpServer, toolContext: (ctx: ServerC
     action: "label.manage",
     journal: false,
     plan: async (_e, _t, _a, args) => {
-      if (isSystemLabel(args.label_id)) throw new GmailMcpError("forbidden", "forbidden: system labels cannot be changed");
+      if (isSystemLabel(args.label_id))
+        throw new GmailMcpError("forbidden", "forbidden: system labels cannot be changed");
       colourPair(args);
       const { account: _account, ...rest } = args;
-      return simple({ op: "update", name: args.display_name ?? null, ...rest }, [], `Update label ${args.label_id}`, [args.label_id]);
+      return simple({ op: "update", name: args.display_name ?? null, ...rest }, [], `Update label ${args.label_id}`, [
+        args.label_id,
+      ]);
     },
     execute: async (e, d, run) => {
       const p = UpdateLabelInput.omit({ account: true }).parse(run.payload);
-      const label = await gmailJson<GmailLabel>(e, d, acct(run), { method: "PATCH", path: `labels/${encodeURIComponent(p.label_id)}`, json: labelBody(p), retry: "safe" });
+      const label = await gmailJson<GmailLabel>(e, d, acct(run), {
+        method: "PATCH",
+        path: `labels/${encodeURIComponent(p.label_id)}`,
+        json: labelBody(p),
+        retry: "safe",
+      });
       return { label: labelView(label) };
     },
   });
@@ -3896,12 +5066,17 @@ export function registerLabelTools(server: McpServer, toolContext: (ctx: ServerC
     action: "label.manage",
     journal: false,
     plan: async (_e, _t, _a, args) => {
-      if (isSystemLabel(args.label_id)) throw new GmailMcpError("forbidden", "forbidden: system labels cannot be deleted");
+      if (isSystemLabel(args.label_id))
+        throw new GmailMcpError("forbidden", "forbidden: system labels cannot be deleted");
       return simple({ op: "delete", label_id: args.label_id }, [], `Delete label ${args.label_id}`, [args.label_id]);
     },
     execute: async (e, d, run) => {
       const p = DeleteLabelInput.omit({ account: true }).parse(run.payload);
-      await gmailJson<undefined>(e, d, acct(run), { method: "DELETE", path: `labels/${encodeURIComponent(p.label_id)}`, retry: "safe" });
+      await gmailJson<undefined>(e, d, acct(run), {
+        method: "DELETE",
+        path: `labels/${encodeURIComponent(p.label_id)}`,
+        retry: "safe",
+      });
       return { deleted: p.label_id };
     },
   });
@@ -3932,6 +5107,7 @@ Claude-Session: https://claude.ai/code/session_01NBfkjWcEGDFghet3APnUjU"
 ```
 
 ---
+
 ### Task 6: Read tools and `download_attachment`
 
 **Files:**
@@ -3978,7 +5154,8 @@ beforeAll(async () => {
   await seedAccessToken(e, { userId: "owner-sub", accountId: "ra" });
   await seedAccessToken(e, { userId: "owner-sub", accountId: "rb" });
   token = (await mintToken(worker, e, g, { scope: "mcp" })).accessToken;
-  for (let i = 0; i < 25; i++) gm().seedMessage({ from: "a@x.test", to: ["me@x.test"], subject: `bulk ${i}`, text: `body ${i}` });
+  for (let i = 0; i < 25; i++)
+    gm().seedMessage({ from: "a@x.test", to: ["me@x.test"], subject: `bulk ${i}`, text: `body ${i}` });
 });
 
 describe("reads", () => {
@@ -3993,19 +5170,38 @@ describe("reads", () => {
     const url = gm().requests.at(-1)!.url;
     expect(url).toContain("maxResults=10");
     expect(url).toContain("includeSpamTrash=false");
-    const rows = await env.DB.prepare("SELECT phase, decision FROM audit_log WHERE user_id='owner-sub' AND tool='search_threads' ORDER BY id DESC LIMIT 2").all<any>();
+    const rows = await env.DB.prepare(
+      "SELECT phase, decision FROM audit_log WHERE user_id='owner-sub' AND tool='search_threads' ORDER BY id DESC LIMIT 2",
+    ).all<any>();
     expect(rows.results.every((x) => x.phase === "intent" && x.decision === "allow")).toBe(true);
     const over = await call("search_threads", { limit: 51 });
     expect(over.error ?? over.result?.error).toBeTruthy();
   });
   it("get_thread returns messages in PLAIN_TEXT by default, capped by max_messages and body_char_limit", async () => {
     const root = gm().seedMessage({ from: "a@x.test", to: ["me@x.test"], subject: "thread", text: "one ".repeat(100) });
-    gm().seedMessage({ threadId: root.threadId, from: "me@x.test", to: ["a@x.test"], subject: "Re: thread", text: "two", html: "<i>two</i>" });
-    gm().seedMessage({ threadId: root.threadId, from: "a@x.test", to: ["me@x.test"], subject: "Re: thread", text: "three" });
+    gm().seedMessage({
+      threadId: root.threadId,
+      from: "me@x.test",
+      to: ["a@x.test"],
+      subject: "Re: thread",
+      text: "two",
+      html: "<i>two</i>",
+    });
+    gm().seedMessage({
+      threadId: root.threadId,
+      from: "a@x.test",
+      to: ["me@x.test"],
+      subject: "Re: thread",
+      text: "three",
+    });
     const r = await call("get_thread", { thread_id: root.threadId, max_messages: 2, body_char_limit: 8 });
     expect(r.result.account).toBe("personal");
     expect(r.result.thread.messages).toHaveLength(2);
-    expect(r.result.thread.messages[0]).toMatchObject({ plaintext_body: "one one ", body_truncated: true, subject: "thread" });
+    expect(r.result.thread.messages[0]).toMatchObject({
+      plaintext_body: "one one ",
+      body_truncated: true,
+      subject: "thread",
+    });
     expect(r.result.thread.messages[1].html_body).toBeUndefined();
     expect(r.result.thread.messages_omitted).toBe(1);
     const full = await call("get_thread", { thread_id: root.threadId, message_format: "FULL_CONTENT" });
@@ -4016,20 +5212,42 @@ describe("reads", () => {
   });
   it("get_thread has a total body budget across messages", async () => {
     const root = gm().seedMessage({ from: "a@x.test", to: ["me@x.test"], subject: "budget", text: "x".repeat(150) });
-    for (let i = 0; i < 4; i++) gm().seedMessage({ threadId: root.threadId, from: "a@x.test", to: ["me@x.test"], subject: "Re: budget", text: "y".repeat(150) });
+    for (let i = 0; i < 4; i++)
+      gm().seedMessage({
+        threadId: root.threadId,
+        from: "a@x.test",
+        to: ["me@x.test"],
+        subject: "Re: budget",
+        text: "y".repeat(150),
+      });
     const r = await call("get_thread", { thread_id: root.threadId, total_body_char_limit: 400 });
-    const withBody = r.result.thread.messages.filter((m: { plaintext_body?: string }) => m.plaintext_body !== undefined);
+    const withBody = r.result.thread.messages.filter(
+      (m: { plaintext_body?: string }) => m.plaintext_body !== undefined,
+    );
     expect(withBody.length).toBeLessThanOrEqual(3);
     expect(r.result.thread.bodies_omitted).toBe(5 - withBody.length);
     expect(r.result.thread.messages).toHaveLength(5);
   });
   it("get_message exposes attachment metadata only and honours include_body", async () => {
-    const m = gm().seedMessage({ from: "a@x.test", to: ["me@x.test"], subject: "att", text: "see attached", attachments: [{ filename: "a.pdf", mime: "application/pdf", bytes: new Uint8Array(3000) }] });
+    const m = gm().seedMessage({
+      from: "a@x.test",
+      to: ["me@x.test"],
+      subject: "att",
+      text: "see attached",
+      attachments: [{ filename: "a.pdf", mime: "application/pdf", bytes: new Uint8Array(3000) }],
+    });
     const r = await call("get_message", { message_id: m.id });
-    expect(r.result.message.attachments).toEqual([{ part_id: "2", attachment_id: `att${m.id}_0`, filename: "a.pdf", mime: "application/pdf", size: 3000 }]);
+    expect(r.result.message.attachments).toEqual([
+      { part_id: "2", attachment_id: `att${m.id}_0`, filename: "a.pdf", mime: "application/pdf", size: 3000 },
+    ]);
     expect(r.result.message.plaintext_body).toBe("see attached");
-    expect((await call("get_message", { message_id: m.id, include_body: false })).result.message.plaintext_body).toBeUndefined();
-    expect((await call("get_message", { message_id: m.id, message_format: "MESSAGE_FORMAT_UNSPECIFIED" })).result.message.plaintext_body).toBe("see attached");
+    expect(
+      (await call("get_message", { message_id: m.id, include_body: false })).result.message.plaintext_body,
+    ).toBeUndefined();
+    expect(
+      (await call("get_message", { message_id: m.id, message_format: "MESSAGE_FORMAT_UNSPECIFIED" })).result.message
+        .plaintext_body,
+    ).toBe("see attached");
     expect((await call("get_message", { account: "work", message_id: m.id })).result.account).toBe("work");
   });
   it("list_drafts, get_draft and list_labels", async () => {
@@ -4039,7 +5257,9 @@ describe("reads", () => {
     const one = await call("get_draft", { draft_id: d.id });
     expect(one.result.draft).toMatchObject({ id: d.id, message: { subject: "draft one", plaintext_body: "d1" } });
     const labels = await call("list_labels", {});
-    expect(labels.result.labels.map((l: { id: string }) => l.id)).toEqual(expect.arrayContaining(["INBOX", "SENT", "DRAFT"]));
+    expect(labels.result.labels.map((l: { id: string }) => l.id)).toEqual(
+      expect.arrayContaining(["INBOX", "SENT", "DRAFT"]),
+    );
   });
   it("reads obey policy: a denied read.search writes one intent row and returns policy_denied", async () => {
     await setPolicy(env.DB, { userId: "owner-sub", accountId: "ra", action: "read.search", level: "deny" });
@@ -4051,38 +5271,88 @@ describe("reads", () => {
 describe("download_attachment", () => {
   it("stages the decoded bytes as a download handle with sha256 and a 30 minute expiry", async () => {
     const data = new Uint8Array(5000).map((_, i) => i % 251);
-    const m = gm().seedMessage({ from: "a@x.test", to: ["me@x.test"], subject: "dl", text: "t", attachments: [{ filename: "..\\evil‮.pdf", mime: "application/pdf", bytes: data }] });
+    const m = gm().seedMessage({
+      from: "a@x.test",
+      to: ["me@x.test"],
+      subject: "dl",
+      text: "t",
+      attachments: [{ filename: "..\\evil‮.pdf", mime: "application/pdf", bytes: data }],
+    });
     const r = await call("download_attachment", { message_id: m.id, attachment_id: `att${m.id}_0` });
     const h = StagingHandleResponse.parse(r.result);
-    expect(h).toMatchObject({ account: "personal", filename: "evil_.pdf", mime: "application/pdf", size: 5000, sha256: await sha256Hex(data) });
+    expect(h).toMatchObject({
+      account: "personal",
+      filename: "evil_.pdf",
+      mime: "application/pdf",
+      size: 5000,
+      sha256: await sha256Hex(data),
+    });
     expect(Date.parse(h.expires_at) - Date.now()).toBeGreaterThan(29 * 60_000);
-    const row = await env.DB.prepare("SELECT direction, user_id, account_id, source_message_id, source_attachment_id FROM staging_objects WHERE handle = ?").bind(h.handle).first<any>();
-    expect(row).toEqual({ direction: "download", user_id: "owner-sub", account_id: "ra", source_message_id: m.id, source_attachment_id: `att${m.id}_0` });
+    const row = await env.DB.prepare(
+      "SELECT direction, user_id, account_id, source_message_id, source_attachment_id FROM staging_objects WHERE handle = ?",
+    )
+      .bind(h.handle)
+      .first<any>();
+    expect(row).toEqual({
+      direction: "download",
+      user_id: "owner-sub",
+      account_id: "ra",
+      source_message_id: m.id,
+      source_attachment_id: `att${m.id}_0`,
+    });
     expect(JSON.stringify(r.result)).not.toContain("data");
   });
   it("downloads a part whose bytes are inline in the message body, by part_id", async () => {
-    const m = gm().seedMessage({ from: "a@x.test", to: ["me@x.test"], subject: "inline", text: "t", attachments: [{ filename: "tiny.txt", mime: "text/plain", bytes: new TextEncoder().encode("tiny"), inline: true }] });
+    const m = gm().seedMessage({
+      from: "a@x.test",
+      to: ["me@x.test"],
+      subject: "inline",
+      text: "t",
+      attachments: [
+        { filename: "tiny.txt", mime: "text/plain", bytes: new TextEncoder().encode("tiny"), inline: true },
+      ],
+    });
     const meta = (await call("get_message", { message_id: m.id })).result.message.attachments[0];
     expect(meta).toMatchObject({ filename: "tiny.txt", attachment_id: null, part_id: expect.any(String), size: 4 });
     const before = gm().requests.length;
     const r = await call("download_attachment", { message_id: m.id, part_id: meta.part_id });
     expect(r.result).toMatchObject({ filename: "tiny.txt", size: 4 });
-    expect(gm().requests.slice(before).some((q) => q.url.includes("/attachments/"))).toBe(false);
+    expect(
+      gm()
+        .requests.slice(before)
+        .some((q) => q.url.includes("/attachments/")),
+    ).toBe(false);
     const neither = await call("download_attachment", { message_id: m.id });
     expect(neither.error ?? neither.result?.error).toBeTruthy();
   });
   it("refuses an attachment above 25 MB by size before fetching bytes, and an unknown attachment id", async () => {
-    const m = gm().seedMessage({ from: "a@x.test", to: ["me@x.test"], subject: "big", text: "t", attachments: [{ filename: "big.bin", mime: "application/octet-stream", bytes: new Uint8Array(10) }] });
-    const part = gm().messages.get(m.id)!.payload.parts!.find((p) => p.filename === "big.bin")!;
+    const m = gm().seedMessage({
+      from: "a@x.test",
+      to: ["me@x.test"],
+      subject: "big",
+      text: "t",
+      attachments: [{ filename: "big.bin", mime: "application/octet-stream", bytes: new Uint8Array(10) }],
+    });
+    const part = gm()
+      .messages.get(m.id)!
+      .payload.parts!.find((p) => p.filename === "big.bin")!;
     part.body.size = 25 * 1024 * 1024 + 1;
     const before = gm().requests.length;
     const r = await call("download_attachment", { message_id: m.id, attachment_id: part.body.attachmentId });
     expect(r.result).toMatchObject({ error: "limit_exceeded" });
-    expect(gm().requests.slice(before).some((q) => q.url.includes("/attachments/"))).toBe(false);
-    expect((await call("download_attachment", { message_id: m.id, attachment_id: "nope" })).result).toMatchObject({ error: "handle_invalid" });
+    expect(
+      gm()
+        .requests.slice(before)
+        .some((q) => q.url.includes("/attachments/")),
+    ).toBe(false);
+    expect((await call("download_attachment", { message_id: m.id, attachment_id: "nope" })).result).toMatchObject({
+      error: "handle_invalid",
+    });
   });
   it("is audited as read.attachment with the ids and writes an outcome row", async () => {
-    const rows = await env.DB.prepare("SELECT phase, decision, action, summary FROM audit_log WHERE user_id='owner-sub' AND tool='download_attachment' ORDER BY id").all<any>();
+    const rows = await env.DB.prepare(
+      "SELECT phase, decision, action, summary FROM audit_log WHERE user_id='owner-sub' AND tool='download_attachment' ORDER BY id",
+    ).all<any>();
     expect(rows.results[0]).toMatchObject({ phase: "intent", decision: "allow", action: "read.attachment" });
     expect(rows.results[1]).toMatchObject({ phase: "outcome", decision: "executed" });
     expect(rows.results[0].summary).toMatch(/^ids=/);
@@ -4104,7 +5374,13 @@ const FormatArg = z.union([MessageFormat, z.literal("MESSAGE_FORMAT_UNSPECIFIED"
 const PageLimit = z.number().int().min(1).max(50).default(20);
 const PageToken = z.string().min(1).max(512).optional();
 const BodyCharLimit = z.number().int().min(1).max(200_000).default(20_000);
-export const SearchThreadsInput = z.object({ account: AccountAlias.optional(), query: z.string().max(2048).optional(), limit: PageLimit, page_token: PageToken, include_spam_trash: z.boolean().default(false) });
+export const SearchThreadsInput = z.object({
+  account: AccountAlias.optional(),
+  query: z.string().max(2048).optional(),
+  limit: PageLimit,
+  page_token: PageToken,
+  include_spam_trash: z.boolean().default(false),
+});
 export const GetThreadInput = z.object({
   account: AccountAlias.optional(),
   thread_id: GmailId,
@@ -4114,13 +5390,36 @@ export const GetThreadInput = z.object({
   body_char_limit: BodyCharLimit,
   total_body_char_limit: z.number().int().min(1).max(2_000_000).default(200_000),
 });
-export const GetMessageInput = z.object({ account: AccountAlias.optional(), message_id: GmailId, message_format: FormatArg, include_body: z.boolean().default(true), body_char_limit: BodyCharLimit });
-export const ListDraftsInput = z.object({ account: AccountAlias.optional(), query: z.string().max(2048).optional(), limit: PageLimit, page_token: PageToken });
-export const GetDraftInput = z.object({ account: AccountAlias.optional(), draft_id: GmailId, message_format: FormatArg, body_char_limit: BodyCharLimit });
+export const GetMessageInput = z.object({
+  account: AccountAlias.optional(),
+  message_id: GmailId,
+  message_format: FormatArg,
+  include_body: z.boolean().default(true),
+  body_char_limit: BodyCharLimit,
+});
+export const ListDraftsInput = z.object({
+  account: AccountAlias.optional(),
+  query: z.string().max(2048).optional(),
+  limit: PageLimit,
+  page_token: PageToken,
+});
+export const GetDraftInput = z.object({
+  account: AccountAlias.optional(),
+  draft_id: GmailId,
+  message_format: FormatArg,
+  body_char_limit: BodyCharLimit,
+});
 export const ListLabelsInput = z.object({ account: AccountAlias.optional() });
 export const DownloadAttachmentInput = z
-  .object({ account: AccountAlias.optional(), message_id: GmailId, attachment_id: z.string().min(1).max(1024).optional(), part_id: z.string().min(1).max(64).optional() })
-  .refine((v) => (v.attachment_id === undefined) !== (v.part_id === undefined), { message: "give attachment_id or part_id, not both" });
+  .object({
+    account: AccountAlias.optional(),
+    message_id: GmailId,
+    attachment_id: z.string().min(1).max(1024).optional(),
+    part_id: z.string().min(1).max(64).optional(),
+  })
+  .refine((v) => (v.attachment_id === undefined) !== (v.part_id === undefined), {
+    message: "give attachment_id or part_id, not both",
+  });
 ```
 
 `worker/src/tools/read.ts`:
@@ -4128,11 +5427,28 @@ export const DownloadAttachmentInput = z
 ```ts
 import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
 import { GmailMcpError } from "@gmail-mcp/shared/errors";
-import { DownloadAttachmentInput, GetDraftInput, GetMessageInput, GetThreadInput, ListDraftsInput, ListLabelsInput, SearchThreadsInput, type MessageFormat } from "@gmail-mcp/shared/schemas";
+import {
+  DownloadAttachmentInput,
+  GetDraftInput,
+  GetMessageInput,
+  GetThreadInput,
+  ListDraftsInput,
+  ListLabelsInput,
+  SearchThreadsInput,
+  type MessageFormat,
+} from "@gmail-mcp/shared/schemas";
 import type { Env } from "../env";
 import { fromB64url } from "../crypto/random";
 import { gmailJson } from "../google/gmail";
-import { findAttachment, gmailFormatFor, messageView, partData, type GmailDraft, type GmailLabel, type GmailThread } from "../google/messages";
+import {
+  findAttachment,
+  gmailFormatFor,
+  messageView,
+  partData,
+  type GmailDraft,
+  type GmailLabel,
+  type GmailThread,
+} from "../google/messages";
 import { LIMITS } from "../policy/limits";
 import { ingest } from "../staging/store";
 import { getMessage } from "./compose";
@@ -4140,7 +5456,8 @@ import { defineTool, type Plan } from "./define";
 import type { ExecRun, ToolContext } from "./gate";
 import { labelView } from "./labels";
 
-const fmt = (f: MessageFormat | "MESSAGE_FORMAT_UNSPECIFIED"): MessageFormat => (f === "MESSAGE_FORMAT_UNSPECIFIED" ? "PLAIN_TEXT" : f);
+const fmt = (f: MessageFormat | "MESSAGE_FORMAT_UNSPECIFIED"): MessageFormat =>
+  f === "MESSAGE_FORMAT_UNSPECIFIED" ? "PLAIN_TEXT" : f;
 const acct = (run: ExecRun) => ({ userId: run.userId, accountId: run.account.id });
 const ro = { readOnlyHint: true, destructiveHint: false, openWorldHint: false } as const;
 /** A read's payload is its arguments; nothing is staged, so the build is immediate. */
@@ -4165,20 +5482,29 @@ export function registerReadTools(server: McpServer, toolContext: (ctx: ServerCo
     plan: async (_e, _t, _a, args) => readPlan(args, `Search threads: ${args.query ?? "(all)"}`),
     execute: async (e, d, run) => {
       const p = SearchThreadsInput.omit({ account: true }).parse(run.payload);
-      const res = await gmailJson<{ threads?: { id: string; snippet?: string }[]; nextPageToken?: string; resultSizeEstimate?: number }>(e, d, acct(run), {
+      const res = await gmailJson<{
+        threads?: { id: string; snippet?: string }[];
+        nextPageToken?: string;
+        resultSizeEstimate?: number;
+      }>(e, d, acct(run), {
         method: "GET",
         path: "threads",
         query: { q: p.query, maxResults: p.limit, pageToken: p.page_token, includeSpamTrash: p.include_spam_trash },
         retry: "safe",
       });
-      return { threads: (res.threads ?? []).map((t) => ({ id: t.id, snippet: t.snippet ?? "" })), result_size_estimate: res.resultSizeEstimate ?? 0, ...(res.nextPageToken ? { next_page_token: res.nextPageToken } : {}) };
+      return {
+        threads: (res.threads ?? []).map((t) => ({ id: t.id, snippet: t.snippet ?? "" })),
+        result_size_estimate: res.resultSizeEstimate ?? 0,
+        ...(res.nextPageToken ? { next_page_token: res.nextPageToken } : {}),
+      };
     },
   });
 
   defineTool(server, toolContext, env, {
     name: "get_thread",
     version: 1,
-    description: "A thread and its messages. PLAIN_TEXT by default; bodies cut at body_char_limit and under total_body_char_limit across the thread; at most max_messages.",
+    description:
+      "A thread and its messages. PLAIN_TEXT by default; bodies cut at body_char_limit and under total_body_char_limit across the thread; at most max_messages.",
     input: GetThreadInput,
     annotations: ro,
     action: "read.message",
@@ -4188,13 +5514,22 @@ export function registerReadTools(server: McpServer, toolContext: (ctx: ServerCo
       const p = GetThreadInput.omit({ account: true }).parse(run.payload);
       const f = fmt(p.message_format);
       const q = gmailFormatFor(f);
-      const t = await gmailJson<GmailThread>(e, d, acct(run), { method: "GET", path: `threads/${encodeURIComponent(p.thread_id)}`, query: { format: q.format, metadataHeaders: q.metadataHeaders }, retry: "safe" });
+      const t = await gmailJson<GmailThread>(e, d, acct(run), {
+        method: "GET",
+        path: `threads/${encodeURIComponent(p.thread_id)}`,
+        query: { format: q.format, metadataHeaders: q.metadataHeaders },
+        retry: "safe",
+      });
       const all = t.messages ?? [];
       const shown = all.slice(0, p.max_messages);
       let budget = p.total_body_char_limit;
       let omitted = 0;
       const messages = shown.map((m) => {
-        const view = messageView(m, { format: f, bodyCharLimit: Math.min(p.body_char_limit, Math.max(budget, 0)), includeBody: p.include_body && budget > 0 });
+        const view = messageView(m, {
+          format: f,
+          bodyCharLimit: Math.min(p.body_char_limit, Math.max(budget, 0)),
+          includeBody: p.include_body && budget > 0,
+        });
         if (p.include_body && budget <= 0) omitted++;
         budget -= (view.plaintext_body?.length ?? 0) + (view.html_body?.length ?? 0) + (view.raw?.length ?? 0);
         return view;
@@ -4215,7 +5550,13 @@ export function registerReadTools(server: McpServer, toolContext: (ctx: ServerCo
     execute: async (e, d, run) => {
       const p = GetMessageInput.omit({ account: true }).parse(run.payload);
       const f = fmt(p.message_format);
-      return { message: messageView(await getMessage(e, d, acct(run), p.message_id, f), { format: f, bodyCharLimit: p.body_char_limit, includeBody: p.include_body }) };
+      return {
+        message: messageView(await getMessage(e, d, acct(run), p.message_id, f), {
+          format: f,
+          bodyCharLimit: p.body_char_limit,
+          includeBody: p.include_body,
+        }),
+      };
     },
   });
 
@@ -4230,8 +5571,19 @@ export function registerReadTools(server: McpServer, toolContext: (ctx: ServerCo
     plan: async (_e, _t, _a, args) => readPlan(args, "List drafts"),
     execute: async (e, d, run) => {
       const p = ListDraftsInput.omit({ account: true }).parse(run.payload);
-      const res = await gmailJson<{ drafts?: { id: string; message: { id: string; threadId: string } }[]; nextPageToken?: string }>(e, d, acct(run), { method: "GET", path: "drafts", query: { q: p.query, maxResults: p.limit, pageToken: p.page_token }, retry: "safe" });
-      return { drafts: (res.drafts ?? []).map((x) => ({ id: x.id, message_id: x.message.id, thread_id: x.message.threadId })), ...(res.nextPageToken ? { next_page_token: res.nextPageToken } : {}) };
+      const res = await gmailJson<{
+        drafts?: { id: string; message: { id: string; threadId: string } }[];
+        nextPageToken?: string;
+      }>(e, d, acct(run), {
+        method: "GET",
+        path: "drafts",
+        query: { q: p.query, maxResults: p.limit, pageToken: p.page_token },
+        retry: "safe",
+      });
+      return {
+        drafts: (res.drafts ?? []).map((x) => ({ id: x.id, message_id: x.message.id, thread_id: x.message.threadId })),
+        ...(res.nextPageToken ? { next_page_token: res.nextPageToken } : {}),
+      };
     },
   });
 
@@ -4247,8 +5599,18 @@ export function registerReadTools(server: McpServer, toolContext: (ctx: ServerCo
     execute: async (e, d, run) => {
       const p = GetDraftInput.omit({ account: true }).parse(run.payload);
       const f = fmt(p.message_format);
-      const dr = await gmailJson<GmailDraft>(e, d, acct(run), { method: "GET", path: `drafts/${encodeURIComponent(p.draft_id)}`, query: { format: gmailFormatFor(f).format }, retry: "safe" });
-      return { draft: { id: dr.id, message: messageView(dr.message, { format: f, bodyCharLimit: p.body_char_limit, includeBody: true }) } };
+      const dr = await gmailJson<GmailDraft>(e, d, acct(run), {
+        method: "GET",
+        path: `drafts/${encodeURIComponent(p.draft_id)}`,
+        query: { format: gmailFormatFor(f).format },
+        retry: "safe",
+      });
+      return {
+        draft: {
+          id: dr.id,
+          message: messageView(dr.message, { format: f, bodyCharLimit: p.body_char_limit, includeBody: true }),
+        },
+      };
     },
   });
 
@@ -4261,29 +5623,51 @@ export function registerReadTools(server: McpServer, toolContext: (ctx: ServerCo
     action: "read.message",
     journal: false,
     plan: async () => readPlan({}, "List labels"),
-    execute: async (e, d, run) => ({ labels: ((await gmailJson<{ labels?: GmailLabel[] }>(e, d, acct(run), { method: "GET", path: "labels", retry: "safe" })).labels ?? []).map(labelView) }),
+    execute: async (e, d, run) => ({
+      labels: (
+        (await gmailJson<{ labels?: GmailLabel[] }>(e, d, acct(run), { method: "GET", path: "labels", retry: "safe" }))
+          .labels ?? []
+      ).map(labelView),
+    }),
   });
 
   defineTool(server, toolContext, env, {
     name: "download_attachment",
     version: 1,
-    description: "Fetch one attachment into staging by attachment_id or part_id and return a handle. Bytes never enter the result. 25 MB ceiling.",
+    description:
+      "Fetch one attachment into staging by attachment_id or part_id and return a handle. Bytes never enter the result. 25 MB ceiling.",
     input: DownloadAttachmentInput,
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     action: "read.attachment",
     journal: false,
-    plan: async (_e, _t, _a, args) => readPlan(args, `Download attachment ${args.attachment_id ?? `part ${args.part_id}`} of message ${args.message_id}`, [args.message_id]),
+    plan: async (_e, _t, _a, args) =>
+      readPlan(
+        args,
+        `Download attachment ${args.attachment_id ?? `part ${args.part_id}`} of message ${args.message_id}`,
+        [args.message_id],
+      ),
     execute: async (e, d, run) => {
       const p = DownloadAttachmentInput.omit({ account: true }).parse(run.payload);
       // Spec 3.7: the part's size comes from the message's part tree (format=full carries sizes, not
       // bytes for external parts), and anything over the ceiling is refused before attachments.get.
       const m = await getMessage(e, d, acct(run), p.message_id, "PLAIN_TEXT");
-      const meta = p.attachment_id ? findAttachment(m, { attachmentId: p.attachment_id }) : findAttachment(m, { partId: p.part_id! });
-      if (!meta) throw new GmailMcpError("handle_invalid", `handle_invalid: no such attachment on message ${p.message_id}`);
-      if (meta.size > LIMITS.stagedFileBytes) throw new GmailMcpError("limit_exceeded", `limit_exceeded: attachment is ${meta.size} bytes, ceiling ${LIMITS.stagedFileBytes}`);
+      const meta = p.attachment_id
+        ? findAttachment(m, { attachmentId: p.attachment_id })
+        : findAttachment(m, { partId: p.part_id! });
+      if (!meta)
+        throw new GmailMcpError("handle_invalid", `handle_invalid: no such attachment on message ${p.message_id}`);
+      if (meta.size > LIMITS.stagedFileBytes)
+        throw new GmailMcpError(
+          "limit_exceeded",
+          `limit_exceeded: attachment is ${meta.size} bytes, ceiling ${LIMITS.stagedFileBytes}`,
+        );
       let bytes: Uint8Array;
       if (meta.attachment_id) {
-        const body = await gmailJson<{ data?: string }>(e, d, acct(run), { method: "GET", path: `messages/${encodeURIComponent(p.message_id)}/attachments/${encodeURIComponent(meta.attachment_id)}`, retry: "safe" });
+        const body = await gmailJson<{ data?: string }>(e, d, acct(run), {
+          method: "GET",
+          path: `messages/${encodeURIComponent(p.message_id)}/attachments/${encodeURIComponent(meta.attachment_id)}`,
+          retry: "safe",
+        });
         if (!body.data) throw new GmailMcpError("handle_invalid", "handle_invalid: attachment body empty");
         bytes = fromB64url(body.data);
       } else {
@@ -4291,8 +5675,24 @@ export function registerReadTools(server: McpServer, toolContext: (ctx: ServerCo
         if (!data) throw new GmailMcpError("handle_invalid", "handle_invalid: inline part without data");
         bytes = fromB64url(data);
       }
-      const row = await ingest(e, { userId: run.userId, accountId: run.account.id, direction: "download", filename: meta.filename, mime: meta.mime, length: bytes.byteLength, body: new Response(bytes).body!, source: { messageId: p.message_id, attachmentId: meta.attachment_id ?? `part:${meta.part_id}` } });
-      return { handle: row.handle, filename: row.filename, mime: row.mime, size: row.size, sha256: row.sha256, expires_at: new Date(row.expires_at).toISOString() };
+      const row = await ingest(e, {
+        userId: run.userId,
+        accountId: run.account.id,
+        direction: "download",
+        filename: meta.filename,
+        mime: meta.mime,
+        length: bytes.byteLength,
+        body: new Response(bytes).body!,
+        source: { messageId: p.message_id, attachmentId: meta.attachment_id ?? `part:${meta.part_id}` },
+      });
+      return {
+        handle: row.handle,
+        filename: row.filename,
+        mime: row.mime,
+        size: row.size,
+        sha256: row.sha256,
+        expires_at: new Date(row.expires_at).toISOString(),
+      };
     },
   });
 }
@@ -4322,6 +5722,7 @@ Claude-Session: https://claude.ai/code/session_01NBfkjWcEGDFghet3APnUjU"
 ```
 
 ---
+
 ### Task 7: The send pipeline over streams
 
 **Files:**
@@ -4354,7 +5755,14 @@ import { seedUserAndAccount, seedAccessToken } from "./fixtures";
 import { testDeps, testEnv } from "./test-env";
 import { insertOperationStatement } from "../src/operations/journal";
 import { randomId } from "../src/crypto/random";
-import { sendMime, sendDraft, uploadDraft, messageIdFor, MEDIA_UPLOAD_MAX, GMAIL_SEND_MAX } from "../src/operations/send";
+import {
+  sendMime,
+  sendDraft,
+  uploadDraft,
+  messageIdFor,
+  MEDIA_UPLOAD_MAX,
+  GMAIL_SEND_MAX,
+} from "../src/operations/send";
 import { buildMimeStream, fromBytes } from "../src/mime/build";
 
 const e = testEnv();
@@ -4370,14 +5778,38 @@ beforeAll(async () => {
 
 async function op() {
   const id = randomId("op");
-  await insertOperationStatement(env.DB, { id, ...acct, action: "send.message", payloadHash: "h", now: Date.now() }).run();
+  await insertOperationStatement(env.DB, {
+    id,
+    ...acct,
+    action: "send.message",
+    payloadHash: "h",
+    now: Date.now(),
+  }).run();
   return id;
 }
-const opRow = (id: string) => env.DB.prepare("SELECT state, rfc822_message_id, gmail_result_id FROM operations WHERE id = ?").bind(id).first<any>();
+const opRow = (id: string) =>
+  env.DB.prepare("SELECT state, rfc822_message_id, gmail_result_id FROM operations WHERE id = ?").bind(id).first<any>();
 const mime = (extra: Partial<Parameters<typeof buildMimeStream>[0]> = {}) =>
-  buildMimeStream({ from: "me@example.test", to: ["a@example.test"], cc: [], bcc: [], subject: "s", messageId: "<x@y>", text: "t", attachments: [], ...extra });
+  buildMimeStream({
+    from: "me@example.test",
+    to: ["a@example.test"],
+    cc: [],
+    bcc: [],
+    subject: "s",
+    messageId: "<x@y>",
+    text: "t",
+    attachments: [],
+    ...extra,
+  });
 const send = (id: string, m: ReturnType<typeof mime>, threadId: string | null = null) =>
-  sendMime(e, testDeps(g), { ...acct, operationId: id, body: m.stream, length: m.length, threadId, rfc822MessageId: "<x@y>" });
+  sendMime(e, testDeps(g), {
+    ...acct,
+    operationId: id,
+    body: m.stream,
+    length: m.length,
+    threadId,
+    rfc822MessageId: "<x@y>",
+  });
 
 describe("sendMime", () => {
   it("small: media upload; the operation is executing with the Message-ID before the request opens; nothing settles here", async () => {
@@ -4390,7 +5822,14 @@ describe("sendMime", () => {
       return undefined;
     };
     const m = mime({ messageId: mid });
-    const sent = await sendMime(e, testDeps(g), { ...acct, operationId: id, body: m.stream, length: m.length, threadId: null, rfc822MessageId: mid });
+    const sent = await sendMime(e, testDeps(g), {
+      ...acct,
+      operationId: id,
+      body: m.stream,
+      length: m.length,
+      threadId: null,
+      rfc822MessageId: mid,
+    });
     gm().before = null;
     expect(seenState).toBe("executing");
     expect(sent).toMatchObject({ id: expect.stringMatching(/^m/), thread_id: expect.any(String), label_ids: ["SENT"] });
@@ -4409,7 +5848,11 @@ describe("sendMime", () => {
   it("above 5 MB: the session opens before the operation, then the PUT streams the exact length with threadId in the session metadata", async () => {
     const id = await op();
     const big = new Uint8Array(MEDIA_UPLOAD_MAX).fill(1);
-    const m = mime({ attachments: [{ filename: "big.bin", mime: "application/octet-stream", size: big.byteLength, open: fromBytes(big) }] });
+    const m = mime({
+      attachments: [
+        { filename: "big.bin", mime: "application/octet-stream", size: big.byteLength, open: fromBytes(big) },
+      ],
+    });
     expect(m.length).toBeGreaterThan(MEDIA_UPLOAD_MAX);
     const states: string[] = [];
     gm().before = async () => {
@@ -4430,18 +5873,43 @@ describe("sendMime", () => {
     const id = await op();
     const big = new Uint8Array(MEDIA_UPLOAD_MAX).fill(2);
     gm().faults.push({ status: 503 });
-    const sent = await send(id, mime({ attachments: [{ filename: "b.bin", mime: "application/octet-stream", size: big.byteLength, open: fromBytes(big) }] }));
+    const sent = await send(
+      id,
+      mime({
+        attachments: [
+          { filename: "b.bin", mime: "application/octet-stream", size: big.byteLength, open: fromBytes(big) },
+        ],
+      }),
+    );
     expect(sent.id).toMatch(/^m/);
     const id2 = await op();
     gm().faults.push({ status: 503 }, { status: 503 }, { status: 503 });
-    await expect(send(id2, mime({ attachments: [{ filename: "b.bin", mime: "application/octet-stream", size: big.byteLength, open: fromBytes(big) }] }))).rejects.toMatchObject({ status: 503 });
+    await expect(
+      send(
+        id2,
+        mime({
+          attachments: [
+            { filename: "b.bin", mime: "application/octet-stream", size: big.byteLength, open: fromBytes(big) },
+          ],
+        }),
+      ),
+    ).rejects.toMatchObject({ status: 503 });
     expect((await opRow(id2)).state).toBe("claimed");
   });
   it("a failed PUT after the operation opened leaves it executing; the caller classifies", async () => {
     const id = await op();
     const big = new Uint8Array(MEDIA_UPLOAD_MAX).fill(3);
     gm().afterSession = { status: 503 };
-    await expect(send(id, mime({ attachments: [{ filename: "b.bin", mime: "application/octet-stream", size: big.byteLength, open: fromBytes(big) }] }))).rejects.toMatchObject({ status: 503 });
+    await expect(
+      send(
+        id,
+        mime({
+          attachments: [
+            { filename: "b.bin", mime: "application/octet-stream", size: big.byteLength, open: fromBytes(big) },
+          ],
+        }),
+      ),
+    ).rejects.toMatchObject({ status: 503 });
     gm().afterSession = null;
     expect((await opRow(id)).state).toBe("executing");
   });
@@ -4469,22 +5937,49 @@ describe("drafts and send_draft", () => {
   it("uploadDraft creates then updates a draft via the same protocol; sendDraft posts the id with the draft's Message-ID on the operation", async () => {
     const id = await op();
     const m1 = mime({ subject: "d1" });
-    const created = await uploadDraft(e, testDeps(g), { ...acct, operationId: id, body: m1.stream, length: m1.length, threadId: null, rfc822MessageId: "<d@y>", draftId: null });
-    expect(created).toMatchObject({ id: expect.stringMatching(/^r/), message_id: expect.any(String), thread_id: expect.any(String) });
+    const created = await uploadDraft(e, testDeps(g), {
+      ...acct,
+      operationId: id,
+      body: m1.stream,
+      length: m1.length,
+      threadId: null,
+      rfc822MessageId: "<d@y>",
+      draftId: null,
+    });
+    expect(created).toMatchObject({
+      id: expect.stringMatching(/^r/),
+      message_id: expect.any(String),
+      thread_id: expect.any(String),
+    });
     expect((await opRow(id)).state).toBe("executing");
     const id2 = await op();
     const m2 = mime({ subject: "d2" });
-    const updated = await uploadDraft(e, testDeps(g), { ...acct, operationId: id2, body: m2.stream, length: m2.length, threadId: null, rfc822MessageId: "<d@y>", draftId: created.id });
+    const updated = await uploadDraft(e, testDeps(g), {
+      ...acct,
+      operationId: id2,
+      body: m2.stream,
+      length: m2.length,
+      threadId: null,
+      rfc822MessageId: "<d@y>",
+      draftId: created.id,
+    });
     expect(updated.id).toBe(created.id);
     expect(gm().requests.at(-1)!.method).toBe("PUT");
     const id3 = await op();
-    const sent = await sendDraft(e, testDeps(g), { ...acct, operationId: id3, draftId: created.id, rfc822MessageId: "<d@y>" });
+    const sent = await sendDraft(e, testDeps(g), {
+      ...acct,
+      operationId: id3,
+      draftId: created.id,
+      rfc822MessageId: "<d@y>",
+    });
     expect(sent).toMatchObject({ id: expect.stringMatching(/^m/), thread_id: expect.any(String) });
     expect(gm().sent.at(-1)!.via).toBe("draft");
     expect(gm().drafts.has(created.id)).toBe(false);
     expect(await opRow(id3)).toMatchObject({ state: "executing", rfc822_message_id: "<d@y>" });
     const id4 = await op();
-    await expect(sendDraft(e, testDeps(g), { ...acct, operationId: id4, draftId: created.id, rfc822MessageId: null })).rejects.toMatchObject({ status: 404 });
+    await expect(
+      sendDraft(e, testDeps(g), { ...acct, operationId: id4, draftId: created.id, rfc822MessageId: null }),
+    ).rejects.toMatchObject({ status: 404 });
     expect((await opRow(id4)).state).toBe("executing");
   });
 });
@@ -4507,24 +6002,34 @@ export type Upload =
   | { kind: "multipart"; contentType: string; bytes: Uint8Array; metadata: Record<string, unknown> };
 
 // in plainTarget, before the media branch:
-  if (o.upload?.kind === "multipart") {
-    const b = `=_meta_${crypto.randomUUID()}`;
-    const enc = new TextEncoder();
-    const head = enc.encode(`--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(o.upload.metadata)}\r\n--${b}\r\nContent-Type: ${o.upload.contentType}\r\n\r\n`);
-    const tail = enc.encode(`\r\n--${b}--\r\n`);
-    const body = new Uint8Array(new ArrayBuffer(head.byteLength + o.upload.bytes.byteLength + tail.byteLength));
-    body.set(head, 0);
-    body.set(o.upload.bytes, head.byteLength);
-    body.set(tail, head.byteLength + o.upload.bytes.byteLength);
-    return { url: buildUrl(GMAIL.upload, o.path, { ...o.query, uploadType: "multipart" }), init: { method: o.method, headers: { "content-type": `multipart/related; boundary=${b}` }, body } };
-  }
+if (o.upload?.kind === "multipart") {
+  const b = `=_meta_${crypto.randomUUID()}`;
+  const enc = new TextEncoder();
+  const head = enc.encode(
+    `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(o.upload.metadata)}\r\n--${b}\r\nContent-Type: ${o.upload.contentType}\r\n\r\n`,
+  );
+  const tail = enc.encode(`\r\n--${b}--\r\n`);
+  const body = new Uint8Array(new ArrayBuffer(head.byteLength + o.upload.bytes.byteLength + tail.byteLength));
+  body.set(head, 0);
+  body.set(o.upload.bytes, head.byteLength);
+  body.set(tail, head.byteLength + o.upload.bytes.byteLength);
+  return {
+    url: buildUrl(GMAIL.upload, o.path, { ...o.query, uploadType: "multipart" }),
+    init: { method: o.method, headers: { "content-type": `multipart/related; boundary=${b}` }, body },
+  };
+}
 
 /**
  * Half one of the resumable protocol: the session. It moves no message bytes, so it is retried like any
  * read (spec 3.9 "5xx before the send body"). Google's recovery (query the session, resume at the
  * confirmed offset) is not built: the URL lives only in this call's stack frame.
  */
-export async function openResumableSession(env: Env, deps: Deps, acct: GmailAccount, o: { path: string; contentType: string; length: number; metadata?: Record<string, unknown> }): Promise<string> {
+export async function openResumableSession(
+  env: Env,
+  deps: Deps,
+  acct: GmailAccount,
+  o: { path: string; contentType: string; length: number; metadata?: Record<string, unknown> },
+): Promise<string> {
   const res = await gmailFetch(env, deps, acct, {
     method: "POST",
     path: o.path,
@@ -4540,7 +6045,13 @@ export async function openResumableSession(env: Env, deps: Deps, acct: GmailAcco
 }
 
 /** Half two: the bytes. Opened exactly once; a failure here is the caller's to classify. */
-export async function putResumable(env: Env, deps: Deps, acct: GmailAccount, sessionUrl: string, o: { contentType: string; length: number; body: ReadableStream<Uint8Array> }): Promise<Response> {
+export async function putResumable(
+  env: Env,
+  deps: Deps,
+  acct: GmailAccount,
+  sessionUrl: string,
+  o: { contentType: string; length: number; body: ReadableStream<Uint8Array> },
+): Promise<Response> {
   const token = await getAccessToken(env, deps, acct.userId, acct.accountId);
   const res = await deps.googleFetch(sessionUrl, {
     method: "PUT",
@@ -4642,35 +6153,74 @@ export async function collect(stream: ReadableStream<Uint8Array>, length: number
  * `executing`, immediately before the PUT. Nothing here settles the operation or classifies a failure:
  * the gate reads the operation's state afterwards and decides.
  */
-async function upload(env: Env, deps: Deps, acct: Acct, o: Body & { operationId: string; path: string; method: "POST" | "PUT"; contentType: string }): Promise<Response> {
-  if (o.length > GMAIL_SEND_MAX) throw new GmailMcpError("limit_exceeded", `limit_exceeded: message is ${o.length} bytes, Gmail's ceiling is ${GMAIL_SEND_MAX}`);
+async function upload(
+  env: Env,
+  deps: Deps,
+  acct: Acct,
+  o: Body & { operationId: string; path: string; method: "POST" | "PUT"; contentType: string },
+): Promise<Response> {
+  if (o.length > GMAIL_SEND_MAX)
+    throw new GmailMcpError(
+      "limit_exceeded",
+      `limit_exceeded: message is ${o.length} bytes, Gmail's ceiling is ${GMAIL_SEND_MAX}`,
+    );
   const metadata = o.threadId ? { threadId: o.threadId } : undefined;
   if (o.length <= MEDIA_UPLOAD_MAX) {
     const bytes = await collect(o.body, o.length);
-    const up: Upload = metadata ? { kind: "multipart", contentType: o.contentType, bytes, metadata } : { kind: "media", contentType: o.contentType, bytes };
+    const up: Upload = metadata
+      ? { kind: "multipart", contentType: o.contentType, bytes, metadata }
+      : { kind: "media", contentType: o.contentType, bytes };
     await beginOperation(env.DB, o.operationId, { rfc822_message_id: o.rfc822MessageId });
     return gmailFetch(env, deps, acct, { method: o.method, path: o.path, upload: up, retry: "none" });
   }
-  const session = await openResumableSession(env, deps, acct, { path: o.path, contentType: o.contentType, length: o.length, ...(metadata ? { metadata } : {}) });
+  const session = await openResumableSession(env, deps, acct, {
+    path: o.path,
+    contentType: o.contentType,
+    length: o.length,
+    ...(metadata ? { metadata } : {}),
+  });
   await beginOperation(env.DB, o.operationId, { rfc822_message_id: o.rfc822MessageId });
   return putResumable(env, deps, acct, session, { contentType: o.contentType, length: o.length, body: o.body });
 }
 
 export async function sendMime(env: Env, deps: Deps, o: Acct & Body & { operationId: string }): Promise<SentMessage> {
-  const res = await upload(env, deps, o, { ...o, path: "messages/send", method: "POST", contentType: "message/rfc822" });
+  const res = await upload(env, deps, o, {
+    ...o,
+    path: "messages/send",
+    method: "POST",
+    contentType: "message/rfc822",
+  });
   const m = await res.json<Wire>();
   return { id: m.id, thread_id: m.threadId, label_ids: m.labelIds ?? [] };
 }
 
-export async function uploadDraft(env: Env, deps: Deps, o: Acct & Body & { operationId: string; draftId: string | null }): Promise<{ id: string; message_id: string; thread_id: string }> {
-  const res = await upload(env, deps, o, { ...o, path: o.draftId ? `drafts/${encodeURIComponent(o.draftId)}` : "drafts", method: o.draftId ? "PUT" : "POST", contentType: "message/rfc822" });
+export async function uploadDraft(
+  env: Env,
+  deps: Deps,
+  o: Acct & Body & { operationId: string; draftId: string | null },
+): Promise<{ id: string; message_id: string; thread_id: string }> {
+  const res = await upload(env, deps, o, {
+    ...o,
+    path: o.draftId ? `drafts/${encodeURIComponent(o.draftId)}` : "drafts",
+    method: o.draftId ? "PUT" : "POST",
+    contentType: "message/rfc822",
+  });
   const d = await res.json<{ id: string; message: Wire }>();
   return { id: d.id, message_id: d.message.id, thread_id: d.message.threadId };
 }
 
-export async function sendDraft(env: Env, deps: Deps, o: Acct & { operationId: string; draftId: string; rfc822MessageId: string | null }): Promise<SentMessage> {
+export async function sendDraft(
+  env: Env,
+  deps: Deps,
+  o: Acct & { operationId: string; draftId: string; rfc822MessageId: string | null },
+): Promise<SentMessage> {
   await beginOperation(env.DB, o.operationId, o.rfc822MessageId ? { rfc822_message_id: o.rfc822MessageId } : {});
-  const m = await gmailJson<Wire>(env, deps, o, { method: "POST", path: "drafts/send", json: { id: o.draftId }, retry: "none" });
+  const m = await gmailJson<Wire>(env, deps, o, {
+    method: "POST",
+    path: "drafts/send",
+    json: { id: o.draftId },
+    retry: "none",
+  });
   return { id: m.id, thread_id: m.threadId, label_ids: m.labelIds ?? [] };
 }
 ```
@@ -4697,6 +6247,7 @@ Claude-Session: https://claude.ai/code/session_01NBfkjWcEGDFghet3APnUjU"
 ```
 
 ---
+
 ### Task 8: Drafts, inline attachments, and the shared compose rules
 
 **Files:**
@@ -4743,16 +6294,38 @@ let token: string;
 const gm = () => g.gmail;
 const call = (name: string, args: Record<string, unknown>) => callTool(worker, e, token, name, args);
 const b64 = (s: string) => btoa(s);
-const stagingCount = async () => (await env.DB.prepare("SELECT count(*) AS n FROM staging_objects").first<any>()).n as number;
+const stagingCount = async () =>
+  (await env.DB.prepare("SELECT count(*) AS n FROM staging_objects").first<any>()).n as number;
 async function stage(name: string, bytes: Uint8Array) {
-  return (await ingest(e, { userId: "owner-sub", accountId: "da", direction: "upload", filename: name, mime: "application/octet-stream", length: bytes.byteLength, body: new Response(bytes).body! })).handle;
+  return (
+    await ingest(e, {
+      userId: "owner-sub",
+      accountId: "da",
+      direction: "upload",
+      filename: name,
+      mime: "application/octet-stream",
+      length: bytes.byteLength,
+      body: new Response(bytes).body!,
+    })
+  ).handle;
 }
-const rawOf = (draftId: string) => new TextDecoder().decode(Uint8Array.from(atob(gm().drafts.get(draftId)!.message.raw!.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)));
+const rawOf = (draftId: string) =>
+  new TextDecoder().decode(
+    Uint8Array.from(atob(gm().drafts.get(draftId)!.message.raw!.replace(/-/g, "+").replace(/_/g, "/")), (c) =>
+      c.charCodeAt(0),
+    ),
+  );
 
 beforeAll(async () => {
   g = await FakeGoogle.create();
   worker = createWorker(testDeps(g));
-  await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "da", alias: "personal", isDefault: true, sendAs: ["alias@example.test"] });
+  await seedUserAndAccount(env.DB, {
+    userId: "owner-sub",
+    accountId: "da",
+    alias: "personal",
+    isDefault: true,
+    sendAs: ["alias@example.test"],
+  });
   await seedAccessToken(e, { userId: "owner-sub", accountId: "da" });
   token = (await mintToken(worker, e, g, { scope: "mcp" })).accessToken;
 });
@@ -4768,21 +6341,39 @@ describe("create_draft", () => {
       attachments: [h],
       inline_attachments: [{ filename: "inline.txt", mime: "text/plain", content_base64: b64("inline bytes") }],
     });
-    expect(r.result).toMatchObject({ status: "executed", account: "personal", draft: { id: expect.stringMatching(/^r/) } });
+    expect(r.result).toMatchObject({
+      status: "executed",
+      account: "personal",
+      draft: { id: expect.stringMatching(/^r/) },
+    });
     const raw = rawOf(r.result.draft.id);
     expect(raw).toContain("Subject: =?UTF-8?B?RHJhZnQg8J+agA==?=");
     expect(raw).toContain('filename="staged.txt"');
     expect(raw).toContain('filename="inline.txt"');
     expect(raw).toContain(btoa("inline bytes"));
-    const op = await env.DB.prepare("SELECT state, gmail_result_id FROM operations WHERE id = ?").bind(r.result.operation_id).first<any>();
+    const op = await env.DB.prepare("SELECT state, gmail_result_id FROM operations WHERE id = ?")
+      .bind(r.result.operation_id)
+      .first<any>();
     expect(op).toEqual({ state: "executed", gmail_result_id: r.result.draft.id });
-    const handles = await env.DB.prepare("SELECT filename, consumed_at FROM staging_objects WHERE user_id='owner-sub' AND account_id='da' ORDER BY created_at").all<any>();
-    expect(handles.results.filter((x) => x.consumed_at !== null).map((x) => x.filename)).toEqual(expect.arrayContaining(["staged.txt", "inline.txt"]));
-    const audit = await env.DB.prepare("SELECT summary FROM audit_log WHERE user_id='owner-sub' AND tool='create_draft' ORDER BY id DESC LIMIT 1").first<any>();
+    const handles = await env.DB.prepare(
+      "SELECT filename, consumed_at FROM staging_objects WHERE user_id='owner-sub' AND account_id='da' ORDER BY created_at",
+    ).all<any>();
+    expect(handles.results.filter((x) => x.consumed_at !== null).map((x) => x.filename)).toEqual(
+      expect.arrayContaining(["staged.txt", "inline.txt"]),
+    );
+    const audit = await env.DB.prepare(
+      "SELECT summary FROM audit_log WHERE user_id='owner-sub' AND tool='create_draft' ORDER BY id DESC LIMIT 1",
+    ).first<any>();
     expect(audit.summary).toBe("recipients=1 attachments=2");
   });
   it("a reply draft derives thread, subject and threading headers from the target", async () => {
-    const target = gm().seedMessage({ from: "Prof <prof@uni.test>", to: ["me@example.test"], subject: "Thesis", text: "?", messageId: "<t1@uni.test>" });
+    const target = gm().seedMessage({
+      from: "Prof <prof@uni.test>",
+      to: ["me@example.test"],
+      subject: "Thesis",
+      text: "?",
+      messageId: "<t1@uni.test>",
+    });
     const r = await call("create_draft", { account: "personal", reply_to_message_id: target.id, body: "answer" });
     expect(r.result.draft.thread_id).toBe(target.threadId);
     const raw = rawOf(r.result.draft.id);
@@ -4793,41 +6384,112 @@ describe("create_draft", () => {
   });
   it("refuses over-cap or malformed input before any row is written", async () => {
     const before = await stagingCount();
-    expect((await call("create_draft", { account: "personal", to: ["a@example.test"], body: "x".repeat(512 * 1024 + 1) })).result).toMatchObject({ error: "limit_exceeded" });
-    expect((await call("create_draft", { account: "personal", to: ["not an address"], body: "x" })).result).toMatchObject({ error: "invalid_address" });
-    expect((await call("create_draft", { account: "personal", to: ["a@example.test"], subject: "x\r\nBcc: y@example.test" })).result).toMatchObject({ error: "invalid_header" });
-    expect((await call("create_draft", { account: "personal", to: ["a@example.test"], subject: "s".repeat(999) })).result).toMatchObject({ error: "limit_exceeded" });
-    expect((await call("create_draft", { account: "personal", to: Array.from({ length: 501 }, (_, i) => `u${i}@example.test`), body: "x" })).result).toMatchObject({ error: "limit_exceeded" });
+    expect(
+      (await call("create_draft", { account: "personal", to: ["a@example.test"], body: "x".repeat(512 * 1024 + 1) }))
+        .result,
+    ).toMatchObject({ error: "limit_exceeded" });
+    expect(
+      (await call("create_draft", { account: "personal", to: ["not an address"], body: "x" })).result,
+    ).toMatchObject({ error: "invalid_address" });
+    expect(
+      (await call("create_draft", { account: "personal", to: ["a@example.test"], subject: "x\r\nBcc: y@example.test" }))
+        .result,
+    ).toMatchObject({ error: "invalid_header" });
+    expect(
+      (await call("create_draft", { account: "personal", to: ["a@example.test"], subject: "s".repeat(999) })).result,
+    ).toMatchObject({ error: "limit_exceeded" });
+    expect(
+      (
+        await call("create_draft", {
+          account: "personal",
+          to: Array.from({ length: 501 }, (_, i) => `u${i}@example.test`),
+          body: "x",
+        })
+      ).result,
+    ).toMatchObject({ error: "limit_exceeded" });
     // One inline attachment over the schema's character cap never reaches a decoder.
-    const huge = await call("create_draft", { account: "personal", to: ["a@example.test"], inline_attachments: [{ filename: "a.bin", mime: "application/octet-stream", content_base64: "A".repeat(1_400_001) }] });
+    const huge = await call("create_draft", {
+      account: "personal",
+      to: ["a@example.test"],
+      inline_attachments: [
+        { filename: "a.bin", mime: "application/octet-stream", content_base64: "A".repeat(1_400_001) },
+      ],
+    });
     expect(huge.error ?? huge.result?.error).toBeTruthy();
     // Forty attachments each under the cap, together over it: refused by the running total before the last decode.
-    const many = Array.from({ length: 40 }, (_, i) => ({ filename: `p${i}.bin`, mime: "application/octet-stream", content_base64: btoa("Z".repeat(30_000)) }));
-    expect((await call("create_draft", { account: "personal", to: ["a@example.test"], inline_attachments: many })).result).toMatchObject({ error: "limit_exceeded" });
-    expect((await call("create_draft", { account: "personal", to: ["a@example.test"], inline_attachments: [{ filename: "run.exe", mime: "application/octet-stream", content_base64: b64("MZ") }] })).result).toMatchObject({ error: "blocked_extension" });
-    expect((await call("create_draft", { account: "personal", to: ["a@example.test"], inline_attachments: [{ filename: "a.txt", mime: "text/plain; charset=UTF-8", content_base64: b64("x") }] })).error ?? { error: true }).toBeTruthy();
+    const many = Array.from({ length: 40 }, (_, i) => ({
+      filename: `p${i}.bin`,
+      mime: "application/octet-stream",
+      content_base64: btoa("Z".repeat(30_000)),
+    }));
+    expect(
+      (await call("create_draft", { account: "personal", to: ["a@example.test"], inline_attachments: many })).result,
+    ).toMatchObject({ error: "limit_exceeded" });
+    expect(
+      (
+        await call("create_draft", {
+          account: "personal",
+          to: ["a@example.test"],
+          inline_attachments: [{ filename: "run.exe", mime: "application/octet-stream", content_base64: b64("MZ") }],
+        })
+      ).result,
+    ).toMatchObject({ error: "blocked_extension" });
+    expect(
+      (
+        await call("create_draft", {
+          account: "personal",
+          to: ["a@example.test"],
+          inline_attachments: [{ filename: "a.txt", mime: "text/plain; charset=UTF-8", content_base64: b64("x") }],
+        })
+      ).error ?? { error: true },
+    ).toBeTruthy();
     expect(await stagingCount()).toBe(before);
-    expect((await call("create_draft", { account: "personal", to: ["a@example.test"], from: "someone@else.test" })).result).toMatchObject({ error: "invalid_address" });
-    expect((await call("create_draft", { account: "personal", to: ["a@example.test"], from: "alias@example.test" })).result.status).toBe("executed");
+    expect(
+      (await call("create_draft", { account: "personal", to: ["a@example.test"], from: "someone@else.test" })).result,
+    ).toMatchObject({ error: "invalid_address" });
+    expect(
+      (await call("create_draft", { account: "personal", to: ["a@example.test"], from: "alias@example.test" })).result
+        .status,
+    ).toBe("executed");
   });
   it("a denied draft.write stages nothing, even with inline attachments", async () => {
     await setPolicy(env.DB, { userId: "owner-sub", accountId: "da", action: "draft.write", level: "deny" });
     const before = await stagingCount();
-    const r = await call("create_draft", { account: "personal", to: ["a@example.test"], inline_attachments: [{ filename: "n.txt", mime: "text/plain", content_base64: b64("never") }] });
+    const r = await call("create_draft", {
+      account: "personal",
+      to: ["a@example.test"],
+      inline_attachments: [{ filename: "n.txt", mime: "text/plain", content_base64: b64("never") }],
+    });
     expect(r.result).toMatchObject({ error: "policy_denied" });
     expect(await stagingCount()).toBe(before);
     await setPolicy(env.DB, { userId: "owner-sub", accountId: "da", action: "draft.write", level: "allow" });
   });
   it("a handle from another account, an expired one, or a blocked name at build time is refused", async () => {
     await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "db", alias: "other" });
-    const foreign = (await ingest(e, { userId: "owner-sub", accountId: "db", direction: "upload", filename: "f.txt", mime: "text/plain", length: 1, body: new Response(new Uint8Array(1)).body! })).handle;
-    expect((await call("create_draft", { account: "personal", to: ["a@example.test"], attachments: [foreign] })).result).toMatchObject({ error: "handle_invalid" });
+    const foreign = (
+      await ingest(e, {
+        userId: "owner-sub",
+        accountId: "db",
+        direction: "upload",
+        filename: "f.txt",
+        mime: "text/plain",
+        length: 1,
+        body: new Response(new Uint8Array(1)).body!,
+      })
+    ).handle;
+    expect(
+      (await call("create_draft", { account: "personal", to: ["a@example.test"], attachments: [foreign] })).result,
+    ).toMatchObject({ error: "handle_invalid" });
     const h = await stage("ok.txt", new Uint8Array(10));
     await env.DB.prepare("UPDATE staging_objects SET filename = 'late.exe' WHERE handle = ?").bind(h).run();
-    expect((await call("create_draft", { account: "personal", to: ["a@example.test"], attachments: [h] })).result).toMatchObject({ error: "blocked_extension" });
+    expect(
+      (await call("create_draft", { account: "personal", to: ["a@example.test"], attachments: [h] })).result,
+    ).toMatchObject({ error: "blocked_extension" });
     await env.DB.prepare("UPDATE accounts SET send_limit_bytes = 5 WHERE id = 'da'").run();
     const h2 = await stage("ten.txt", new Uint8Array(10));
-    expect((await call("create_draft", { account: "personal", to: ["a@example.test"], attachments: [h2] })).result).toMatchObject({ error: "limit_exceeded" });
+    expect(
+      (await call("create_draft", { account: "personal", to: ["a@example.test"], attachments: [h2] })).result,
+    ).toMatchObject({ error: "limit_exceeded" });
     await env.DB.prepare("UPDATE accounts SET send_limit_bytes = 26214400 WHERE id = 'da'").run();
   });
   it("draft.write raised to ask stores handles in the payload and executes from the row", async () => {
@@ -4835,7 +6497,11 @@ describe("create_draft", () => {
     const h = await stage("later.txt", new Uint8Array(3));
     const r = await call("create_draft", { account: "personal", to: ["a@example.test"], body: "b", attachments: [h] });
     expect(r.result).toMatchObject({ status: "pending_approval", action: "draft.write" });
-    await env.DB.prepare("UPDATE pending_actions SET state = 'approved', approved_at = ?, approved_via = 'browser' WHERE id = ?").bind(Date.now(), r.result.action_id).run();
+    await env.DB.prepare(
+      "UPDATE pending_actions SET state = 'approved', approved_at = ?, approved_via = 'browser' WHERE id = ?",
+    )
+      .bind(Date.now(), r.result.action_id)
+      .run();
     const done = await call("execute_pending", { action_id: r.result.action_id });
     expect(done.result).toMatchObject({ status: "executed", draft: { id: expect.any(String) } });
     expect(rawOf(done.result.draft.id)).toContain('filename="later.txt"');
@@ -4846,10 +6512,23 @@ describe("create_draft", () => {
 describe("update_draft", () => {
   it("merges each field independently; the attachment set given replaces, none given means none", async () => {
     const h = await stage("first.txt", new TextEncoder().encode("first"));
-    const created = await call("create_draft", { account: "personal", to: ["a@example.test"], cc: ["c@example.test"], subject: "v1", body: "one", attachments: [h] });
+    const created = await call("create_draft", {
+      account: "personal",
+      to: ["a@example.test"],
+      cc: ["c@example.test"],
+      subject: "v1",
+      body: "one",
+      attachments: [h],
+    });
     const id = created.result.draft.id as string;
     const h2 = await stage("second.txt", new TextEncoder().encode("second"));
-    const u1 = await call("update_draft", { account: "personal", draft_id: id, body: "two", bcc: ["b@example.test"], attachments: [h2] });
+    const u1 = await call("update_draft", {
+      account: "personal",
+      draft_id: id,
+      body: "two",
+      bcc: ["b@example.test"],
+      attachments: [h2],
+    });
     expect(u1.result).toMatchObject({ status: "executed", draft: { id } });
     let raw = rawOf(id);
     expect(raw).toContain("Subject: v1");
@@ -4866,7 +6545,10 @@ describe("update_draft", () => {
     expect(raw).not.toContain("Cc:");
     expect(raw).toContain(btoa("two"));
     expect(raw).not.toContain("Content-Disposition: attachment");
-    expect((await call("update_draft", { account: "personal", draft_id: "nope" })).result).toMatchObject({ error: "gmail_error", details: { status: 404 } });
+    expect((await call("update_draft", { account: "personal", draft_id: "nope" })).result).toMatchObject({
+      error: "gmail_error",
+      details: { status: 404 },
+    });
   });
 });
 ```
@@ -4886,7 +6568,9 @@ Append to `shared/src/schemas.ts`:
 export const Recipient = z.string().min(3).max(320);
 // Coarse guard only: validateCompose owns the 500 cap and reports it as limit_exceeded.
 export const Recipients = z.array(Recipient).max(2000).default([]);
-export const MediaType = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$/);
+export const MediaType = z
+  .string()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$/);
 /** 1 MiB decoded is 1 398 104 base64 characters; the cap stops a larger string before any decoder sees it. */
 export const INLINE_B64_MAX = 1_400_000;
 export const InlineAttachment = z.object({
@@ -4906,7 +6590,11 @@ const ComposeFields = {
   attachments: z.array(StagingHandle).max(100).optional(),
   inline_attachments: z.array(InlineAttachment).max(50).optional(),
 };
-export const CreateDraftInput = z.object({ account: AccountAlias, ...ComposeFields, reply_to_message_id: GmailId.optional() });
+export const CreateDraftInput = z.object({
+  account: AccountAlias,
+  ...ComposeFields,
+  reply_to_message_id: GmailId.optional(),
+});
 export const UpdateDraftInput = z.object({
   account: AccountAlias,
   draft_id: GmailId,
@@ -4938,7 +6626,14 @@ import { ingest, listUploadHandles, openStaged, type StagingRow } from "../stagi
 import type { AccountRef } from "./accounts";
 import type { ExecRun } from "./gate";
 
-export type ComposeArgs = { to: string[]; cc: string[]; bcc: string[]; subject?: string | undefined; body?: string | undefined; html_body?: string | undefined };
+export type ComposeArgs = {
+  to: string[];
+  cc: string[];
+  bcc: string[];
+  subject?: string | undefined;
+  body?: string | undefined;
+  html_body?: string | undefined;
+};
 
 /** Spec 2.7 and 3.8, before policy and before any row: addresses parse, headers are clean, sizes fit. */
 export function validateCompose(a: ComposeArgs): void {
@@ -4947,14 +6642,16 @@ export function validateCompose(a: ComposeArgs): void {
   for (const r of all) parseAddress(r);
   if (a.subject !== undefined) assertHeaderSafe("subject", a.subject);
   const bodyBytes = utf8Length(a.body ?? "") + utf8Length(a.html_body ?? "");
-  if (bodyBytes > LIMITS.bodyBytes) throw new GmailMcpError("limit_exceeded", `limit_exceeded: body ${bodyBytes} > ${LIMITS.bodyBytes} bytes`);
+  if (bodyBytes > LIMITS.bodyBytes)
+    throw new GmailMcpError("limit_exceeded", `limit_exceeded: body ${bodyBytes} > ${LIMITS.bodyBytes} bytes`);
 }
 
 export function senderFor(account: AccountRef, from?: string): string {
   if (from === undefined) return account.email;
   const norm = parseAddress(from).normalized;
   const allowed = [account.email, ...account.sendAs].map((s) => parseAddress(s).normalized);
-  if (!allowed.includes(norm)) throw new GmailMcpError("invalid_address", `invalid_address: ${from} is not a verified sender on this account`);
+  if (!allowed.includes(norm))
+    throw new GmailMcpError("invalid_address", `invalid_address: ${from} is not a verified sender on this account`);
   return from;
 }
 
@@ -4982,14 +6679,26 @@ export async function decodeInline(inline: InlineAttachment[] | undefined): Prom
     MediaType.parse(i.mime);
     const projected = Math.floor((i.content_base64.length * 3) / 4) - 2;
     if (total + projected > LIMITS.inlineAttachmentBytes) {
-      throw new GmailMcpError("limit_exceeded", `limit_exceeded: inline attachments exceed ${LIMITS.inlineAttachmentBytes} bytes`);
+      throw new GmailMcpError(
+        "limit_exceeded",
+        `limit_exceeded: inline attachments exceed ${LIMITS.inlineAttachmentBytes} bytes`,
+      );
     }
     const bytes = decodeBase64(i.content_base64);
     total += bytes.byteLength;
     if (total > LIMITS.inlineAttachmentBytes) {
-      throw new GmailMcpError("limit_exceeded", `limit_exceeded: inline attachments exceed ${LIMITS.inlineAttachmentBytes} bytes`);
+      throw new GmailMcpError(
+        "limit_exceeded",
+        `limit_exceeded: inline attachments exceed ${LIMITS.inlineAttachmentBytes} bytes`,
+      );
     }
-    out.push({ filename: i.filename, mime: i.mime, size: bytes.byteLength, sha256: await sha256Hex(new Uint8Array(bytes)), bytes });
+    out.push({
+      filename: i.filename,
+      mime: i.mime,
+      size: bytes.byteLength,
+      sha256: await sha256Hex(new Uint8Array(bytes)),
+      bytes,
+    });
   }
   return out;
 }
@@ -4998,25 +6707,54 @@ export async function decodeInline(inline: InlineAttachment[] | undefined): Prom
 export function intentArgs(args: Record<string, unknown>, inline: DecodedInline[]): Record<string, unknown> {
   const { inline_attachments: _dropped, ...rest } = args;
   for (const k of Object.keys(rest)) if (rest[k] === undefined) delete rest[k];
-  return inline.length === 0 ? rest : { ...rest, inline_attachments: inline.map((d) => ({ filename: d.filename, mime: d.mime, size: d.size, sha256: d.sha256 })) };
+  return inline.length === 0
+    ? rest
+    : {
+        ...rest,
+        inline_attachments: inline.map((d) => ({ filename: d.filename, mime: d.mime, size: d.size, sha256: d.sha256 })),
+      };
 }
 
 /** Called only from a build step, after the decision: turns decoded inline bytes into upload handles. */
-export async function stageInline(env: Env, userId: string, accountId: string, inline: DecodedInline[]): Promise<string[]> {
+export async function stageInline(
+  env: Env,
+  userId: string,
+  accountId: string,
+  inline: DecodedInline[],
+): Promise<string[]> {
   const handles: string[] = [];
   for (const d of inline) {
-    const row = await ingest(env, { userId, accountId, direction: "upload", filename: d.filename, mime: d.mime, length: d.bytes.byteLength, body: new Response(d.bytes).body!, declaredSha256: d.sha256 });
+    const row = await ingest(env, {
+      userId,
+      accountId,
+      direction: "upload",
+      filename: d.filename,
+      mime: d.mime,
+      length: d.bytes.byteLength,
+      body: new Response(d.bytes).body!,
+      declaredSha256: d.sha256,
+    });
     handles.push(row.handle);
   }
   return handles;
 }
 
 /** Ownership, expiry, the blocked list again (spec 2.7), and the account's aggregate cap. A read; writes nothing. */
-export async function attachmentsFor(env: Env, userId: string, account: AccountRef, handles: string[], extraBytes = 0): Promise<{ rows: StagingRow[]; total: number }> {
+export async function attachmentsFor(
+  env: Env,
+  userId: string,
+  account: AccountRef,
+  handles: string[],
+  extraBytes = 0,
+): Promise<{ rows: StagingRow[]; total: number }> {
   const rows = await listUploadHandles(env.DB, { handles, userId, accountId: account.id });
   for (const r of rows) assertNotBlocked(r.filename);
   const total = rows.reduce((n, r) => n + r.size, 0) + extraBytes;
-  if (total > account.sendLimitBytes) throw new GmailMcpError("limit_exceeded", `limit_exceeded: attachments ${total} > send limit ${account.sendLimitBytes} bytes`);
+  if (total > account.sendLimitBytes)
+    throw new GmailMcpError(
+      "limit_exceeded",
+      `limit_exceeded: attachments ${total} > send limit ${account.sendLimitBytes} bytes`,
+    );
   return { rows, total };
 }
 
@@ -5029,7 +6767,12 @@ export function attachmentSummary(files: { filename: string; size: number }[]): 
   if (files.length === 0) return "no attachments";
   return `${files.length} attachment${files.length === 1 ? "" : "s"} (${files.map((f) => `${f.filename}, ${human(f.size)}`).join("; ")})`;
 }
-export function recipientSummary(p: { to: string[]; cc: string[]; bcc: string[]; subject?: string | null | undefined }): string {
+export function recipientSummary(p: {
+  to: string[];
+  cc: string[];
+  bcc: string[];
+  subject?: string | null | undefined;
+}): string {
   const parts = [`To: ${p.to.join(", ") || "none"}`];
   if (p.cc.length) parts.push(`Cc: ${p.cc.join(", ")}`);
   if (p.bcc.length) parts.push(`Bcc: ${p.bcc.join(", ")}`);
@@ -5037,25 +6780,64 @@ export function recipientSummary(p: { to: string[]; cc: string[]; bcc: string[];
   return parts.join(" · ");
 }
 
-export async function getMessage(env: Env, deps: Deps, acct: { userId: string; accountId: string }, id: string, format: MessageFormat): Promise<GmailMessage> {
+export async function getMessage(
+  env: Env,
+  deps: Deps,
+  acct: { userId: string; accountId: string },
+  id: string,
+  format: MessageFormat,
+): Promise<GmailMessage> {
   const q = gmailFormatFor(format);
-  return gmailJson<GmailMessage>(env, deps, acct, { method: "GET", path: `messages/${encodeURIComponent(id)}`, query: { format: q.format, metadataHeaders: q.metadataHeaders }, retry: "safe" });
+  return gmailJson<GmailMessage>(env, deps, acct, {
+    method: "GET",
+    path: `messages/${encodeURIComponent(id)}`,
+    query: { format: q.format, metadataHeaders: q.metadataHeaders },
+    retry: "safe",
+  });
 }
 
-export async function fetchAttachmentBytes(env: Env, deps: Deps, acct: { userId: string; accountId: string }, messageId: string, attachmentId: string): Promise<Uint8Array> {
-  const body = await gmailJson<{ data?: string }>(env, deps, acct, { method: "GET", path: `messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`, retry: "safe" });
+export async function fetchAttachmentBytes(
+  env: Env,
+  deps: Deps,
+  acct: { userId: string; accountId: string },
+  messageId: string,
+  attachmentId: string,
+): Promise<Uint8Array> {
+  const body = await gmailJson<{ data?: string }>(env, deps, acct, {
+    method: "GET",
+    path: `messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    retry: "safe",
+  });
   if (!body.data) throw new GmailMcpError("handle_invalid", "handle_invalid: attachment body empty");
   return fromB64url(body.data);
 }
 
-export type CarriedAttachment = { message_id: string; attachment_id: string; filename: string; mime: string; size: number };
-export type ComposePayload = ComposeArgs & { from: string; attachments: string[]; carry: CarriedAttachment[]; in_reply_to?: string | null | undefined; references?: string | null | undefined };
+export type CarriedAttachment = {
+  message_id: string;
+  attachment_id: string;
+  filename: string;
+  mime: string;
+  size: number;
+};
+export type ComposePayload = ComposeArgs & {
+  from: string;
+  attachments: string[];
+  carry: CarriedAttachment[];
+  in_reply_to?: string | null | undefined;
+  references?: string | null | undefined;
+};
 
 /**
  * Staged attachments stream from R2; carried originals are fetched from Gmail when their segment is
  * reached (one at a time, the JSON body of attachments.get is the bound). The message is never whole in memory.
  */
-export async function composeMime(env: Env, deps: Deps, run: ExecRun, p: ComposePayload, operationId: string): Promise<{ body: ReadableStream<Uint8Array>; length: number; rfc822MessageId: string }> {
+export async function composeMime(
+  env: Env,
+  deps: Deps,
+  run: ExecRun,
+  p: ComposePayload,
+  operationId: string,
+): Promise<{ body: ReadableStream<Uint8Array>; length: number; rfc822MessageId: string }> {
   const carryBytes = p.carry.reduce((n, c) => n + c.size, 0);
   const { rows } = await attachmentsFor(env, run.userId, run.account, p.attachments, carryBytes);
   const acct = { userId: run.userId, accountId: run.account.id };
@@ -5063,7 +6845,13 @@ export async function composeMime(env: Env, deps: Deps, run: ExecRun, p: Compose
     ...rows.map((r) => ({ filename: r.filename, mime: r.mime, size: r.size, open: () => openStaged(env, r) })),
     ...p.carry.map((c) => {
       assertNotBlocked(c.filename);
-      return { filename: c.filename, mime: c.mime, size: c.size, open: async () => new Response(await fetchAttachmentBytes(env, deps, acct, c.message_id, c.attachment_id)).body! };
+      return {
+        filename: c.filename,
+        mime: c.mime,
+        size: c.size,
+        open: async () =>
+          new Response(await fetchAttachmentBytes(env, deps, acct, c.message_id, c.attachment_id)).body!,
+      };
     }),
   ];
   const rfc822MessageId = messageIdFor(env, operationId);
@@ -5084,14 +6872,32 @@ export async function composeMime(env: Env, deps: Deps, run: ExecRun, p: Compose
 }
 
 /** Reply headers derived from the target (spec 2.3 `reply`): the Worker, not the model, threads the message. */
-export function threadingFor(target: GmailMessage): { thread_id: string; subject: string; in_reply_to: string | null; references: string | null; from: string | null; reply_to: string[]; to: string[]; cc: string[] } {
+export function threadingFor(target: GmailMessage): {
+  thread_id: string;
+  subject: string;
+  in_reply_to: string | null;
+  references: string | null;
+  from: string | null;
+  reply_to: string[];
+  to: string[];
+  cc: string[];
+} {
   const h = (n: string) => target.payload?.headers?.find((x) => x.name.toLowerCase() === n)?.value ?? null;
   const subjectRaw = h("subject") ?? "";
   const subject = /^\s*re:/i.test(subjectRaw) ? subjectRaw : `Re: ${subjectRaw}`;
   const mid = h("message-id");
   const refs = [h("references"), mid].filter((x): x is string => !!x).join(" ");
   const split = (v: string | null) => (v ? splitAddressList(v) : []);
-  return { thread_id: target.threadId, subject, in_reply_to: mid, references: refs || null, from: h("from"), reply_to: split(h("reply-to")), to: split(h("to")), cc: split(h("cc")) };
+  return {
+    thread_id: target.threadId,
+    subject,
+    in_reply_to: mid,
+    references: refs || null,
+    from: h("from"),
+    reply_to: split(h("reply-to")),
+    to: split(h("to")),
+    cc: split(h("cc")),
+  };
 }
 ```
 
@@ -5112,30 +6918,92 @@ import { messageView, type GmailDraft } from "../google/messages";
 import { uploadDraft } from "../operations/send";
 import { defineTool, type Plan } from "./define";
 import type { AccountRef } from "./accounts";
-import { attachmentSummary, attachmentsFor, composeMime, getMessage, recipientSummary, senderFor, stageInline, threadingFor, validateCompose, type ComposePayload, type DecodedInline } from "./compose";
+import {
+  attachmentSummary,
+  attachmentsFor,
+  composeMime,
+  getMessage,
+  recipientSummary,
+  senderFor,
+  stageInline,
+  threadingFor,
+  validateCompose,
+  type ComposePayload,
+  type DecodedInline,
+} from "./compose";
 import type { ExecRun, ToolContext } from "./gate";
 
-type DraftPayload = ComposePayload & { draft_id: string | null; thread_id: string | null; reply_to_message_id: string | null };
-type ComposeLike = { to: string[]; cc: string[]; bcc: string[]; subject?: string | undefined; body?: string | undefined; html_body?: string | undefined; from?: string | undefined; attachments?: string[] | undefined };
-type Threading = { draft_id: string | null; thread_id: string | null; reply_to_message_id: string | null; in_reply_to: string | null; references: string | null };
+type DraftPayload = ComposePayload & {
+  draft_id: string | null;
+  thread_id: string | null;
+  reply_to_message_id: string | null;
+};
+type ComposeLike = {
+  to: string[];
+  cc: string[];
+  bcc: string[];
+  subject?: string | undefined;
+  body?: string | undefined;
+  html_body?: string | undefined;
+  from?: string | undefined;
+  attachments?: string[] | undefined;
+};
+type Threading = {
+  draft_id: string | null;
+  thread_id: string | null;
+  reply_to_message_id: string | null;
+  in_reply_to: string | null;
+  references: string | null;
+};
 
 /**
  * Everything the decision needs, and a deferred build for everything the execution needs. The build is
  * the only step that writes: it stages the inline bytes decoded earlier and returns the payload.
  */
-async function planCompose(env: Env, userId: string, account: AccountRef, args: ComposeLike, inline: DecodedInline[], base: Threading): Promise<Plan> {
+async function planCompose(
+  env: Env,
+  userId: string,
+  account: AccountRef,
+  args: ComposeLike,
+  inline: DecodedInline[],
+  base: Threading,
+): Promise<Plan> {
   validateCompose(args);
   const from = senderFor(account, args.from);
   const given = args.attachments ?? [];
-  const { rows } = await attachmentsFor(env, userId, account, given, inline.reduce((n, d) => n + d.size, 0));
-  const files = [...rows.map((r) => ({ filename: r.filename, size: r.size })), ...inline.map((d) => ({ filename: d.filename, size: d.size }))];
+  const { rows } = await attachmentsFor(
+    env,
+    userId,
+    account,
+    given,
+    inline.reduce((n, d) => n + d.size, 0),
+  );
+  const files = [
+    ...rows.map((r) => ({ filename: r.filename, size: r.size })),
+    ...inline.map((d) => ({ filename: d.filename, size: d.size })),
+  ];
   return {
     modifiers: [],
     summary: `${base.draft_id ? "Update draft" : "Create draft"} · ${recipientSummary(args)} · ${attachmentSummary(files)}`,
-    facts: { recipients: args.to.length + args.cc.length + args.bcc.length, attachments: given.length + inline.length, ...(base.draft_id ? { ids: [base.draft_id] } : {}) },
+    facts: {
+      recipients: args.to.length + args.cc.length + args.bcc.length,
+      attachments: given.length + inline.length,
+      ...(base.draft_id ? { ids: [base.draft_id] } : {}),
+    },
     build: async () => {
       const attachments = [...given, ...(await stageInline(env, userId, account.id, inline))];
-      const payload: DraftPayload = { to: args.to, cc: args.cc, bcc: args.bcc, subject: args.subject, body: args.body, html_body: args.html_body, from, attachments, carry: [], ...base };
+      const payload: DraftPayload = {
+        to: args.to,
+        cc: args.cc,
+        bcc: args.bcc,
+        subject: args.subject,
+        body: args.body,
+        html_body: args.html_body,
+        from,
+        attachments,
+        carry: [],
+        ...base,
+      };
       return { payload: payload as unknown as Record<string, unknown>, handles: attachments };
     },
   };
@@ -5145,18 +7013,38 @@ async function executeDraft(env: Env, deps: Deps, run: ExecRun) {
   const p = run.payload as unknown as DraftPayload;
   if (!run.operationId) throw new GmailMcpError("internal", "draft.write runs with an operation");
   const { body, length, rfc822MessageId } = await composeMime(env, deps, run, p, run.operationId);
-  const d = await uploadDraft(env, deps, { userId: run.userId, accountId: run.account.id, operationId: run.operationId, body, length, threadId: p.thread_id, rfc822MessageId, draftId: p.draft_id });
+  const d = await uploadDraft(env, deps, {
+    userId: run.userId,
+    accountId: run.account.id,
+    operationId: run.operationId,
+    body,
+    length,
+    threadId: p.thread_id,
+    rfc822MessageId,
+    draftId: p.draft_id,
+  });
   return { gmail_result_id: d.id, draft: { id: d.id, message_id: d.message_id, thread_id: d.thread_id } };
 }
 
 const acct = (userId: string, account: AccountRef) => ({ userId, accountId: account.id });
-const none: Threading = { draft_id: null, thread_id: null, reply_to_message_id: null, in_reply_to: null, references: null };
+const none: Threading = {
+  draft_id: null,
+  thread_id: null,
+  reply_to_message_id: null,
+  in_reply_to: null,
+  references: null,
+};
 
-export function registerDraftTools(server: McpServer, toolContext: (ctx: ServerContext) => ToolContext, env: Env): void {
+export function registerDraftTools(
+  server: McpServer,
+  toolContext: (ctx: ServerContext) => ToolContext,
+  env: Env,
+): void {
   defineTool(server, toolContext, env, {
     name: "create_draft",
     version: 1,
-    description: "Create a draft, optionally as a reply. Attachments are staging handles; inline_attachments are converted to handles (1 MB total).",
+    description:
+      "Create a draft, optionally as a reply. Attachments are staging handles; inline_attachments are converted to handles (1 MB total).",
     input: CreateDraftInput,
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     action: "draft.write",
@@ -5166,10 +7054,19 @@ export function registerDraftTools(server: McpServer, toolContext: (ctx: ServerC
       let subject = args.subject;
       let to = args.to;
       if (args.reply_to_message_id) {
-        const th = threadingFor(await getMessage(e, t.deps, acct(t.principal.userId, account), args.reply_to_message_id, "METADATA_ONLY"));
-        base = { ...none, thread_id: th.thread_id, reply_to_message_id: args.reply_to_message_id, in_reply_to: th.in_reply_to, references: th.references };
+        const th = threadingFor(
+          await getMessage(e, t.deps, acct(t.principal.userId, account), args.reply_to_message_id, "METADATA_ONLY"),
+        );
+        base = {
+          ...none,
+          thread_id: th.thread_id,
+          reply_to_message_id: args.reply_to_message_id,
+          in_reply_to: th.in_reply_to,
+          references: th.references,
+        };
         subject ??= th.subject;
-        if (to.length === 0 && args.cc.length === 0 && args.bcc.length === 0) to = th.reply_to.length ? th.reply_to : th.from ? [th.from] : [];
+        if (to.length === 0 && args.cc.length === 0 && args.bcc.length === 0)
+          to = th.reply_to.length ? th.reply_to : th.from ? [th.from] : [];
       }
       return planCompose(e, t.principal.userId, account, { ...args, subject, to }, inline, base);
     },
@@ -5179,13 +7076,19 @@ export function registerDraftTools(server: McpServer, toolContext: (ctx: ServerC
   defineTool(server, toolContext, env, {
     name: "update_draft",
     version: 1,
-    description: "Update a draft. Each text field and recipient list the call gives replaces the draft's; each it omits is kept. The attachments given replace the set; give none and the draft has none.",
+    description:
+      "Update a draft. Each text field and recipient list the call gives replaces the draft's; each it omits is kept. The attachments given replace the set; give none and the draft has none.",
     input: UpdateDraftInput,
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     action: "draft.write",
     journal: true,
     plan: async (e, t, account, args, inline) => {
-      const dr = await gmailJson<GmailDraft>(e, t.deps, acct(t.principal.userId, account), { method: "GET", path: `drafts/${encodeURIComponent(args.draft_id)}`, query: { format: "full" }, retry: "safe" });
+      const dr = await gmailJson<GmailDraft>(e, t.deps, acct(t.principal.userId, account), {
+        method: "GET",
+        path: `drafts/${encodeURIComponent(args.draft_id)}`,
+        query: { format: "full" },
+        retry: "safe",
+      });
       const v = messageView(dr.message, { format: "FULL_CONTENT", bodyCharLimit: 1_000_000, includeBody: true });
       const merged: ComposeLike = {
         to: args.to ?? v.to,
@@ -5197,7 +7100,13 @@ export function registerDraftTools(server: McpServer, toolContext: (ctx: ServerC
         from: args.from,
         attachments: args.attachments,
       };
-      return planCompose(e, t.principal.userId, account, merged, inline, { draft_id: args.draft_id, thread_id: dr.message.threadId, reply_to_message_id: null, in_reply_to: v.in_reply_to, references: v.references });
+      return planCompose(e, t.principal.userId, account, merged, inline, {
+        draft_id: args.draft_id,
+        thread_id: dr.message.threadId,
+        reply_to_message_id: null,
+        in_reply_to: v.in_reply_to,
+        references: v.references,
+      });
     },
     execute: executeDraft,
   });
@@ -5226,6 +7135,7 @@ Claude-Session: https://claude.ai/code/session_01NBfkjWcEGDFghet3APnUjU"
 ```
 
 ---
+
 ### Task 9: `send_message`, `reply`, `forward`, `send_draft`
 
 **Files:**
@@ -5264,58 +7174,143 @@ let worker: ReturnType<typeof createWorker>;
 let token: string;
 const gm = () => g.gmail;
 const call = (name: string, args: Record<string, unknown>) => callTool(worker, e, token, name, args);
-const stagingCount = async () => (await env.DB.prepare("SELECT count(*) AS n FROM staging_objects").first<any>()).n as number;
+const stagingCount = async () =>
+  (await env.DB.prepare("SELECT count(*) AS n FROM staging_objects").first<any>()).n as number;
 async function stage(name: string, bytes: Uint8Array) {
-  return (await ingest(e, { userId: "owner-sub", accountId: "sa", direction: "upload", filename: name, mime: "application/octet-stream", length: bytes.byteLength, body: new Response(bytes).body! })).handle;
+  return (
+    await ingest(e, {
+      userId: "owner-sub",
+      accountId: "sa",
+      direction: "upload",
+      filename: name,
+      mime: "application/octet-stream",
+      length: bytes.byteLength,
+      body: new Response(bytes).body!,
+    })
+  ).handle;
 }
 const lastRaw = () => new TextDecoder().decode(gm().sent.at(-1)!.raw);
 
 beforeAll(async () => {
   g = await FakeGoogle.create();
   worker = createWorker(testDeps(g));
-  await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "sa", alias: "uni", isDefault: true, orgDomains: ["uni.test"] });
+  await seedUserAndAccount(env.DB, {
+    userId: "owner-sub",
+    accountId: "sa",
+    alias: "uni",
+    isDefault: true,
+    orgDomains: ["uni.test"],
+  });
   await seedAccessToken(e, { userId: "owner-sub", accountId: "sa" });
-  await env.DB.prepare("INSERT INTO contact_allowlist (user_id, account_id, pattern) VALUES ('owner-sub', 'sa', 'friend@example.test')").run();
+  await env.DB.prepare(
+    "INSERT INTO contact_allowlist (user_id, account_id, pattern) VALUES ('owner-sub', 'sa', 'friend@example.test')",
+  ).run();
   token = (await mintToken(worker, e, g, { scope: "mcp" })).accessToken;
 });
 
 describe("send_message", () => {
   it("asks by default with modifiers from trust and attachments, and the 2.6 summary", async () => {
     const h = await stage("thesis.pdf", new Uint8Array(2 * 1024 * 1024));
-    const r = await call("send_message", { account: "uni", to: ["prof@uni.test"], cc: ["stranger@else.test"], subject: "Thesis draft", body: "see attached", attachments: [h] });
+    const r = await call("send_message", {
+      account: "uni",
+      to: ["prof@uni.test"],
+      cc: ["stranger@else.test"],
+      subject: "Thesis draft",
+      body: "see attached",
+      attachments: [h],
+    });
     expect(r.result).toMatchObject({ status: "pending_approval", action: "send.message", account: "uni" });
     expect(r.result.modifiers.sort()).toEqual(["+attachment", "+external"]);
-    expect(r.result.summary).toBe("To: prof@uni.test · Cc: stranger@else.test · Subject: Thesis draft · 1 attachment (thesis.pdf, 2.0 MB)");
+    expect(r.result.summary).toBe(
+      "To: prof@uni.test · Cc: stranger@else.test · Subject: Thesis draft · 1 attachment (thesis.pdf, 2.0 MB)",
+    );
     expect(gm().sent).toHaveLength(0);
     const row = (await getPending(env.DB, r.result.action_id, "owner-sub"))!;
-    expect(JSON.parse(row.payload_json!)).toMatchObject({ tool: "send_message", v: 1, to: ["prof@uni.test"], attachments: [h], from: "uni@example.test" });
+    expect(JSON.parse(row.payload_json!)).toMatchObject({
+      tool: "send_message",
+      v: 1,
+      to: ["prof@uni.test"],
+      attachments: [h],
+      from: "uni@example.test",
+    });
     expect(row.intent_hash).toMatch(/^[0-9a-f]{64}$/);
   });
   it("trusted recipients only, no attachments: no modifiers; +bulk above 10 distinct", async () => {
-    const r = await call("send_message", { account: "uni", to: ["prof@uni.test", "friend@example.test", "uni@example.test"], subject: "s", body: "b" });
+    const r = await call("send_message", {
+      account: "uni",
+      to: ["prof@uni.test", "friend@example.test", "uni@example.test"],
+      subject: "s",
+      body: "b",
+    });
     expect(r.result.modifiers).toEqual([]);
-    const bulk = await call("send_message", { account: "uni", to: Array.from({ length: 11 }, (_, i) => `p${i}@uni.test`), subject: "s", body: "b" });
+    const bulk = await call("send_message", {
+      account: "uni",
+      to: Array.from({ length: 11 }, (_, i) => `p${i}@uni.test`),
+      subject: "s",
+      body: "b",
+    });
     expect(bulk.result.modifiers).toEqual(["+bulk"]);
   });
   it("idempotency on the ask path: the same key returns the same pending action; after approval and execution, it replays", async () => {
-    const a = await call("send_message", { account: "uni", to: ["prof@uni.test"], subject: "k", body: "b", idempotency_key: "ask-1" });
-    const b = await call("send_message", { account: "uni", to: ["prof@uni.test"], subject: "k", body: "b", idempotency_key: "ask-1" });
+    const a = await call("send_message", {
+      account: "uni",
+      to: ["prof@uni.test"],
+      subject: "k",
+      body: "b",
+      idempotency_key: "ask-1",
+    });
+    const b = await call("send_message", {
+      account: "uni",
+      to: ["prof@uni.test"],
+      subject: "k",
+      body: "b",
+      idempotency_key: "ask-1",
+    });
     expect(b.result.action_id).toBe(a.result.action_id);
     await approvePending(env.DB, { id: a.result.action_id, userId: "owner-sub", via: "browser" });
     const done = await call("execute_pending", { action_id: a.result.action_id });
     expect(done.result.status).toBe("executed");
-    const c = await call("send_message", { account: "uni", to: ["prof@uni.test"], subject: "k", body: "b", idempotency_key: "ask-1" });
-    expect(c.result).toMatchObject({ status: "executed", replayed: true, operation_id: done.result.operation_id, message: { id: done.result.message.id } });
+    const c = await call("send_message", {
+      account: "uni",
+      to: ["prof@uni.test"],
+      subject: "k",
+      body: "b",
+      idempotency_key: "ask-1",
+    });
+    expect(c.result).toMatchObject({
+      status: "executed",
+      replayed: true,
+      operation_id: done.result.operation_id,
+      message: { id: done.result.message.id },
+    });
     expect(gm().sent.filter((s) => s.id === done.result.message.id)).toHaveLength(1);
-    const d = await call("send_message", { account: "uni", to: ["other@uni.test"], subject: "k", body: "b", idempotency_key: "ask-1" });
+    const d = await call("send_message", {
+      account: "uni",
+      to: ["other@uni.test"],
+      subject: "k",
+      body: "b",
+      idempotency_key: "ask-1",
+    });
     expect(d.result).toMatchObject({ error: "idempotency_conflict" });
   });
   it("allowed: sends via media upload with our Message-ID, journals, consumes handles, and replays the key even though the handle is now consumed", async () => {
     await setPolicy(env.DB, { userId: "owner-sub", accountId: "sa", action: "send.message", level: "allow" });
     const h = await stage("notes.txt", new TextEncoder().encode("notes"));
-    const args = { account: "uni", to: ["Prof <prof@uni.test>"], subject: "Hi 🚀", body: "hello", html_body: "<b>hello</b>", attachments: [h], idempotency_key: "send-1" };
+    const args = {
+      account: "uni",
+      to: ["Prof <prof@uni.test>"],
+      subject: "Hi 🚀",
+      body: "hello",
+      html_body: "<b>hello</b>",
+      attachments: [h],
+      idempotency_key: "send-1",
+    };
     const r = await call("send_message", args);
-    expect(r.result).toMatchObject({ status: "executed", account: "uni", message: { id: expect.stringMatching(/^m/), thread_id: expect.any(String) } });
+    expect(r.result).toMatchObject({
+      status: "executed",
+      account: "uni",
+      message: { id: expect.stringMatching(/^m/), thread_id: expect.any(String) },
+    });
     const raw = lastRaw();
     expect(raw).toContain(`Message-ID: <${r.result.operation_id}@gmail-mcp.example.workers.dev>`);
     expect(raw).toContain("From: <uni@example.test>");
@@ -5323,20 +7318,49 @@ describe("send_message", () => {
     expect(raw).toContain("Subject: =?UTF-8?B?SGkg8J+agA==?=");
     expect(raw).toContain("multipart/alternative");
     expect(raw).toContain('filename="notes.txt"');
-    const op = await env.DB.prepare("SELECT state, rfc822_message_id, gmail_result_id, result_json FROM operations WHERE id = ?").bind(r.result.operation_id).first<any>();
-    expect(op).toMatchObject({ state: "executed", rfc822_message_id: `<${r.result.operation_id}@gmail-mcp.example.workers.dev>`, gmail_result_id: r.result.message.id });
+    const op = await env.DB.prepare(
+      "SELECT state, rfc822_message_id, gmail_result_id, result_json FROM operations WHERE id = ?",
+    )
+      .bind(r.result.operation_id)
+      .first<any>();
+    expect(op).toMatchObject({
+      state: "executed",
+      rfc822_message_id: `<${r.result.operation_id}@gmail-mcp.example.workers.dev>`,
+      gmail_result_id: r.result.message.id,
+    });
     expect(JSON.parse(op.result_json)).toEqual({ gmail_result_id: r.result.message.id, message: r.result.message });
-    expect((await env.DB.prepare("SELECT consumed_at FROM staging_objects WHERE handle = ?").bind(h).first<any>()).consumed_at).not.toBeNull();
+    expect(
+      (await env.DB.prepare("SELECT consumed_at FROM staging_objects WHERE handle = ?").bind(h).first<any>())
+        .consumed_at,
+    ).not.toBeNull();
     const again = await call("send_message", args);
-    expect(again.result).toMatchObject({ status: "executed", replayed: true, operation_id: r.result.operation_id, message: { id: r.result.message.id } });
+    expect(again.result).toMatchObject({
+      status: "executed",
+      replayed: true,
+      operation_id: r.result.operation_id,
+      message: { id: r.result.message.id },
+    });
     expect(gm().sent.filter((s) => s.id === r.result.message.id)).toHaveLength(1);
-    const outcome = await env.DB.prepare("SELECT decision, gmail_result_id, summary FROM audit_log WHERE user_id='owner-sub' AND tool='send_message' AND phase='outcome' ORDER BY id DESC LIMIT 1").first<any>();
-    expect(outcome).toEqual({ decision: "executed", gmail_result_id: r.result.message.id, summary: "recipients=1 attachments=1" });
+    const outcome = await env.DB.prepare(
+      "SELECT decision, gmail_result_id, summary FROM audit_log WHERE user_id='owner-sub' AND tool='send_message' AND phase='outcome' ORDER BY id DESC LIMIT 1",
+    ).first<any>();
+    expect(outcome).toEqual({
+      decision: "executed",
+      gmail_result_id: r.result.message.id,
+      summary: "recipients=1 attachments=1",
+    });
     await setPolicy(env.DB, { userId: "owner-sub", accountId: "sa", action: "send.message", level: "ask" });
   });
   it("inline attachments: a replay stages nothing the second time", async () => {
     await setPolicy(env.DB, { userId: "owner-sub", accountId: "sa", action: "send.message", level: "allow" });
-    const args = { account: "uni", to: ["prof@uni.test"], subject: "inline", body: "b", inline_attachments: [{ filename: "i.txt", mime: "text/plain", content_base64: btoa("inline") }], idempotency_key: "inline-1" };
+    const args = {
+      account: "uni",
+      to: ["prof@uni.test"],
+      subject: "inline",
+      body: "b",
+      inline_attachments: [{ filename: "i.txt", mime: "text/plain", content_base64: btoa("inline") }],
+      idempotency_key: "inline-1",
+    };
     const before = await stagingCount();
     const a = await call("send_message", args);
     expect(a.result.status).toBe("executed");
@@ -5355,7 +7379,9 @@ describe("send_message", () => {
     expect(done.result.message).toContain("Recipient address required");
     const row = (await getPending(env.DB, r.result.action_id, "owner-sub"))!;
     expect(row).toMatchObject({ state: "failed", error: "gmail_error" });
-    expect((await env.DB.prepare("SELECT state FROM operations WHERE id = ?").bind(row.operation_id).first<any>()).state).toBe("failed_safe");
+    expect(
+      (await env.DB.prepare("SELECT state FROM operations WHERE id = ?").bind(row.operation_id).first<any>()).state,
+    ).toBe("failed_safe");
   });
   it("a 503 after the body was opened is delivery_unknown and the operation stays executing for the cron", async () => {
     const r = await call("send_message", { account: "uni", to: ["prof@uni.test"], subject: "s", body: "b" });
@@ -5364,23 +7390,61 @@ describe("send_message", () => {
     const done = await call("execute_pending", { action_id: r.result.action_id });
     expect(done.result).toMatchObject({ error: "delivery_unknown", details: { operation_id: expect.any(String) } });
     expect(done.result.message).toContain("Do not retry automatically");
-    expect((await env.DB.prepare("SELECT state FROM operations WHERE id = ?").bind(done.result.details.operation_id).first<any>()).state).toBe("executing");
-    expect((await getPending(env.DB, r.result.action_id, "owner-sub"))!).toMatchObject({ state: "failed", error: "delivery_unknown" });
+    expect(
+      (
+        await env.DB.prepare("SELECT state FROM operations WHERE id = ?")
+          .bind(done.result.details.operation_id)
+          .first<any>()
+      ).state,
+    ).toBe("executing");
+    expect((await getPending(env.DB, r.result.action_id, "owner-sub"))!).toMatchObject({
+      state: "failed",
+      error: "delivery_unknown",
+    });
   });
   it("needs at least one recipient and refuses a foreign sender", async () => {
-    expect((await call("send_message", { account: "uni", subject: "s", body: "b" })).result).toMatchObject({ error: "invalid_address" });
-    expect((await call("send_message", { account: "uni", to: ["prof@uni.test"], from: "x@y.test", body: "b" })).result).toMatchObject({ error: "invalid_address" });
+    expect((await call("send_message", { account: "uni", subject: "s", body: "b" })).result).toMatchObject({
+      error: "invalid_address",
+    });
+    expect(
+      (await call("send_message", { account: "uni", to: ["prof@uni.test"], from: "x@y.test", body: "b" })).result,
+    ).toMatchObject({ error: "invalid_address" });
   });
 });
 
 describe("reply", () => {
   it("derives thread, subject, In-Reply-To and References; Reply-To lists win over From; reply_all adds the rest minus self", async () => {
-    const t = gm().seedMessage({ from: "Prof <prof@uni.test>", to: ["uni@example.test", "peer@uni.test"], cc: ["cc@else.test"], subject: "Re: Thesis", text: "q", messageId: "<q1@uni.test>", references: "<root@uni.test>", replyTo: '"Office, Dean" <office@uni.test>, ta@uni.test' });
+    const t = gm().seedMessage({
+      from: "Prof <prof@uni.test>",
+      to: ["uni@example.test", "peer@uni.test"],
+      cc: ["cc@else.test"],
+      subject: "Re: Thesis",
+      text: "q",
+      messageId: "<q1@uni.test>",
+      references: "<root@uni.test>",
+      replyTo: '"Office, Dean" <office@uni.test>, ta@uni.test',
+    });
     const r = await call("reply", { account: "uni", message_id: t.id, body: "a" });
     expect(r.result).toMatchObject({ status: "pending_approval", modifiers: [] });
     const p = JSON.parse((await getPending(env.DB, r.result.action_id, "owner-sub"))!.payload_json!);
-    expect(p).toMatchObject({ tool: "reply", message_id: t.id, thread_id: t.threadId, subject: "Re: Thesis", in_reply_to: "<q1@uni.test>", references: "<root@uni.test> <q1@uni.test>", to: ['"Office, Dean" <office@uni.test>', "ta@uni.test"], cc: [], bcc: [] });
-    const all = await call("reply", { account: "uni", message_id: t.id, body: "a", reply_all: true, bcc: ["me2@uni.test"] });
+    expect(p).toMatchObject({
+      tool: "reply",
+      message_id: t.id,
+      thread_id: t.threadId,
+      subject: "Re: Thesis",
+      in_reply_to: "<q1@uni.test>",
+      references: "<root@uni.test> <q1@uni.test>",
+      to: ['"Office, Dean" <office@uni.test>', "ta@uni.test"],
+      cc: [],
+      bcc: [],
+    });
+    const all = await call("reply", {
+      account: "uni",
+      message_id: t.id,
+      body: "a",
+      reply_all: true,
+      bcc: ["me2@uni.test"],
+    });
     const pa = JSON.parse((await getPending(env.DB, all.result.action_id, "owner-sub"))!.payload_json!);
     expect(pa.to).toEqual(['"Office, Dean" <office@uni.test>', "ta@uni.test", "peer@uni.test"]);
     expect(pa.cc).toEqual(["cc@else.test"]);
@@ -5389,7 +7453,13 @@ describe("reply", () => {
   });
   it("once allowed, the sent message lands in the original thread", async () => {
     await setPolicy(env.DB, { userId: "owner-sub", accountId: "sa", action: "send.message", level: "allow" });
-    const t = gm().seedMessage({ from: "prof@uni.test", to: ["uni@example.test"], subject: "Q", text: "q", messageId: "<q2@uni.test>" });
+    const t = gm().seedMessage({
+      from: "prof@uni.test",
+      to: ["uni@example.test"],
+      subject: "Q",
+      text: "q",
+      messageId: "<q2@uni.test>",
+    });
     const r = await call("reply", { account: "uni", message_id: t.id, body: "a" });
     expect(r.result).toMatchObject({ status: "executed", message: { thread_id: t.threadId } });
     expect(lastRaw()).toContain("In-Reply-To: <q2@uni.test>");
@@ -5400,19 +7470,45 @@ describe("reply", () => {
 
 describe("forward", () => {
   it("quotes the original, excludes original attachments by default, lists them in the summary when included, and streams them at send", async () => {
-    const t = gm().seedMessage({ from: "prof@uni.test", to: ["uni@example.test"], subject: "Slides", text: "here are the slides", attachments: [{ filename: "slides.pdf", mime: "application/pdf", bytes: new Uint8Array(1500) }] });
-    const r = await call("forward", { account: "uni", message_id: t.id, to: ["friend@example.test"], forward_text: "FYI" });
+    const t = gm().seedMessage({
+      from: "prof@uni.test",
+      to: ["uni@example.test"],
+      subject: "Slides",
+      text: "here are the slides",
+      attachments: [{ filename: "slides.pdf", mime: "application/pdf", bytes: new Uint8Array(1500) }],
+    });
+    const r = await call("forward", {
+      account: "uni",
+      message_id: t.id,
+      to: ["friend@example.test"],
+      forward_text: "FYI",
+    });
     expect(r.result).toMatchObject({ status: "pending_approval", action: "send.forward", modifiers: [] });
     expect(r.result.summary).toContain("no attachments");
     const p = JSON.parse((await getPending(env.DB, r.result.action_id, "owner-sub"))!.payload_json!);
-    expect(p).toMatchObject({ tool: "forward", subject: "Fwd: Slides", include_original_attachments: false, carry: [] });
+    expect(p).toMatchObject({
+      tool: "forward",
+      subject: "Fwd: Slides",
+      include_original_attachments: false,
+      carry: [],
+    });
     expect(p.body).toMatch(/^FYI\n\n---------- Forwarded message ---------\nFrom: prof@uni.test\n/);
     expect(p.body).toContain("here are the slides");
-    const inc = await call("forward", { account: "uni", message_id: t.id, to: ["friend@example.test"], include_original_attachments: true });
+    const inc = await call("forward", {
+      account: "uni",
+      message_id: t.id,
+      to: ["friend@example.test"],
+      include_original_attachments: true,
+    });
     expect(inc.result.modifiers).toEqual(["+attachment"]);
     expect(inc.result.summary).toContain("1 attachment (slides.pdf, 1.5 KB)");
     await setPolicy(env.DB, { userId: "owner-sub", accountId: "sa", action: "send.forward", level: "allow" });
-    const sent = await call("forward", { account: "uni", message_id: t.id, to: ["friend@example.test"], include_original_attachments: true });
+    const sent = await call("forward", {
+      account: "uni",
+      message_id: t.id,
+      to: ["friend@example.test"],
+      include_original_attachments: true,
+    });
     expect(sent.result.status).toBe("executed");
     expect(lastRaw()).toContain('filename="slides.pdf"');
     expect(lastRaw()).toContain("Subject: Fwd: Slides");
@@ -5422,17 +7518,37 @@ describe("forward", () => {
 
 describe("send_draft", () => {
   it("derives recipients, attachments and the draft's Message-ID, +attachment when it has any, and sends via drafts.send", async () => {
-    const d = gm().seedDraft({ from: "uni@example.test", to: ["prof@uni.test"], subject: "Draft", text: "d", messageId: "<draft1@example.test>", attachments: [{ filename: "a.pdf", mime: "application/pdf", bytes: new Uint8Array(10) }] });
+    const d = gm().seedDraft({
+      from: "uni@example.test",
+      to: ["prof@uni.test"],
+      subject: "Draft",
+      text: "d",
+      messageId: "<draft1@example.test>",
+      attachments: [{ filename: "a.pdf", mime: "application/pdf", bytes: new Uint8Array(10) }],
+    });
     const r = await call("send_draft", { account: "uni", draft_id: d.id });
     expect(r.result).toMatchObject({ status: "pending_approval", action: "send.draft", modifiers: ["+attachment"] });
     expect(r.result.summary).toContain("1 attachment (a.pdf, 10 B)");
     const p = JSON.parse((await getPending(env.DB, r.result.action_id, "owner-sub"))!.payload_json!);
-    expect(p).toMatchObject({ tool: "send_draft", draft_id: d.id, to: ["prof@uni.test"], subject: "Draft", rfc822_message_id: "<draft1@example.test>", draft_attachments: [{ filename: "a.pdf", size: 10 }] });
+    expect(p).toMatchObject({
+      tool: "send_draft",
+      draft_id: d.id,
+      to: ["prof@uni.test"],
+      subject: "Draft",
+      rfc822_message_id: "<draft1@example.test>",
+      draft_attachments: [{ filename: "a.pdf", size: 10 }],
+    });
     await approvePending(env.DB, { id: r.result.action_id, userId: "owner-sub", via: "browser" });
     const done = await call("execute_pending", { action_id: r.result.action_id });
     expect(done.result).toMatchObject({ status: "executed", message: { id: expect.stringMatching(/^m/) } });
     expect(gm().sent.at(-1)!.via).toBe("draft");
-    expect((await env.DB.prepare("SELECT rfc822_message_id FROM operations WHERE id = ?").bind(done.result.operation_id).first<any>()).rfc822_message_id).toBe("<draft1@example.test>");
+    expect(
+      (
+        await env.DB.prepare("SELECT rfc822_message_id FROM operations WHERE id = ?")
+          .bind(done.result.operation_id)
+          .first<any>()
+      ).rfc822_message_id,
+    ).toBe("<draft1@example.test>");
   });
   it("a draft edited between approval and execution is a payload mismatch and nothing is sent", async () => {
     const d = gm().seedDraft({ from: "uni@example.test", to: ["prof@uni.test"], subject: "Edit me", text: "d" });
@@ -5445,7 +7561,9 @@ describe("send_draft", () => {
     expect(gm().sent.length).toBe(before);
     const row = (await getPending(env.DB, r.result.action_id, "owner-sub"))!;
     expect(row.state).toBe("failed");
-    expect((await env.DB.prepare("SELECT state FROM operations WHERE id = ?").bind(row.operation_id).first<any>()).state).toBe("failed_safe");
+    expect(
+      (await env.DB.prepare("SELECT state FROM operations WHERE id = ?").bind(row.operation_id).first<any>()).state,
+    ).toBe("failed_safe");
   });
 });
 ```
@@ -5463,10 +7581,35 @@ Append to `shared/src/schemas.ts`:
 
 ```ts
 export const IdempotencyKey = z.string().min(1).max(128);
-export const SendMessageInput = z.object({ account: AccountAlias, ...ComposeFields, idempotency_key: IdempotencyKey.optional() });
-export const ReplyInput = z.object({ account: AccountAlias, message_id: GmailId, reply_all: z.boolean().default(false), ...ComposeFields, idempotency_key: IdempotencyKey.optional() }).omit({ subject: true });
-export const ForwardInput = z.object({ account: AccountAlias, message_id: GmailId, forward_text: z.string().max(600_000).optional(), include_original_attachments: z.boolean().default(false), ...ComposeFields, idempotency_key: IdempotencyKey.optional() }).omit({ subject: true, body: true });
-export const SendDraftInput = z.object({ account: AccountAlias, draft_id: GmailId, idempotency_key: IdempotencyKey.optional() });
+export const SendMessageInput = z.object({
+  account: AccountAlias,
+  ...ComposeFields,
+  idempotency_key: IdempotencyKey.optional(),
+});
+export const ReplyInput = z
+  .object({
+    account: AccountAlias,
+    message_id: GmailId,
+    reply_all: z.boolean().default(false),
+    ...ComposeFields,
+    idempotency_key: IdempotencyKey.optional(),
+  })
+  .omit({ subject: true });
+export const ForwardInput = z
+  .object({
+    account: AccountAlias,
+    message_id: GmailId,
+    forward_text: z.string().max(600_000).optional(),
+    include_original_attachments: z.boolean().default(false),
+    ...ComposeFields,
+    idempotency_key: IdempotencyKey.optional(),
+  })
+  .omit({ subject: true, body: true });
+export const SendDraftInput = z.object({
+  account: AccountAlias,
+  draft_id: GmailId,
+  idempotency_key: IdempotencyKey.optional(),
+});
 ```
 
 - [ ] **Step 4 (GREEN): the send tools**
@@ -5486,16 +7629,49 @@ import { messageView, type GmailDraft } from "../google/messages";
 import { sendDraft, sendMime } from "../operations/send";
 import { parseAddress, recipientModifiers } from "../policy/recipients";
 import { trustContext, type AccountRef } from "./accounts";
-import { attachmentSummary, attachmentsFor, composeMime, getMessage, recipientSummary, senderFor, stageInline, threadingFor, validateCompose, type CarriedAttachment, type ComposePayload, type DecodedInline } from "./compose";
+import {
+  attachmentSummary,
+  attachmentsFor,
+  composeMime,
+  getMessage,
+  recipientSummary,
+  senderFor,
+  stageInline,
+  threadingFor,
+  validateCompose,
+  type CarriedAttachment,
+  type ComposePayload,
+  type DecodedInline,
+} from "./compose";
 import { defineTool, type Plan } from "./define";
 import type { ExecRun, ToolContext } from "./gate";
 
-type SendPayload = ComposePayload & { message_id?: string; thread_id?: string | null; include_original_attachments?: boolean };
-type SendArgs = { to: string[]; cc: string[]; bcc: string[]; subject?: string | undefined; body?: string | undefined; html_body?: string | undefined; from?: string | undefined; attachments?: string[] | undefined; idempotency_key?: string | undefined };
+type SendPayload = ComposePayload & {
+  message_id?: string;
+  thread_id?: string | null;
+  include_original_attachments?: boolean;
+};
+type SendArgs = {
+  to: string[];
+  cc: string[];
+  bcc: string[];
+  subject?: string | undefined;
+  body?: string | undefined;
+  html_body?: string | undefined;
+  from?: string | undefined;
+  attachments?: string[] | undefined;
+  idempotency_key?: string | undefined;
+};
 const acct = (userId: string, account: AccountRef) => ({ userId, accountId: account.id });
 const openWorld = { readOnlyHint: false, destructiveHint: false, openWorldHint: true } as const;
 
-async function modifiersFor(env: Env, userId: string, account: AccountRef, p: { to: string[]; cc: string[]; bcc: string[] }, hasAttachments: boolean): Promise<Modifier[]> {
+async function modifiersFor(
+  env: Env,
+  userId: string,
+  account: AccountRef,
+  p: { to: string[]; cc: string[]; bcc: string[] },
+  hasAttachments: boolean,
+): Promise<Modifier[]> {
   const mods = recipientModifiers([...p.to, ...p.cc, ...p.bcc], await trustContext(env, userId, account));
   if (hasAttachments) mods.unshift("+attachment");
   return mods;
@@ -5514,22 +7690,61 @@ function dedupe(list: string[], exclude: string[] = []): string[] {
 }
 
 /** Shared plan for send_message, reply and forward once recipients and threading are settled. Writes nothing; the build does. */
-async function planSend(env: Env, userId: string, account: AccountRef, args: SendArgs, inline: DecodedInline[], extra: Partial<SendPayload> & { carry: CarriedAttachment[] }, verb: string): Promise<Plan> {
+async function planSend(
+  env: Env,
+  userId: string,
+  account: AccountRef,
+  args: SendArgs,
+  inline: DecodedInline[],
+  extra: Partial<SendPayload> & { carry: CarriedAttachment[] },
+  verb: string,
+): Promise<Plan> {
   validateCompose(args);
-  if (args.to.length + args.cc.length + args.bcc.length === 0) throw new GmailMcpError("invalid_address", "invalid_address: at least one recipient is required");
+  if (args.to.length + args.cc.length + args.bcc.length === 0)
+    throw new GmailMcpError("invalid_address", "invalid_address: at least one recipient is required");
   const from = senderFor(account, args.from);
   const given = args.attachments ?? [];
-  const { rows } = await attachmentsFor(env, userId, account, given, extra.carry.reduce((n, c) => n + c.size, 0) + inline.reduce((n, d) => n + d.size, 0));
-  const files = [...rows.map((r) => ({ filename: r.filename, size: r.size })), ...inline.map((d) => ({ filename: d.filename, size: d.size })), ...extra.carry];
+  const { rows } = await attachmentsFor(
+    env,
+    userId,
+    account,
+    given,
+    extra.carry.reduce((n, c) => n + c.size, 0) + inline.reduce((n, d) => n + d.size, 0),
+  );
+  const files = [
+    ...rows.map((r) => ({ filename: r.filename, size: r.size })),
+    ...inline.map((d) => ({ filename: d.filename, size: d.size })),
+    ...extra.carry,
+  ];
   const recipients = { to: args.to, cc: args.cc, bcc: args.bcc };
   return {
-    modifiers: await modifiersFor(env, userId, account, recipients, given.length + inline.length + extra.carry.length > 0),
+    modifiers: await modifiersFor(
+      env,
+      userId,
+      account,
+      recipients,
+      given.length + inline.length + extra.carry.length > 0,
+    ),
     summary: `${verb} · ${recipientSummary({ ...recipients, subject: args.subject })} · ${attachmentSummary(files)}`,
-    facts: { recipients: args.to.length + args.cc.length + args.bcc.length, attachments: given.length + inline.length + extra.carry.length, ...(extra.message_id ? { ids: [extra.message_id] } : {}) },
+    facts: {
+      recipients: args.to.length + args.cc.length + args.bcc.length,
+      attachments: given.length + inline.length + extra.carry.length,
+      ...(extra.message_id ? { ids: [extra.message_id] } : {}),
+    },
     idempotencyKey: args.idempotency_key,
     build: async () => {
       const attachments = [...given, ...(await stageInline(env, userId, account.id, inline))];
-      const payload: SendPayload = { to: args.to, cc: args.cc, bcc: args.bcc, subject: args.subject, body: args.body, html_body: args.html_body, from, attachments, ...extra };
+      const payload: SendPayload = {
+        to: args.to,
+        cc: args.cc,
+        bcc: args.bcc,
+        subject: args.subject,
+        body: args.body,
+        html_body: args.html_body,
+        from,
+        attachments,
+        ...extra,
+      };
       return { payload: payload as unknown as Record<string, unknown>, handles: attachments };
     },
   };
@@ -5539,16 +7754,38 @@ async function executeSend(env: Env, deps: Deps, run: ExecRun) {
   const p = run.payload as unknown as SendPayload;
   if (!run.operationId) throw new GmailMcpError("internal", "send runs with an operation");
   const { body, length, rfc822MessageId } = await composeMime(env, deps, run, p, run.operationId);
-  const m = await sendMime(env, deps, { userId: run.userId, accountId: run.account.id, operationId: run.operationId, body, length, threadId: p.thread_id ?? null, rfc822MessageId });
+  const m = await sendMime(env, deps, {
+    userId: run.userId,
+    accountId: run.account.id,
+    operationId: run.operationId,
+    body,
+    length,
+    threadId: p.thread_id ?? null,
+    rfc822MessageId,
+  });
   return { gmail_result_id: m.id, message: m };
 }
 
 function quoted(v: ReturnType<typeof messageView>): string {
-  return ["---------- Forwarded message ---------", `From: ${v.from ?? ""}`, `Date: ${v.date ?? ""}`, `Subject: ${v.subject ?? ""}`, `To: ${v.to.join(", ")}`, ...(v.cc.length ? [`Cc: ${v.cc.join(", ")}`] : []), "", v.plaintext_body ?? ""].join("\n");
+  return [
+    "---------- Forwarded message ---------",
+    `From: ${v.from ?? ""}`,
+    `Date: ${v.date ?? ""}`,
+    `Subject: ${v.subject ?? ""}`,
+    `To: ${v.to.join(", ")}`,
+    ...(v.cc.length ? [`Cc: ${v.cc.join(", ")}`] : []),
+    "",
+    v.plaintext_body ?? "",
+  ].join("\n");
 }
 
 async function draftPayload(env: Env, deps: Deps, userId: string, account: AccountRef, draftId: string) {
-  const dr = await gmailJson<GmailDraft>(env, deps, acct(userId, account), { method: "GET", path: `drafts/${encodeURIComponent(draftId)}`, query: { format: "full" }, retry: "safe" });
+  const dr = await gmailJson<GmailDraft>(env, deps, acct(userId, account), {
+    method: "GET",
+    path: `drafts/${encodeURIComponent(draftId)}`,
+    query: { format: "full" },
+    retry: "safe",
+  });
   const v = messageView(dr.message, { format: "PLAIN_TEXT", bodyCharLimit: 1, includeBody: false });
   return {
     draft_id: draftId,
@@ -5568,30 +7805,49 @@ export function registerSendTools(server: McpServer, toolContext: (ctx: ServerCo
   defineTool(server, toolContext, env, {
     name: "send_message",
     version: 1,
-    description: "Send new mail. Replies go through `reply`, existing drafts through `send_draft`. Attachments are staging handles.",
+    description:
+      "Send new mail. Replies go through `reply`, existing drafts through `send_draft`. Attachments are staging handles.",
     input: SendMessageInput,
     annotations: openWorld,
     action: "send.message",
     journal: true,
-    plan: (e, t, account, args, inline) => planSend(e, t.principal.userId, account, args, inline, { carry: [] }, "Send"),
+    plan: (e, t, account, args, inline) =>
+      planSend(e, t.principal.userId, account, args, inline, { carry: [] }, "Send"),
     execute: executeSend,
   });
 
   defineTool(server, toolContext, env, {
     name: "reply",
     version: 1,
-    description: "Reply to a message. The Worker derives the thread, subject, In-Reply-To and References. reply_all adds the original To and Cc minus this account.",
+    description:
+      "Reply to a message. The Worker derives the thread, subject, In-Reply-To and References. reply_all adds the original To and Cc minus this account.",
     input: ReplyInput,
     annotations: openWorld,
     action: "send.message",
     journal: true,
     plan: async (e, t, account, args, inline) => {
-      const th = threadingFor(await getMessage(e, t.deps, acct(t.principal.userId, account), args.message_id, "METADATA_ONLY"));
+      const th = threadingFor(
+        await getMessage(e, t.deps, acct(t.principal.userId, account), args.message_id, "METADATA_ONLY"),
+      );
       const self = [account.email, ...account.sendAs];
       const primary = th.reply_to.length ? th.reply_to : th.from ? [th.from] : [];
       const to = dedupe([...primary, ...(args.reply_all ? th.to : []), ...args.to], self);
       const cc = dedupe(args.reply_all ? [...th.cc, ...args.cc] : args.cc, [...self, ...to]);
-      return planSend(e, t.principal.userId, account, { ...args, to, cc, subject: th.subject }, inline, { carry: [], message_id: args.message_id, thread_id: th.thread_id, in_reply_to: th.in_reply_to, references: th.references }, "Reply");
+      return planSend(
+        e,
+        t.principal.userId,
+        account,
+        { ...args, to, cc, subject: th.subject },
+        inline,
+        {
+          carry: [],
+          message_id: args.message_id,
+          thread_id: th.thread_id,
+          in_reply_to: th.in_reply_to,
+          references: th.references,
+        },
+        "Reply",
+      );
     },
     execute: executeSend,
   });
@@ -5599,18 +7855,45 @@ export function registerSendTools(server: McpServer, toolContext: (ctx: ServerCo
   defineTool(server, toolContext, env, {
     name: "forward",
     version: 1,
-    description: "Forward a message with optional text. Original attachments are excluded unless include_original_attachments is true.",
+    description:
+      "Forward a message with optional text. Original attachments are excluded unless include_original_attachments is true.",
     input: ForwardInput,
     annotations: openWorld,
     action: "send.forward",
     journal: true,
     plan: async (e, t, account, args, inline) => {
-      const v = messageView(await getMessage(e, t.deps, acct(t.principal.userId, account), args.message_id, "PLAIN_TEXT"), { format: "PLAIN_TEXT", bodyCharLimit: 200_000, includeBody: true });
-      const carry: CarriedAttachment[] = args.include_original_attachments ? v.attachments.filter((a) => a.attachment_id !== null).map((a) => ({ message_id: args.message_id, attachment_id: a.attachment_id!, filename: a.filename, mime: a.mime, size: a.size })) : [];
+      const v = messageView(
+        await getMessage(e, t.deps, acct(t.principal.userId, account), args.message_id, "PLAIN_TEXT"),
+        { format: "PLAIN_TEXT", bodyCharLimit: 200_000, includeBody: true },
+      );
+      const carry: CarriedAttachment[] = args.include_original_attachments
+        ? v.attachments
+            .filter((a) => a.attachment_id !== null)
+            .map((a) => ({
+              message_id: args.message_id,
+              attachment_id: a.attachment_id!,
+              filename: a.filename,
+              mime: a.mime,
+              size: a.size,
+            }))
+        : [];
       const subjectRaw = v.subject ?? "";
       const subject = /^\s*fwd?:/i.test(subjectRaw) ? subjectRaw : `Fwd: ${subjectRaw}`;
       const body = `${args.forward_text ? args.forward_text + "\n\n" : ""}${quoted(v)}`;
-      return planSend(e, t.principal.userId, account, { ...args, subject, body }, inline, { carry, message_id: args.message_id, thread_id: null, include_original_attachments: args.include_original_attachments }, "Forward");
+      return planSend(
+        e,
+        t.principal.userId,
+        account,
+        { ...args, subject, body },
+        inline,
+        {
+          carry,
+          message_id: args.message_id,
+          thread_id: null,
+          include_original_attachments: args.include_original_attachments,
+        },
+        "Forward",
+      );
     },
     execute: executeSend,
   });
@@ -5618,7 +7901,8 @@ export function registerSendTools(server: McpServer, toolContext: (ctx: ServerCo
   defineTool(server, toolContext, env, {
     name: "send_draft",
     version: 1,
-    description: "Send an existing draft. Recipients and attachments are read from the draft; a draft changed after approval is refused.",
+    description:
+      "Send an existing draft. Recipients and attachments are read from the draft; a draft changed after approval is refused.",
     input: SendDraftInput,
     annotations: openWorld,
     action: "send.draft",
@@ -5629,7 +7913,11 @@ export function registerSendTools(server: McpServer, toolContext: (ctx: ServerCo
       return {
         modifiers: await modifiersFor(e, t.principal.userId, account, p, p.draft_attachments.length > 0),
         summary: `Send draft ${args.draft_id} · ${recipientSummary(p)} · ${attachmentSummary(p.draft_attachments)}`,
-        facts: { recipients: p.to.length + p.cc.length + p.bcc.length, attachments: p.draft_attachments.length, ids: [args.draft_id] },
+        facts: {
+          recipients: p.to.length + p.cc.length + p.bcc.length,
+          attachments: p.draft_attachments.length,
+          ids: [args.draft_id],
+        },
         idempotencyKey: args.idempotency_key,
         build: async () => ({ payload: p, handles: [] }),
       };
@@ -5638,11 +7926,21 @@ export function registerSendTools(server: McpServer, toolContext: (ctx: ServerCo
       if (!run.operationId) throw new GmailMcpError("internal", "send.draft runs with an operation");
       const stored = run.payload as { draft_id: string; rfc822_message_id: string | null; tool: string; v: number };
       // Spec 3.4 "one approval covers one action": the draft must still be what the owner approved.
-      const fresh = { ...(await draftPayload(e, d, run.userId, run.account, stored.draft_id)), tool: stored.tool, v: stored.v };
+      const fresh = {
+        ...(await draftPayload(e, d, run.userId, run.account, stored.draft_id)),
+        tool: stored.tool,
+        v: stored.v,
+      };
       if ((await hashCanonical(canonicalize(fresh))) !== (await hashCanonical(canonicalize(run.payload)))) {
         throw new GmailMcpError("payload_mismatch", "payload_mismatch: the draft changed after it was approved");
       }
-      const m = await sendDraft(e, d, { userId: run.userId, accountId: run.account.id, operationId: run.operationId, draftId: stored.draft_id, rfc822MessageId: stored.rfc822_message_id });
+      const m = await sendDraft(e, d, {
+        userId: run.userId,
+        accountId: run.account.id,
+        operationId: run.operationId,
+        draftId: stored.draft_id,
+        rfc822MessageId: stored.rfc822_message_id,
+      });
       return { gmail_result_id: m.id, message: m };
     },
   });
@@ -5672,6 +7970,7 @@ Claude-Session: https://claude.ai/code/session_01NBfkjWcEGDFghet3APnUjU"
 ```
 
 ---
+
 ### Task 10: Elicitation on the wire, the adversarial rows, and the 38-tool surface
 
 **Files:**
@@ -5707,7 +8006,9 @@ let browser: Browser;
 const gm = () => g.gmail;
 const URL_CAPS = { elicitation: { url: {} } };
 const FORM_CAPS = { elicitation: { form: {} } };
-const pendingCount = async () => (await env.DB.prepare("SELECT count(*) AS n FROM pending_actions WHERE user_id = 'owner-sub'").first<any>()).n as number;
+const pendingCount = async () =>
+  (await env.DB.prepare("SELECT count(*) AS n FROM pending_actions WHERE user_id = 'owner-sub'").first<any>())
+    .n as number;
 
 beforeAll(async () => {
   g = await FakeGoogle.create();
@@ -5719,7 +8020,8 @@ beforeAll(async () => {
   const minted = await mintToken(worker, e, g, { scope: "mcp" });
   token = minted.accessToken;
   browser = minted.browser;
-  otherToken = (await mintToken(worker, e, g, { scope: "mcp", sub: "other-sub", email: "other@example.test" })).accessToken;
+  otherToken = (await mintToken(worker, e, g, { scope: "mcp", sub: "other-sub", email: "other@example.test" }))
+    .accessToken;
 });
 
 const seed = () => gm().seedMessage({ from: "a@x.test", to: ["me@x.test"], subject: "el", text: "t" });
@@ -5736,9 +8038,19 @@ describe("legacy era", () => {
 describe("modern era with elicitation.url", () => {
   it("answers input_required with the approval URL and a signed requestState; the accepted retry waits and executes", async () => {
     const m = seed();
-    const first = await modernCall(worker, e, token, "trash_message", { account: "personal", message_id: m.id }, { capabilities: URL_CAPS });
+    const first = await modernCall(
+      worker,
+      e,
+      token,
+      "trash_message",
+      { account: "personal", message_id: m.id },
+      { capabilities: URL_CAPS },
+    );
     expect(first.status).toBe(200);
-    expect(first.inputRequired).toMatchObject({ resultType: "input_required", inputRequests: { approval: { method: "elicitation/create", params: { mode: "url" } } } });
+    expect(first.inputRequired).toMatchObject({
+      resultType: "input_required",
+      inputRequests: { approval: { method: "elicitation/create", params: { mode: "url" } } },
+    });
     const url: string = first.inputRequired.inputRequests.approval.params.url;
     const id = url.split("/approve/")[1]!;
     expect(url).toBe(`https://gmail-mcp.example.workers.dev/approve/${id}`);
@@ -5748,39 +8060,92 @@ describe("modern era with elicitation.url", () => {
     const page = await browser.get(`/approve/${id}`);
     const csrf = csrfFrom(await page.text(), `/approve/${id}`);
     setTimeout(() => void browser.post(`/approve/${id}`, { decision: "approve", csrf }), 20);
-    const retry = await modernCall(worker, e, token, "trash_message", { account: "personal", message_id: m.id }, { capabilities: URL_CAPS, inputResponses: { approval: { action: "accept" } }, requestState: state });
+    const retry = await modernCall(
+      worker,
+      e,
+      token,
+      "trash_message",
+      { account: "personal", message_id: m.id },
+      { capabilities: URL_CAPS, inputResponses: { approval: { action: "accept" } }, requestState: state },
+    );
     expect(retry.result).toMatchObject({ status: "executed", action_id: id, message: { id: m.id } });
     expect(gm().messages.get(m.id)!.labelIds).toContain("TRASH");
-    expect((await getPending(env.DB, id, "owner-sub"))!).toMatchObject({ state: "executed", approved_via: "browser", payload_json: null });
+    expect((await getPending(env.DB, id, "owner-sub"))!).toMatchObject({
+      state: "executed",
+      approved_via: "browser",
+      payload_json: null,
+    });
   });
   it("without the url capability the modern era gets the URL as text", async () => {
     const m = seed();
-    const r = await modernCall(worker, e, token, "trash_message", { account: "personal", message_id: m.id }, { capabilities: FORM_CAPS });
+    const r = await modernCall(
+      worker,
+      e,
+      token,
+      "trash_message",
+      { account: "personal", message_id: m.id },
+      { capabilities: FORM_CAPS },
+    );
     expect(r.result).toMatchObject({ status: "pending_approval" });
     expect(r.inputRequired).toBeNull();
   });
   it("the deadline returns pending_approval and the owner can finish with execute_pending", async () => {
     const m = seed();
-    const first = await modernCall(worker, e, token, "trash_message", { account: "personal", message_id: m.id }, { capabilities: URL_CAPS });
+    const first = await modernCall(
+      worker,
+      e,
+      token,
+      "trash_message",
+      { account: "personal", message_id: m.id },
+      { capabilities: URL_CAPS },
+    );
     const state: string = first.inputRequired.requestState;
     const id = first.inputRequired.inputRequests.approval.params.url.split("/approve/")[1];
-    const waited = await modernCall(worker, e, token, "trash_message", { account: "personal", message_id: m.id }, { capabilities: URL_CAPS, inputResponses: { approval: { action: "accept" } }, requestState: state });
+    const waited = await modernCall(
+      worker,
+      e,
+      token,
+      "trash_message",
+      { account: "personal", message_id: m.id },
+      { capabilities: URL_CAPS, inputResponses: { approval: { action: "accept" } }, requestState: state },
+    );
     expect(waited.result).toMatchObject({ status: "pending_approval", action_id: id });
-    await env.DB.prepare("UPDATE pending_actions SET state = 'approved', approved_at = ?, approved_via = 'browser' WHERE id = ?").bind(Date.now(), id).run();
+    await env.DB.prepare(
+      "UPDATE pending_actions SET state = 'approved', approved_at = ?, approved_via = 'browser' WHERE id = ?",
+    )
+      .bind(Date.now(), id)
+      .run();
     const done = await callTool(worker, e, token, "execute_pending", { action_id: id });
     expect(done.result).toMatchObject({ status: "executed", action_id: id });
-    expect((await callTool(worker, e, token, "execute_pending", { action_id: id })).result.error).toBe("pending_replayed");
+    expect((await callTool(worker, e, token, "execute_pending", { action_id: id })).result.error).toBe(
+      "pending_replayed",
+    );
   });
   it("an inline attachment survives the round trip: the accepted retry hashes to the same intent and stages nothing twice", async () => {
-    const args = { account: "personal", to: ["someone@else.test"], subject: "inline", body: "b", inline_attachments: [{ filename: "i.txt", mime: "text/plain", content_base64: btoa("inline") }] };
-    const staged = async () => (await env.DB.prepare("SELECT count(*) AS n FROM staging_objects").first<any>()).n as number;
+    const args = {
+      account: "personal",
+      to: ["someone@else.test"],
+      subject: "inline",
+      body: "b",
+      inline_attachments: [{ filename: "i.txt", mime: "text/plain", content_base64: btoa("inline") }],
+    };
+    const staged = async () =>
+      (await env.DB.prepare("SELECT count(*) AS n FROM staging_objects").first<any>()).n as number;
     const before = await staged();
     const first = await modernCall(worker, e, token, "send_message", args, { capabilities: URL_CAPS });
     expect(first.inputRequired).toMatchObject({ resultType: "input_required" });
     expect(await staged()).toBe(before + 1);
     const id = first.inputRequired.inputRequests.approval.params.url.split("/approve/")[1];
-    await env.DB.prepare("UPDATE pending_actions SET state = 'approved', approved_at = ?, approved_via = 'browser' WHERE id = ?").bind(Date.now(), id).run();
-    const retry = await modernCall(worker, e, token, "send_message", args, { capabilities: URL_CAPS, inputResponses: { approval: { action: "accept" } }, requestState: first.inputRequired.requestState });
+    await env.DB.prepare(
+      "UPDATE pending_actions SET state = 'approved', approved_at = ?, approved_via = 'browser' WHERE id = ?",
+    )
+      .bind(Date.now(), id)
+      .run();
+    const retry = await modernCall(worker, e, token, "send_message", args, {
+      capabilities: URL_CAPS,
+      inputResponses: { approval: { action: "accept" } },
+      requestState: first.inputRequired.requestState,
+    });
     expect(retry.result).toMatchObject({ status: "executed", action_id: id });
     expect(await staged()).toBe(before + 1);
     expect(new TextDecoder().decode(gm().sent.at(-1)!.raw)).toContain('filename="i.txt"');
@@ -5790,15 +8155,38 @@ describe("modern era with elicitation.url", () => {
 describe("adversarial (spec 4.7)", () => {
   async function pendingWithState() {
     const m = seed();
-    const first = await modernCall(worker, e, token, "trash_message", { account: "personal", message_id: m.id }, { capabilities: URL_CAPS });
-    return { m, id: first.inputRequired.inputRequests.approval.params.url.split("/approve/")[1] as string, state: first.inputRequired.requestState as string };
+    const first = await modernCall(
+      worker,
+      e,
+      token,
+      "trash_message",
+      { account: "personal", message_id: m.id },
+      { capabilities: URL_CAPS },
+    );
+    return {
+      m,
+      id: first.inputRequired.inputRequests.approval.params.url.split("/approve/")[1] as string,
+      state: first.inputRequired.requestState as string,
+    };
   }
   it("the routing headers are required and cross-checked: missing or mismatched Mcp-Method or Mcp-Name is refused before any handler", async () => {
     const m = seed();
     const requests = gm().requests.length;
     const pending = await pendingCount();
-    for (const headers of [{ "mcp-method": null }, { "mcp-method": "tools/list" }, { "mcp-name": null }, { "mcp-name": "mark_message_spam" }]) {
-      const r = await modernCall(worker, e, token, "trash_message", { account: "personal", message_id: m.id }, { capabilities: URL_CAPS, headers });
+    for (const headers of [
+      { "mcp-method": null },
+      { "mcp-method": "tools/list" },
+      { "mcp-name": null },
+      { "mcp-name": "mark_message_spam" },
+    ]) {
+      const r = await modernCall(
+        worker,
+        e,
+        token,
+        "trash_message",
+        { account: "personal", message_id: m.id },
+        { capabilities: URL_CAPS, headers },
+      );
       expect(r.status).toBe(400);
       expect(r.error?.code).toBe(-32602);
     }
@@ -5822,7 +8210,14 @@ describe("adversarial (spec 4.7)", () => {
       "garbage",
     ];
     for (const bad of variants) {
-      const r = await modernCall(worker, e, token, "trash_message", { account: "personal", message_id: m.id }, { capabilities: URL_CAPS, inputResponses: { approval: { action: "accept" } }, requestState: bad });
+      const r = await modernCall(
+        worker,
+        e,
+        token,
+        "trash_message",
+        { account: "personal", message_id: m.id },
+        { capabilities: URL_CAPS, inputResponses: { approval: { action: "accept" } }, requestState: bad },
+      );
       expect(r.error).toMatchObject({ code: -32602, message: "Invalid or expired requestState" });
     }
     expect((await getPending(env.DB, id, "owner-sub"))!.state).toBe("pending");
@@ -5830,15 +8225,31 @@ describe("adversarial (spec 4.7)", () => {
   });
   it("a valid requestState presented by another owner's token is refused by the binding", async () => {
     const { m, state } = await pendingWithState();
-    const r = await modernCall(worker, e, otherToken, "trash_message", { account: "personal", message_id: m.id }, { capabilities: URL_CAPS, inputResponses: { approval: { action: "accept" } }, requestState: state });
+    const r = await modernCall(
+      worker,
+      e,
+      otherToken,
+      "trash_message",
+      { account: "personal", message_id: m.id },
+      { capabilities: URL_CAPS, inputResponses: { approval: { action: "accept" } }, requestState: state },
+    );
     expect(r.error).toMatchObject({ code: -32602 });
   });
   it("a retried elicitation call with changed arguments is denied and audited, and the row stays pending", async () => {
     const { m, id, state } = await pendingWithState();
     const other = seed();
-    const r = await modernCall(worker, e, token, "trash_message", { account: "personal", message_id: other.id }, { capabilities: URL_CAPS, inputResponses: { approval: { action: "accept" } }, requestState: state });
+    const r = await modernCall(
+      worker,
+      e,
+      token,
+      "trash_message",
+      { account: "personal", message_id: other.id },
+      { capabilities: URL_CAPS, inputResponses: { approval: { action: "accept" } }, requestState: state },
+    );
     expect(r.result).toMatchObject({ error: "payload_mismatch" });
-    const row = await env.DB.prepare("SELECT decision, pending_id FROM audit_log WHERE user_id='owner-sub' AND decision='payload_mismatch' ORDER BY id DESC LIMIT 1").first<any>();
+    const row = await env.DB.prepare(
+      "SELECT decision, pending_id FROM audit_log WHERE user_id='owner-sub' AND decision='payload_mismatch' ORDER BY id DESC LIMIT 1",
+    ).first<any>();
     expect(row).toEqual({ decision: "payload_mismatch", pending_id: id });
     expect((await getPending(env.DB, id, "owner-sub"))!.state).toBe("pending");
     expect(gm().messages.get(m.id)!.labelIds).not.toContain("TRASH");
@@ -5846,7 +8257,14 @@ describe("adversarial (spec 4.7)", () => {
   });
   it("a requestState for one tool cannot resume a different tool, even with matching arguments", async () => {
     const { m, state } = await pendingWithState();
-    const r = await modernCall(worker, e, token, "mark_message_spam", { account: "personal", message_id: m.id }, { capabilities: URL_CAPS, inputResponses: { approval: { action: "accept" } }, requestState: state });
+    const r = await modernCall(
+      worker,
+      e,
+      token,
+      "mark_message_spam",
+      { account: "personal", message_id: m.id },
+      { capabilities: URL_CAPS, inputResponses: { approval: { action: "accept" } }, requestState: state },
+    );
     expect(r.result).toMatchObject({ error: "payload_mismatch" });
   });
   it("a decline cancels; execute_pending under another owner is unknown; the approval page under another session is refused", async () => {
@@ -5854,8 +8272,17 @@ describe("adversarial (spec 4.7)", () => {
     const other = new Browser(worker, e);
     await other.login(g, { sub: "other-sub", email: "other@example.test" });
     expect((await other.get(`/approve/${id}`)).status).toBe(404);
-    expect((await callTool(worker, e, otherToken, "execute_pending", { action_id: id })).result.error).toBe("pending_not_approved");
-    const r = await modernCall(worker, e, token, "trash_message", { account: "personal", message_id: m.id }, { capabilities: URL_CAPS, inputResponses: { approval: { action: "decline" } }, requestState: state });
+    expect((await callTool(worker, e, otherToken, "execute_pending", { action_id: id })).result.error).toBe(
+      "pending_not_approved",
+    );
+    const r = await modernCall(
+      worker,
+      e,
+      token,
+      "trash_message",
+      { account: "personal", message_id: m.id },
+      { capabilities: URL_CAPS, inputResponses: { approval: { action: "decline" } }, requestState: state },
+    );
     expect(r.result).toMatchObject({ error: "pending_not_approved" });
     expect((await getPending(env.DB, id, "owner-sub"))!.state).toBe("cancelled");
   });
@@ -5864,7 +8291,14 @@ describe("adversarial (spec 4.7)", () => {
 describe("needs_reconnect and connect_account", () => {
   it("a needs_reconnect account answers a URL elicitation on the modern era and connect_required text otherwise", async () => {
     await env.DB.prepare("UPDATE accounts SET status = 'needs_reconnect' WHERE id = 'ea'").run();
-    const modern = await modernCall(worker, e, token, "list_labels", { account: "personal" }, { capabilities: URL_CAPS });
+    const modern = await modernCall(
+      worker,
+      e,
+      token,
+      "list_labels",
+      { account: "personal" },
+      { capabilities: URL_CAPS },
+    );
     expect(modern.inputRequired).toMatchObject({ inputRequests: { connect: { params: { mode: "url" } } } });
     expect(modern.inputRequired.inputRequests.connect.params.url).toMatch(/\/connect\?alias=personal&e=/);
     const legacy = await callTool(worker, e, token, "list_labels", { account: "personal" });
@@ -5872,7 +8306,14 @@ describe("needs_reconnect and connect_account", () => {
     await env.DB.prepare("UPDATE accounts SET status = 'active' WHERE id = 'ea'").run();
   });
   it("connect_account is an elicitation on the modern era and a URL otherwise", async () => {
-    const modern = await modernCall(worker, e, token, "connect_account", { alias: "newone" }, { capabilities: URL_CAPS });
+    const modern = await modernCall(
+      worker,
+      e,
+      token,
+      "connect_account",
+      { alias: "newone" },
+      { capabilities: URL_CAPS },
+    );
     expect(modern.inputRequired.inputRequests.connect.params.url).toMatch(/\/connect\?alias=newone&e=/);
     const legacy = await callTool(worker, e, token, "connect_account", { alias: "newone" });
     expect(legacy.result).toMatchObject({ status: "connect_required", account: "newone" });
@@ -5884,23 +8325,93 @@ describe("needs_reconnect and connect_account", () => {
 
 ```ts
 const ALL_TOOLS = [
-  "apply_sensitive_message_label", "apply_sensitive_thread_label", "cancel_pending", "connect_account", "create_draft",
-  "create_label", "delete_label", "download_attachment", "execute_pending", "forward", "get_draft", "get_message",
-  "get_policy", "get_thread", "label_message", "label_thread", "list_accounts", "list_drafts", "list_labels",
-  "list_pending", "mark_message_spam", "mark_thread_spam", "open_policy_editor", "reply", "search_threads",
-  "send_draft", "send_message", "trash_message", "trash_thread", "unlabel_message", "unlabel_thread",
-  "unmark_message_spam", "unmark_thread_spam", "untrash_message", "untrash_thread", "update_draft",
-  "update_label", "update_message_labels",
+  "apply_sensitive_message_label",
+  "apply_sensitive_thread_label",
+  "cancel_pending",
+  "connect_account",
+  "create_draft",
+  "create_label",
+  "delete_label",
+  "download_attachment",
+  "execute_pending",
+  "forward",
+  "get_draft",
+  "get_message",
+  "get_policy",
+  "get_thread",
+  "label_message",
+  "label_thread",
+  "list_accounts",
+  "list_drafts",
+  "list_labels",
+  "list_pending",
+  "mark_message_spam",
+  "mark_thread_spam",
+  "open_policy_editor",
+  "reply",
+  "search_threads",
+  "send_draft",
+  "send_message",
+  "trash_message",
+  "trash_thread",
+  "unlabel_message",
+  "unlabel_thread",
+  "unmark_message_spam",
+  "unmark_thread_spam",
+  "untrash_message",
+  "untrash_thread",
+  "update_draft",
+  "update_label",
+  "update_message_labels",
 ];
 // ...
-    expect(names).toEqual(ALL_TOOLS);
-    expect(names).toHaveLength(38);
-    const byName = Object.fromEntries((list.json.result.tools as { name: string; annotations?: Record<string, boolean> }[]).map((t) => [t.name, t.annotations ?? {}]));
-    for (const n of ["search_threads", "get_thread", "get_message", "list_drafts", "get_draft", "list_labels", "get_policy", "open_policy_editor", "list_pending", "list_accounts"]) expect(byName[n]!.readOnlyHint).toBe(true);
-    expect(byName.download_attachment).toMatchObject({ readOnlyHint: false, destructiveHint: false, openWorldHint: false });
-    for (const n of ["send_message", "reply", "send_draft", "forward"]) expect(byName[n]).toMatchObject({ readOnlyHint: false, destructiveHint: false, openWorldHint: true });
-    for (const n of ["trash_message", "trash_thread", "unlabel_message", "unlabel_thread", "mark_message_spam", "mark_thread_spam", "delete_label"]) expect(byName[n]!.destructiveHint).toBe(true);
-    for (const n of ["untrash_message", "untrash_thread", "unmark_message_spam", "unmark_thread_spam", "label_message", "label_thread", "create_label", "update_label", "create_draft", "update_draft"]) expect(byName[n]!.destructiveHint).toBe(false);
+expect(names).toEqual(ALL_TOOLS);
+expect(names).toHaveLength(38);
+const byName = Object.fromEntries(
+  (list.json.result.tools as { name: string; annotations?: Record<string, boolean> }[]).map((t) => [
+    t.name,
+    t.annotations ?? {},
+  ]),
+);
+for (const n of [
+  "search_threads",
+  "get_thread",
+  "get_message",
+  "list_drafts",
+  "get_draft",
+  "list_labels",
+  "get_policy",
+  "open_policy_editor",
+  "list_pending",
+  "list_accounts",
+])
+  expect(byName[n]!.readOnlyHint).toBe(true);
+expect(byName.download_attachment).toMatchObject({ readOnlyHint: false, destructiveHint: false, openWorldHint: false });
+for (const n of ["send_message", "reply", "send_draft", "forward"])
+  expect(byName[n]).toMatchObject({ readOnlyHint: false, destructiveHint: false, openWorldHint: true });
+for (const n of [
+  "trash_message",
+  "trash_thread",
+  "unlabel_message",
+  "unlabel_thread",
+  "mark_message_spam",
+  "mark_thread_spam",
+  "delete_label",
+])
+  expect(byName[n]!.destructiveHint).toBe(true);
+for (const n of [
+  "untrash_message",
+  "untrash_thread",
+  "unmark_message_spam",
+  "unmark_thread_spam",
+  "label_message",
+  "label_thread",
+  "create_label",
+  "update_label",
+  "create_draft",
+  "update_draft",
+])
+  expect(byName[n]!.destructiveHint).toBe(false);
 ```
 
 - [ ] **Step 2: run, expect failure**
@@ -5919,7 +8430,13 @@ export async function modernCall(
   token: string,
   name: string,
   args: Record<string, unknown>,
-  o: { capabilities?: Record<string, unknown>; inputResponses?: Record<string, unknown>; requestState?: string; id?: number; headers?: Record<string, string | null> } = {},
+  o: {
+    capabilities?: Record<string, unknown>;
+    inputResponses?: Record<string, unknown>;
+    requestState?: string;
+    id?: number;
+    headers?: Record<string, string | null>;
+  } = {},
 ): Promise<{ status: number; json: any; result: any; error: any; inputRequired: any }> {
   const ctx = createExecutionContext();
   const params: Record<string, unknown> = {
@@ -5944,13 +8461,25 @@ export async function modernCall(
     authorization: `Bearer ${token}`,
   });
   for (const [k, v] of Object.entries(o.headers ?? {})) v === null ? headers.delete(k) : headers.set(k, v);
-  const res = await worker.fetch(new Request(HOST + "/mcp", { method: "POST", headers, body: JSON.stringify({ jsonrpc: "2.0", id: o.id ?? 11, method: "tools/call", params }) }), { ...env }, ctx);
+  const res = await worker.fetch(
+    new Request(HOST + "/mcp", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ jsonrpc: "2.0", id: o.id ?? 11, method: "tools/call", params }),
+    }),
+    { ...env },
+    ctx,
+  );
   await waitOnExecutionContext(ctx);
   const text = await res.text();
   let json: any = null;
   if (text.trim().startsWith("{")) json = JSON.parse(text);
   else {
-    const line = text.split("\n").map((l) => l.trim()).filter((l) => l.startsWith("data:")).pop();
+    const line = text
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith("data:"))
+      .pop();
     if (line) json = JSON.parse(line.slice(5));
   }
   const r = json?.result;
@@ -5990,6 +8519,7 @@ Claude-Session: https://claude.ai/code/session_01NBfkjWcEGDFghet3APnUjU"
 ```
 
 ---
+
 ### Task 11: Documentation, spec amendments, and the final gate
 
 **Files:**
@@ -6002,13 +8532,13 @@ Edit the spec in place, each as a one-line "Amended 2026-09-10 (plan 3):" note n
 
 1. Section 3.8 first bullet: "MIME is built with a maintained library that streams. Headers are never concatenated by hand." becomes "MIME is built by `worker/src/mime/`, the one module that serialises headers, with RFC 2047 and RFC 2231 encoders that ship test vectors, every header folded under 78 characters and asserted under 998. `mimetext` 3.0.28 was measured to emit attachment filenames raw inside quotes and was rejected. The message is a pull-based stream with an exact length: attachments are read from R2 one chunk at a time, so the isolate never holds a 25 MB attachment, its base64 and the message at once."
 2. Section 3.5 journaled actions: "`draft.write` (create only)" becomes "`draft.write` (create and update)", and the sentence "Journaling is chosen per tool, not per action: `label.manage` journals `create_label` and not `update_label` or `delete_label`" is added. Note: "Reserving an upload handle needs an operation row to reserve it for, and one execution path for every draft write is safer than two."
-2a. Section 3.5 step 1 gains: "Keys live in `idempotency_keys`, recorded against the hash of the client's intent (the arguments, with inline attachment bytes replaced by their digest) before staging and before the allow/ask fork. A key follows its pending action or operation; a `failed_safe` operation or a dead pending action releases it. `executed` replays the stored result (ids only); anything in flight answers `delivery_unknown`; a live pending action is returned again."
-2b. Section 3.5 step 3, resumable: "Resumable upload is used as a transport with an exact `Content-Length`, without session recovery: the session URL is not persisted and an interrupted PUT is not resumed. Opening the session moves no bytes and is retried like a read; the operation moves to `executing` immediately before the PUT. Recovery is Plan 5's, alongside reconciliation."
-2c. Section 3.5 step 4: "Every local consequence of one Gmail result (operation state and stored result, reservations, the pending row, the outcome audit row) is one D1 batch."
-2d. Section 2.3: `create_label` no longer creates missing parent labels; the name is sent as given and Gmail's answer is surfaced. The hosted `autoCreateParentLabels` is recorded in the parity file as a deviation. Reason: a parent created before the operation is `executing` is a side effect a `claimed` row would deny.
-2e. Section 2.3: the seven control tools (`list_accounts`, `get_policy`, `list_pending`, `execute_pending`, `cancel_pending`, `connect_account`, `open_policy_editor`) read the owner's own state or are the approval mechanism itself and do not pass through the policy engine; the 31 Gmail tools do.
-2f. Section 2.3 `download_attachment` takes `attachment_id` or `part_id`; parts whose bytes Gmail inlines in `body.data` are attachments too.
-2g. Section 3.4 payload: every stored payload carries `tool` and `v`, the executor version it was approved for; a pending row whose version no longer matches the registered executor is `payload_mismatch` and never runs.
+   2a. Section 3.5 step 1 gains: "Keys live in `idempotency_keys`, recorded against the hash of the client's intent (the arguments, with inline attachment bytes replaced by their digest) before staging and before the allow/ask fork. A key follows its pending action or operation; a `failed_safe` operation or a dead pending action releases it. `executed` replays the stored result (ids only); anything in flight answers `delivery_unknown`; a live pending action is returned again."
+   2b. Section 3.5 step 3, resumable: "Resumable upload is used as a transport with an exact `Content-Length`, without session recovery: the session URL is not persisted and an interrupted PUT is not resumed. Opening the session moves no bytes and is retried like a read; the operation moves to `executing` immediately before the PUT. Recovery is Plan 5's, alongside reconciliation."
+   2c. Section 3.5 step 4: "Every local consequence of one Gmail result (operation state and stored result, reservations, the pending row, the outcome audit row) is one D1 batch."
+   2d. Section 2.3: `create_label` no longer creates missing parent labels; the name is sent as given and Gmail's answer is surfaced. The hosted `autoCreateParentLabels` is recorded in the parity file as a deviation. Reason: a parent created before the operation is `executing` is a side effect a `claimed` row would deny.
+   2e. Section 2.3: the seven control tools (`list_accounts`, `get_policy`, `list_pending`, `execute_pending`, `cancel_pending`, `connect_account`, `open_policy_editor`) read the owner's own state or are the approval mechanism itself and do not pass through the policy engine; the 31 Gmail tools do.
+   2f. Section 2.3 `download_attachment` takes `attachment_id` or `part_id`; parts whose bytes Gmail inlines in `body.data` are attachments too.
+   2g. Section 3.4 payload: every stored payload carries `tool` and `v`, the executor version it was approved for; a pending row whose version no longer matches the registered executor is `payload_mismatch` and never runs.
 3. Section 1.4 path 1: after "when the negotiated client capabilities include `elicitation.url`", add "on protocol revision 2026-07-28. The `agents` handler serves 2025-era clients through a stateless lane in which the server cannot send a request to the client, so those clients always receive path 2."
 4. Section 2.3: `messageFormat` becomes `message_format`. Every tool argument is snake_case, matching `page_token` and `body_char_limit` in the same row.
 5. Section 2.3 `create_label`, `update_label`: add "Colours are `text_color` and `background_color` hex values validated by Gmail; the hosted `colorPreset` names have no published hex mapping."
@@ -6102,30 +8632,30 @@ Claude-Session: https://claude.ai/code/session_01NBfkjWcEGDFghet3APnUjU"
 
 **Spec coverage for this plan's scope**
 
-| Spec item                                                                                   | Task                                           |
-| ------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| 1.3 explicit account on writes, default on reads                                            | 5, 6, 8, 9 (`defineTool` + schemas)            |
-| 1.4 path 1: URL elicitation, retry, 2 s poll up to 120 s, approved executes in-request      | 4 (`resume`), 10 (wire)                        |
-| 1.4 path 2: URL in the result, `execute_pending`                                            | 4, 10                                          |
-| 2.1 defaults and effective level                                                            | Plan 1 engine, consumed by 4                   |
-| 2.2 modifiers: +attachment, +external, +bulk (sends), +sensitive (label.apply)              | 5, 9                                           |
-| 2.3 the 38 tools, `account` echoed, ids in the query                                        | 4, 5, 6, 8, 9, 10                              |
-| 2.5 annotations                                                                             | 5, 6, 8, 9; asserted in 10                     |
-| 2.6 the `ask` result                                                                        | 4 (`pendingApprovalResult`, shared schema)     |
-| 2.7 caps: subject, body, recipients, inline, aggregate, canonical; blocked at send          | 8 (`validateCompose`, `stageInline`, `attachmentsFor`), 4 (canonical) |
-| 2.8 recipient trust                                                                         | Plan 1 rules, consumed by 9 via `trustContext` |
-| 3.3 `needs_reconnect` answers with the connect flow                                         | 4 (`guarded`), 10                              |
-| 3.4 server-held payload, identity-bound approval, resume re-hash, claim, re-evaluate, purge | 4, 10                                          |
-| 3.5 step 1 idempotency over the whole lifecycle                                             | 4 (`idempotency.ts`), 9                        |
-| 3.5 steps 2 to 5, `Message-ID`, media/resumable at 5 MB, delivery_unknown, one-batch settlement | 4 (`settle.ts`, `runExecutor`), 7, 9        |
-| 3.5 step 6 reconciliation                                                                   | deferred to Plan 5 by the spec's own gate      |
-| 3.7 download ingest, size before bytes, hold at pending, reserve at send, consume, release  | 6, 4, 7                                        |
-| 3.8 header safety, RFC 2047, RFC 2231                                                       | 3                                              |
-| 3.9 every row                                                                               | 1 (client), 7 (`opened`)                       |
-| 3.10 two rows per mutation, one per read or denial, metadata only                           | 4 (`runGated`, `runExecutor`), asserted in 5, 6, 9 |
-| 4.7 unit: argument limits, blocked at send, state machine, idempotency                      | 4, 8, 9                                        |
-| 4.7 integration: round-trips, ask shape, approval page POST, elicitation resume, send_draft, 5 MB boundary | 5, 6, 7, 9, 10                   |
-| 4.7 adversarial: execute_pending replay, requestState tampering per field, retry with changed recipients, approval URL under another session | 4, 10 |
+| Spec item                                                                                                                                    | Task                                                                  |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| 1.3 explicit account on writes, default on reads                                                                                             | 5, 6, 8, 9 (`defineTool` + schemas)                                   |
+| 1.4 path 1: URL elicitation, retry, 2 s poll up to 120 s, approved executes in-request                                                       | 4 (`resume`), 10 (wire)                                               |
+| 1.4 path 2: URL in the result, `execute_pending`                                                                                             | 4, 10                                                                 |
+| 2.1 defaults and effective level                                                                                                             | Plan 1 engine, consumed by 4                                          |
+| 2.2 modifiers: +attachment, +external, +bulk (sends), +sensitive (label.apply)                                                               | 5, 9                                                                  |
+| 2.3 the 38 tools, `account` echoed, ids in the query                                                                                         | 4, 5, 6, 8, 9, 10                                                     |
+| 2.5 annotations                                                                                                                              | 5, 6, 8, 9; asserted in 10                                            |
+| 2.6 the `ask` result                                                                                                                         | 4 (`pendingApprovalResult`, shared schema)                            |
+| 2.7 caps: subject, body, recipients, inline, aggregate, canonical; blocked at send                                                           | 8 (`validateCompose`, `stageInline`, `attachmentsFor`), 4 (canonical) |
+| 2.8 recipient trust                                                                                                                          | Plan 1 rules, consumed by 9 via `trustContext`                        |
+| 3.3 `needs_reconnect` answers with the connect flow                                                                                          | 4 (`guarded`), 10                                                     |
+| 3.4 server-held payload, identity-bound approval, resume re-hash, claim, re-evaluate, purge                                                  | 4, 10                                                                 |
+| 3.5 step 1 idempotency over the whole lifecycle                                                                                              | 4 (`idempotency.ts`), 9                                               |
+| 3.5 steps 2 to 5, `Message-ID`, media/resumable at 5 MB, delivery_unknown, one-batch settlement                                              | 4 (`settle.ts`, `runExecutor`), 7, 9                                  |
+| 3.5 step 6 reconciliation                                                                                                                    | deferred to Plan 5 by the spec's own gate                             |
+| 3.7 download ingest, size before bytes, hold at pending, reserve at send, consume, release                                                   | 6, 4, 7                                                               |
+| 3.8 header safety, RFC 2047, RFC 2231                                                                                                        | 3                                                                     |
+| 3.9 every row                                                                                                                                | 1 (client), 7 (`opened`)                                              |
+| 3.10 two rows per mutation, one per read or denial, metadata only                                                                            | 4 (`runGated`, `runExecutor`), asserted in 5, 6, 9                    |
+| 4.7 unit: argument limits, blocked at send, state machine, idempotency                                                                       | 4, 8, 9                                                               |
+| 4.7 integration: round-trips, ask shape, approval page POST, elicitation resume, send_draft, 5 MB boundary                                   | 5, 6, 7, 9, 10                                                        |
+| 4.7 adversarial: execute_pending replay, requestState tampering per field, retry with changed recipients, approval URL under another session | 4, 10                                                                 |
 
 **Placeholder scan:** none. Every step carries its code or its exact command.
 

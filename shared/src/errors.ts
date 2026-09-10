@@ -16,6 +16,7 @@ export type ErrorCode =
   | "blocked_extension"
   | "invalid_address"
   | "invalid_header"
+  | "gmail_error"
   | "unauthorized"
   | "forbidden"
   | "internal";
