@@ -12,6 +12,7 @@ import { effectiveLevel } from "../policy/engine";
 import { resolveAccount } from "../tools/accounts";
 import { executePending, roundOf, type ToolContext } from "../tools/gate";
 import { connectRequired, guarded, text } from "../tools/results";
+import { registerLabelTools } from "../tools/labels";
 
 export type Era = "legacy" | "modern";
 
@@ -157,6 +158,8 @@ export function buildServer(env: Env, principal: Principal, deps: Deps, era: Era
       return text({ url: `https://${env.WORKER_HOSTNAME}/policy` });
     },
   );
+
+  registerLabelTools(server, toolContext, env);
 
   return server;
 }

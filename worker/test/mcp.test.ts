@@ -36,13 +36,31 @@ describe("protocol", () => {
     const list = await rpc(worker, testEnv(), token, "tools/list", {}, 2);
     const names = (list.json?.result?.tools ?? []).map((t: { name: string }) => t.name).sort();
     expect(names).toEqual([
+      "apply_sensitive_message_label",
+      "apply_sensitive_thread_label",
       "cancel_pending",
       "connect_account",
+      "create_label",
+      "delete_label",
       "execute_pending",
       "get_policy",
+      "label_message",
+      "label_thread",
       "list_accounts",
       "list_pending",
+      "mark_message_spam",
+      "mark_thread_spam",
       "open_policy_editor",
+      "trash_message",
+      "trash_thread",
+      "unlabel_message",
+      "unlabel_thread",
+      "unmark_message_spam",
+      "unmark_thread_spam",
+      "untrash_message",
+      "untrash_thread",
+      "update_label",
+      "update_message_labels",
     ]);
   });
   it("get_policy resolves the default account of the token's owner", async () => {

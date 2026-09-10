@@ -43,3 +43,32 @@ export async function rpc(
   }
   return { status: res.status, json, headers: res.headers };
 }
+
+export async function callTool(
+  worker: Worker,
+  env: Env,
+  token: string,
+  name: string,
+  args: Record<string, unknown>,
+  id = 7,
+): Promise<{ status: number; json: any; result: any; error: any; isError: boolean }> {
+  const res = await rpc(worker, env, token, "tools/call", { name, arguments: args }, id);
+  const textBlock = res.json?.result?.content?.find((c: { type: string }) => c.type === "text");
+  let result: any = null;
+  if (textBlock?.text) {
+    try {
+      result = JSON.parse(textBlock.text);
+    } catch {
+      result = textBlock.text;
+    }
+  }
+  // A schema rejection is a tool result with isError and a plain-text message, not a JSON-RPC error,
+  // so a caller checking only `error` would read a refusal as a success.
+  return {
+    status: res.status,
+    json: res.json,
+    result,
+    error: res.json?.error ?? null,
+    isError: res.json?.result?.isError === true,
+  };
+}
