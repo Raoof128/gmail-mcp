@@ -16,6 +16,8 @@ export type PendingRow = {
   modifiers: string;
   payload_json: string | null;
   payload_hash: string;
+  intent_hash: string | null;
+  idempotency_key: string | null;
   summary: string;
   state: PendingState;
   operation_id: string | null;
@@ -28,6 +30,46 @@ export type PendingRow = {
   error: string | null;
 };
 
+export type PendingInsert = {
+  id: string;
+  userId: string;
+  accountId: string;
+  action: Action;
+  modifiers: Modifier[];
+  canonical: string;
+  hash: string;
+  intentHash: string | null;
+  idempotencyKey: string | null;
+  summary: string;
+  now: number;
+  ttlMs?: number;
+};
+
+export function createPendingStatement(db: D1Database, o: PendingInsert): D1PreparedStatement {
+  if (new TextEncoder().encode(o.canonical).length > LIMITS.canonicalPayloadBytes) {
+    throw new GmailMcpError("limit_exceeded", "limit_exceeded: canonical payload > 1 MB");
+  }
+  return db
+    .prepare(
+      `INSERT INTO pending_actions (id, user_id, account_id, action, modifiers, payload_json, payload_hash, intent_hash, idempotency_key, summary, state, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+    )
+    .bind(
+      o.id,
+      o.userId,
+      o.accountId,
+      o.action,
+      JSON.stringify(o.modifiers),
+      o.canonical,
+      o.hash,
+      o.intentHash,
+      o.idempotencyKey,
+      o.summary,
+      o.now,
+      o.now + (o.ttlMs ?? PENDING_TTL_MS),
+    );
+}
+
 export async function createPending(
   db: D1Database,
   o: {
@@ -37,34 +79,29 @@ export async function createPending(
     modifiers: Modifier[];
     payload: unknown;
     summary: string;
+    intentHash?: string;
+    idempotencyKey?: string;
     ttlMs?: number;
   },
 ): Promise<PendingRow> {
   const canonical = canonicalize(o.payload);
-  if (new TextEncoder().encode(canonical).length > LIMITS.canonicalPayloadBytes) {
-    throw new GmailMcpError("limit_exceeded", "limit_exceeded: canonical payload > 1 MB");
-  }
   const hash = await hashCanonical(canonical);
   const id = randomId("pa");
   const now = Date.now();
-  await db
-    .prepare(
-      `INSERT INTO pending_actions (id, user_id, account_id, action, modifiers, payload_json, payload_hash, summary, state, created_at, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
-    )
-    .bind(
-      id,
-      o.userId,
-      o.accountId,
-      o.action,
-      JSON.stringify(o.modifiers),
-      canonical,
-      hash,
-      o.summary,
-      now,
-      now + (o.ttlMs ?? PENDING_TTL_MS),
-    )
-    .run();
+  await createPendingStatement(db, {
+    id,
+    userId: o.userId,
+    accountId: o.accountId,
+    action: o.action,
+    modifiers: o.modifiers,
+    canonical,
+    hash,
+    intentHash: o.intentHash ?? null,
+    idempotencyKey: o.idempotencyKey ?? null,
+    summary: o.summary,
+    now,
+    ...(o.ttlMs === undefined ? {} : { ttlMs: o.ttlMs }),
+  }).run();
   return (await getPending(db, id, o.userId))!;
 }
 

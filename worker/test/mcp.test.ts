@@ -38,6 +38,7 @@ describe("protocol", () => {
     expect(names).toEqual([
       "cancel_pending",
       "connect_account",
+      "execute_pending",
       "get_policy",
       "list_accounts",
       "list_pending",

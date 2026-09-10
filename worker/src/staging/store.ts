@@ -176,14 +176,70 @@ export async function extendExpiry(
   accountId: string,
   until: number,
 ): Promise<void> {
-  if (handles.length === 0) return;
-  await db
+  const stmt = extendExpiryStatement(db, handles, userId, accountId, until);
+  if (stmt) await stmt.run();
+}
+
+export function reserveStatements(
+  db: D1Database,
+  o: { operationId: string; handles: string[]; userId: string; accountId: string; now: number },
+): D1PreparedStatement[] {
+  if (o.handles.length === 0) return [];
+  return [
+    db
+      .prepare(
+        `UPDATE staging_objects SET reserved_by_operation_id = ?
+         WHERE handle IN (${o.handles.map(() => "?").join(",")}) AND user_id = ? AND account_id = ? AND direction = 'upload'
+           AND consumed_at IS NULL AND reserved_by_operation_id IS NULL AND expires_at > ?`,
+      )
+      .bind(o.operationId, ...o.handles, o.userId, o.accountId, o.now),
+    db
+      .prepare(
+        `INSERT INTO _assert (x) SELECT 1 WHERE (SELECT count(*) FROM staging_objects WHERE reserved_by_operation_id = ?) != ?`,
+      )
+      .bind(o.operationId, o.handles.length),
+  ];
+}
+
+export function extendExpiryStatement(
+  db: D1Database,
+  handles: string[],
+  userId: string,
+  accountId: string,
+  until: number,
+): D1PreparedStatement | null {
+  if (handles.length === 0) return null;
+  return db
     .prepare(
-      `UPDATE staging_objects SET expires_at = MAX(expires_at, ?)
-       WHERE handle IN (${handles.map(() => "?").join(",")}) AND user_id = ? AND account_id = ?`,
+      `UPDATE staging_objects SET expires_at = MAX(expires_at, ?) WHERE handle IN (${handles.map(() => "?").join(",")}) AND user_id = ? AND account_id = ?`,
     )
-    .bind(until, ...handles, userId, accountId)
-    .run();
+    .bind(until, ...handles, userId, accountId);
+}
+
+export async function listUploadHandles(
+  db: D1Database,
+  o: { handles: string[]; userId: string; accountId: string },
+): Promise<StagingRow[]> {
+  if (o.handles.length === 0) return [];
+  const rows = await db
+    .prepare(
+      `SELECT * FROM staging_objects WHERE handle IN (${o.handles.map(() => "?").join(",")}) AND user_id = ? AND account_id = ?
+         AND direction = 'upload' AND consumed_at IS NULL AND expires_at > ?`,
+    )
+    .bind(...o.handles, o.userId, o.accountId, Date.now())
+    .all<StagingRow>();
+  const found = new Set(rows.results.map((r) => r.handle));
+  const missing = o.handles.filter((h) => !found.has(h));
+  if (missing.length > 0)
+    throw new GmailMcpError("handle_invalid", `handle_invalid: ${missing.join(", ")}`, { handles: missing });
+  return o.handles.map((h) => rows.results.find((r) => r.handle === h)!);
+}
+
+/** The bytes as a stream, so a 25 MB attachment is never held in the isolate at once. */
+export async function openStaged(env: Env, row: StagingRow): Promise<ReadableStream<Uint8Array>> {
+  const obj = await env.STAGING.get(row.r2_key);
+  if (!obj) throw new GmailMcpError("handle_invalid", `handle_invalid: object missing for ${row.handle}`);
+  return obj.body;
 }
 
 /** Marks reserved uploads used and clears the reservation so the purge can collect them. */

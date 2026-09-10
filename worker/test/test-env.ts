@@ -36,7 +36,9 @@ export function testDeps(g: FakeGoogle, overrides: Partial<Deps> = {}): Deps {
   return {
     ...defaultDeps,
     googleFetch: g.fetch,
-    sleep: async () => {},
+    // A resolved promise is a microtask, and a loop of those starves the timer queue, so an approval
+    // scheduled with setTimeout could never land inside the wait loop. Yield a macrotask instead.
+    sleep: () => new Promise((r) => setTimeout(r, 0)),
     approvalWait: { intervalMs: 5, deadlineMs: 500 },
     ...overrides,
   };

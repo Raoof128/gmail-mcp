@@ -1713,7 +1713,7 @@ export function fromBytes(bytes: Uint8Array): () => Promise<ReadableStream<Uint8
 
 The stream is pull-based: headers and text parts are small byte segments, and each attachment is read from its `open()` stream through `base64LinesTransform` one chunk at a time, so the isolate holds a few chunks, never the message. `length` is exact and known before a byte is read, because every segment's length is computable from the attachment sizes; the stream errors if an attachment yields a different byte count than its declared size. Every header value passes `assertHeaderSafe` and `foldHeader`; every attachment `mime` passes `assertMediaType`.
 
-- [ ] **Step 1 (RED): tests**
+- [x] **Step 1 (RED): tests**
 
 `worker/test/mime.test.ts`:
 
@@ -1895,12 +1895,12 @@ describe("buildMime", () => {
 });
 ```
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
 Run: `cd worker && npx vitest run test/mime.test.ts`
 Expected: FAIL, modules not found.
 
-- [ ] **Step 3 (GREEN): implementation**
+- [x] **Step 3 (GREEN): implementation**
 
 `worker/src/mime/encode.ts`:
 
@@ -2248,12 +2248,12 @@ export function fromBytes(bytes: Uint8Array): () => Promise<ReadableStream<Uint8
 }
 ```
 
-- [ ] **Step 4: run, expect pass**
+- [x] **Step 4: run, expect pass**
 
 Run: `cd worker && npx vitest run test/mime.test.ts` then `npm run verify`.
 Expected: PASS.
 
-- [ ] **Step 5: commit**
+- [x] **Step 5: commit**
 
 ```bash
 git add worker/src/mime worker/test/mime.test.ts

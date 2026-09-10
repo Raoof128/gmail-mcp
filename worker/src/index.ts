@@ -22,7 +22,7 @@ function mcpApiHandler(deps: Deps): FetchHandler {
       if (new URL(request.url).pathname !== "/mcp") return new Response("not found", { status: 404 });
       const principal = await requireScope(request, env, "mcp");
       if (principal instanceof Response) return principal;
-      return createMcpHandler(() => buildServer(env, principal, deps))(request, env, ctx);
+      return createMcpHandler((mcpCtx) => buildServer(env, principal, deps, mcpCtx.era))(request, env, ctx);
     },
   };
 }
