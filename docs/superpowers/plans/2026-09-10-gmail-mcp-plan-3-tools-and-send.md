@@ -7982,7 +7982,7 @@ Claude-Session: https://claude.ai/code/session_01NBfkjWcEGDFghet3APnUjU"
 
 - `modernCall(worker, env, token, name, args, o?: { capabilities?; inputResponses?; requestState?; id?; headers?: Record<string, string | null> })`: a 2026-07-28 `tools/call` with the `_meta` envelope (`io.modelcontextprotocol/protocolVersion`, `io.modelcontextprotocol/clientCapabilities`, `io.modelcontextprotocol/clientInfo`), the `MCP-Protocol-Version: 2026-07-28` header, and the routing headers the revision requires and the SDK enforces before dispatch: `Mcp-Method: tools/call` and `Mcp-Name: <tool>`. `o.headers` overrides or removes (with `null`) a header for the adversarial rows. `inputResponses` and `requestState` go on `params`. Returns `{ status, json, result, error, inputRequired }`.
 
-- [ ] **Step 1 (RED): tests**
+- [x] **Step 1 (RED): tests**
 
 `worker/test/elicitation.test.ts`:
 
@@ -8414,12 +8414,12 @@ for (const n of [
   expect(byName[n]!.destructiveHint).toBe(false);
 ```
 
-- [ ] **Step 2: run, expect failure**
+- [x] **Step 2: run, expect failure**
 
 Run: `cd worker && npx vitest run test/elicitation.test.ts test/mcp.test.ts`
 Expected: FAIL, `modernCall` is not exported.
 
-- [ ] **Step 3 (GREEN): the modern client**
+- [x] **Step 3 (GREEN): the modern client**
 
 `worker/test/mcp-client.ts`:
 
@@ -8497,12 +8497,12 @@ export async function modernCall(
 }
 ```
 
-- [ ] **Step 4: run, expect pass**
+- [x] **Step 4: run, expect pass**
 
 Run: `cd worker && npx vitest run test/elicitation.test.ts test/mcp.test.ts` then `npm run verify`.
 Expected: PASS. Facts this run settles: the `agents` wrapper routes an envelope-bearing request to the modern SDK handler; the routing-header rung answers `400` with `-32602` (measured in the SDK source as `crossCheckMismatch(... "standard-header-validation")`; if the status differs, the assertion changes, the client does not); `getClientCapabilities()` on the per-request instance reflects the envelope.
 
-- [ ] **Step 5: commit**
+- [x] **Step 5: commit**
 
 ```bash
 git add worker/test
