@@ -6,3 +6,6 @@ dist/
 
 # Local agent working notes, not shared with the repository
 CLAUDE.md
+
+# Isolated implementation checkouts
+.worktrees/
