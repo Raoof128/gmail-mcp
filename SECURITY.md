@@ -16,7 +16,7 @@ Useful things to include, to whatever extent you have them:
 - What an attacker gains, and what access they need to start.
 - The smallest reproduction you can manage.
 - Which component is involved: the Worker, the schema, the policy engine, the approval flow, or the
-  planned local companion.
+  local companion.
 
 You can expect an acknowledgement within a few days and an assessment of severity and a fix plan after
 that. This is a personal project rather than a funded programme, so please read those as good-faith
@@ -47,7 +47,7 @@ The design is built to withstand these. A report showing any of them succeeding 
 | Reaching another account's data                           | Ownership is enforced by composite foreign keys in the schema, not by remembering to filter                            |
 | A stolen approval URL                                     | The approval page requires a session whose identity matches the pending action's owner                                 |
 | A stolen bearer token used on the wrong surface           | Tokens are scoped: an `mcp` token cannot reach staging routes, and a `staging` token cannot reach the MCP endpoint     |
-| Path traversal or symlink escape when saving a file       | The companion resolves within configured roots and refuses traversal, separators and symlink escape                    |
+| Path traversal or symlink escape when saving a file       | The companion uses logical roots, validates relative components and refuses traversal and symlink escape               |
 | A hostile filename hiding its extension                   | Filenames are normalised, control and bidirectional-override characters are replaced, and truncation is UTF-8 safe     |
 | Header injection through a subject or recipient           | Carriage return, line feed and NUL are refused in every header value                                                   |
 | Permanent, unrecoverable deletion                         | No tool exposes it, and the requested Google scope cannot perform it                                                   |
@@ -75,8 +75,11 @@ someone who already controls the owner's browser session.
 Attachment type checking works on the filename, and applies to outbound uploads. Archives are not
 inspected. Gmail's own scanner is the authoritative check, and its rejection reaches the caller.
 
-The project is unfinished. Google OAuth, the Gmail tools and the local companion do not exist. Do not
-point it at a mailbox you care about yet.
+The project is pre-release. Local verification covers synthetic OAuth/Gmail traffic and native filesystem recovery. It does not establish deployment readiness, power-loss durability on every volume, or successful login in installed Claude clients.
+
+The companion uses macOS descriptor-relative operations and exclusive publication. It refuses overwrites, network volumes, hard-linked sources, and private-state overlap. This confines tool-selected paths under owner-configured roots; it is not a sandbox against an arbitrary process running as the same macOS user.
+
+An unknown R2 writer retains its storage charge after lease expiry. A local publication with uncertain identity retains its receipt and save reservation. These states can exhaust capacity until the owner investigates; deleting their evidence to restore capacity can invalidate replay and cleanup guarantees.
 
 ## Handling secrets
 
@@ -87,3 +90,5 @@ point it at a mailbox you care about yet.
   another row fails to decrypt.
 - Tokens never appear in tool results, audit rows or logs. The audit log records counts and identifiers,
   and the module renders its own summaries, so a caller cannot push message content through it.
+
+Companion OAuth credentials use Security.framework directly, with a permanent cross-process lock and a persisted logout epoch. Credentials do not enter process arguments or environment variables. The companion disables HTTP redirects for token and staging requests.

@@ -1,0 +1,27 @@
+{
+  "name": "@gmail-mcp/companion",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "gmail-mcp-companion": "src/cli.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build:native": "swift build --package-path native -c release",
+    "start": "node src/cli.ts serve"
+  },
+  "dependencies": {
+    "@gmail-mcp/shared": "0.0.1",
+    "@modelcontextprotocol/server": "2.0.0",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.2",
+    "vitest": "4.1.11"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  }
+}

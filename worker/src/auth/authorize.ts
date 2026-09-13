@@ -35,6 +35,9 @@ async function complete(env: Env, request: Request, userId: string, email: strin
   const s = await consumeState<Stored>(env.DB, "authreq", id);
   if (!s)
     return htmlResponse("Expired", "<p>This authorization request expired or was already decided.</p>", null, 410);
+  const client = await env.OAUTH_PROVIDER.lookupClient(s.request.clientId);
+  if (!client || (await allowedScopeForClient(env.DB, s.request.clientId, client.clientName)) !== s.scope)
+    return htmlResponse("Authorization refused", "<p>Client registration changed.</p>", null, 400);
   const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
     request: { ...s.request, resource: audienceFor(env, s.scope) },
     userId,
@@ -83,7 +86,8 @@ export const authorizeRoutes: Route[] = [
       }
       const client = await env.OAUTH_PROVIDER.lookupClient(req.clientId);
       if (!client) return htmlResponse("Authorization refused", "<p>Unknown client.</p>", null, 400);
-      const allowed = await allowedScopeForClient(env.DB, req.clientId);
+      const allowed = await allowedScopeForClient(env.DB, req.clientId, client.clientName);
+      if (!allowed) return clientError(req, "unauthorized_client", "companion registration is quarantined");
       const scope = resolveGrantedScope(req.scope, allowed);
       if (!scope) return clientError(req, "invalid_scope", `this client may request only "${allowed}"`);
       const wanted = Array.isArray(req.resource) ? req.resource : req.resource ? [req.resource] : [];

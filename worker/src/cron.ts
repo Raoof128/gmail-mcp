@@ -1,3 +1,4 @@
+import { recoverUploads } from "./staging/recovery";
 import type { Env } from "./env";
 import { purgeExpired } from "./staging/store";
 import { purgeStates } from "./web/state";
@@ -22,7 +23,9 @@ export async function recoverClaimed(db: D1Database, operationId: string, now: n
   try {
     await db.batch([
       db
-        .prepare(`UPDATE operations SET state = 'failed_safe', updated_at = ? WHERE id = ? AND state = 'claimed'`)
+        .prepare(
+          `UPDATE operations SET state = 'failed_safe', updated_at = ? WHERE id = ? AND state = 'claimed' AND action != 'attachment.stage_upload'`,
+        )
         .bind(now, operationId),
       db
         .prepare(
@@ -56,17 +59,20 @@ export async function runCron(env: Env, now: number, limit = 200): Promise<CronR
 
   const promoted = await env.DB.prepare(
     `UPDATE operations SET state = 'delivery_unknown', updated_at = ?
-     WHERE id IN (SELECT id FROM operations WHERE state = 'executing' AND updated_at <= ? LIMIT ?)`,
+     WHERE id IN (SELECT id FROM operations WHERE state = 'executing' AND action != 'attachment.stage_upload' AND updated_at <= ? LIMIT ?)`,
   )
     .bind(now, now - STALE_MS, limit)
     .run();
 
-  const stale = await env.DB.prepare(`SELECT id FROM operations WHERE state = 'claimed' AND updated_at <= ? LIMIT ?`)
+  const stale = await env.DB.prepare(
+    `SELECT id FROM operations WHERE state = 'claimed' AND action != 'attachment.stage_upload' AND updated_at <= ? LIMIT ?`,
+  )
     .bind(now - STALE_MS, limit)
     .all<{ id: string }>();
   let failedSafe = 0;
   for (const r of stale.results) if (await recoverClaimed(env.DB, r.id, now)) failedSafe++;
 
+  await recoverUploads(env, now, limit);
   const staging = await purgeExpired(env, now, limit);
   const audit = await env.DB.prepare(
     `DELETE FROM audit_log WHERE id IN (SELECT id FROM audit_log WHERE ts <= ? LIMIT ?)`,

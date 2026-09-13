@@ -24,6 +24,7 @@ import {
   type GmailThread,
 } from "../google/messages";
 import { LIMITS } from "../policy/limits";
+import { withMaterialization } from "../staging/materialization";
 import { ingest } from "../staging/store";
 import { getMessage } from "./compose";
 import { defineTool, type Plan } from "./define";
@@ -225,53 +226,59 @@ export function registerReadTools(server: McpServer, toolContext: (ctx: ServerCo
         `Download attachment ${args.attachment_id ?? `part ${args.part_id}`} of message ${args.message_id}`,
         [args.message_id],
       ),
-    execute: async (e, d, run) => {
-      const p = DownloadAttachmentPayload.parse(run.payload);
-      // Spec 3.7: the part's size comes from the message's part tree (format=full carries sizes, not
-      // bytes for external parts), and anything over the ceiling is refused before attachments.get.
-      const m = await getMessage(e, d, acct(run), p.message_id, "PLAIN_TEXT");
-      const meta = p.attachment_id
-        ? findAttachment(m, { attachmentId: p.attachment_id })
-        : findAttachment(m, { partId: p.part_id! });
-      if (!meta)
-        throw new GmailMcpError("handle_invalid", `handle_invalid: no such attachment on message ${p.message_id}`);
-      if (meta.size > LIMITS.stagedFileBytes)
-        throw new GmailMcpError(
-          "limit_exceeded",
-          `limit_exceeded: attachment is ${meta.size} bytes, ceiling ${LIMITS.stagedFileBytes}`,
-        );
-      let bytes: Uint8Array;
-      if (meta.attachment_id) {
-        const body = await gmailJson<{ data?: string }>(e, d, acct(run), {
-          method: "GET",
-          path: `messages/${encodeURIComponent(p.message_id)}/attachments/${encodeURIComponent(meta.attachment_id)}`,
-          retry: "safe",
-        });
-        if (!body.data) throw new GmailMcpError("handle_invalid", "handle_invalid: attachment body empty");
-        bytes = fromB64url(body.data);
-      } else {
-        const data = partData(m, meta.part_id);
-        if (!data) throw new GmailMcpError("handle_invalid", "handle_invalid: inline part without data");
-        bytes = fromB64url(data);
-      }
-      const row = await ingest(e, {
-        userId: run.userId,
-        accountId: run.account.id,
-        direction: "download",
-        filename: meta.filename,
-        mime: meta.mime,
-        length: bytes.byteLength,
-        body: new Response(bytes).body as ReadableStream<Uint8Array>,
-        source: { messageId: p.message_id, attachmentId: meta.attachment_id ?? `part:${meta.part_id}` },
-      });
-      return {
-        handle: row.handle,
-        filename: row.filename,
-        mime: row.mime,
-        size: row.size,
-        sha256: row.sha256,
-        expires_at: new Date(row.expires_at).toISOString(),
-      };
-    },
+    execute: async (e, d, run) =>
+      withMaterialization(
+        e,
+        async (materialization) => {
+          const p = DownloadAttachmentPayload.parse(run.payload);
+          // Spec 3.7: the part's size comes from the message's part tree (format=full carries sizes, not
+          // bytes for external parts), and anything over the ceiling is refused before attachments.get.
+          const m = await getMessage(e, d, acct(run), p.message_id, "PLAIN_TEXT");
+          const meta = p.attachment_id
+            ? findAttachment(m, { attachmentId: p.attachment_id })
+            : findAttachment(m, { partId: p.part_id! });
+          if (!meta)
+            throw new GmailMcpError("handle_invalid", `handle_invalid: no such attachment on message ${p.message_id}`);
+          if (meta.size > LIMITS.stagedFileBytes)
+            throw new GmailMcpError(
+              "limit_exceeded",
+              `limit_exceeded: attachment is ${meta.size} bytes, ceiling ${LIMITS.stagedFileBytes}`,
+            );
+          let bytes: Uint8Array;
+          if (meta.attachment_id) {
+            const body = await gmailJson<{ data?: string }>(e, d, acct(run), {
+              method: "GET",
+              path: `messages/${encodeURIComponent(p.message_id)}/attachments/${encodeURIComponent(meta.attachment_id)}`,
+              retry: "safe",
+            });
+            if (!body.data) throw new GmailMcpError("handle_invalid", "handle_invalid: attachment body empty");
+            bytes = fromB64url(body.data);
+          } else {
+            const data = partData(m, meta.part_id);
+            if (!data) throw new GmailMcpError("handle_invalid", "handle_invalid: inline part without data");
+            bytes = fromB64url(data);
+          }
+          const row = await ingest(e, {
+            userId: run.userId,
+            accountId: run.account.id,
+            materialization,
+            direction: "download",
+            filename: meta.filename,
+            mime: meta.mime,
+            length: bytes.byteLength,
+            body: new Response(bytes).body as ReadableStream<Uint8Array>,
+            source: { messageId: p.message_id, attachmentId: meta.attachment_id ?? `part:${meta.part_id}` },
+          });
+          return {
+            handle: row.handle,
+            filename: row.filename,
+            mime: row.mime,
+            size: row.size,
+            sha256: row.sha256,
+            expires_at: new Date(row.expires_at).toISOString(),
+          };
+        },
+        { userId: run.userId, accountId: run.account.id, bytes: LIMITS.stagedFileBytes },
+      ),
   });
 }

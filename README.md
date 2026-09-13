@@ -8,9 +8,9 @@ A Gmail [Model Context Protocol](https://modelcontextprotocol.io) server that mo
 from your disk, works across several Google accounts, and puts every mailbox mutation behind a permission
 model the server enforces rather than the model.
 
-> **Status: in development.** The authority core is built and tested. Google OAuth, the Gmail tools and
-> the local companion do not exist yet. [Project status](#project-status) says what works today. Treat
-> nothing here as production-ready until that table says so.
+> **Status: pre-release.** The Worker, Google OAuth, Gmail tools and macOS companion are implemented.
+> Local tests cover the protocol and recovery paths. Deployment, real Keychain/browser login and installed
+> Claude client checks remain release gates. See [the companion runbook](docs/runbooks/companion.md).
 
 ## Why this exists
 
@@ -29,7 +29,7 @@ This project closes both, without depending on any capability of any hosted conn
 
 Attachments move in both directions, and the bytes never pass through the model's context. A download
 becomes an opaque staging handle, and a thin local companion exchanges that handle for a file on disk.
-Uploads reverse the trip. A 20 MB PDF costs nothing to move.
+Uploads use a private snapshot and a server-approved transfer. Attachment bytes stay out of model context.
 
 Several Google accounts sit under one owner, each with its own alias, policy and send limit. Every write
 names its account. The model never guesses which mailbox you meant.
@@ -76,7 +76,7 @@ Claude (claude.ai / Desktop / Claude Code)
 │  Google OAuth · Attachment staging       │
 │  Audit log · Approval and policy pages   │
 └──────┬─────────────┬──────────────┬──────┘
-       │             │              └── KV   OAuth and CSRF state
+       │             │              └── KV   OAuth clients and grants
        │             └── R2   attachment bytes, short lived
        └── D1   accounts, policy, approvals, operations, audit
        ▼
@@ -103,24 +103,24 @@ model and the reasoning behind each decision, is in
 
 ## Project status
 
-| Component                                | State                              |
-| ---------------------------------------- | ---------------------------------- |
-| D1 schema, ownership invariants          | Built and tested                   |
-| Policy engine, actions and modifiers     | Built and tested                   |
-| Approval engine, atomic claim            | Built and tested                   |
-| Operation journal, idempotency           | Built and tested                   |
-| Attachment staging (server side)         | Built and tested                   |
-| Audit log, scheduled recovery            | Built and tested                   |
-| MCP endpoint and control tools           | Built, behind a development bearer |
-| Google OAuth and the approval pages      | Not started                        |
-| The 38 Gmail tools and the send pipeline | Not started                        |
-| Local companion                          | Not started                        |
+| Component                                | State                                     |
+| ---------------------------------------- | ----------------------------------------- |
+| D1 schema, ownership invariants          | Built and tested                          |
+| Policy engine, actions and modifiers     | Built and tested                          |
+| Approval engine, atomic claim            | Built and tested                          |
+| Operation journal, idempotency           | Built and tested                          |
+| Attachment staging (server side)         | Built and tested                          |
+| Audit log, scheduled recovery            | Built and tested                          |
+| MCP endpoint and control tools           | OAuth scope and audience checks           |
+| Google OAuth and the approval pages      | Implemented; synthetic OAuth tests        |
+| The 38 Gmail tools and the send pipeline | Implemented; synthetic Gmail tests        |
+| Local companion                          | Implemented; macOS native and stdio tests |
 
-77 tests pass against the real Workers runtime. Nothing here has sent an email.
+The Worker suite runs inside workerd with a synthetic Google service. The native suite exercises local files and SQLite; Keychain tests use an isolated adapter. This implementation run did not send mail or deploy the Worker.
 
 ## Getting started
 
-You need Node 20 or newer.
+Use Node 22.18 or newer for the companion. Its native helper requires macOS 26.6 or newer, Xcode command-line tools and a local APFS or HFS volume.
 
 ```bash
 git clone https://github.com/Raoof128/gmail-mcp.git
@@ -130,7 +130,7 @@ npm run verify
 ```
 
 `npm run verify` runs formatting, linting, type checking and the tests. CI runs the same gate, so a green
-local run means a green pull request.
+local run checks the same TypeScript gates. Run `npm run verify:native` on a supported Mac as a separate gate.
 
 ### Running the server
 
@@ -159,6 +159,10 @@ Point a client at the deployed endpoint and it discovers authorization on its ow
 npx @modelcontextprotocol/inspector https://<WORKER_HOSTNAME>/mcp
 ```
 
+## Local companion
+
+[Set up the companion](docs/runbooks/companion.md) after registering its client on the Worker Accounts page. It exposes `list_roots`, `stage_file` and `save_attachment`. V1 refuses overwrites.
+
 ## Repository layout
 
 ```
@@ -170,6 +174,7 @@ worker/     The Cloudflare Worker: policy, approvals, operations, staging, audit
   src/operations/  the external-side-effect journal
   src/staging/     attachment ingest, reads and lifecycle
   migrations/      D1 schema
+companion/  TypeScript stdio client and Swift/Darwin helper
 docs/       Architecture, the design spec, and the implementation plans
 ```
 

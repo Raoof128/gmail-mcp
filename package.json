@@ -3,7 +3,8 @@
   "private": true,
   "workspaces": [
     "shared",
-    "worker"
+    "worker",
+    "companion"
   ],
   "scripts": {
     "test": "npm run test --workspaces --if-present",
@@ -12,7 +13,8 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "verify": "npm run format:check && npm run lint && npm run typecheck && npm test"
+    "verify": "npm run format:check && npm run lint && npm run typecheck && npm test",
+    "verify:native": "swift test --package-path companion/native && swift build --package-path companion/native -c release"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

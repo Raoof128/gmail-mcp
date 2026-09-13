@@ -42,6 +42,20 @@ describe("audit", () => {
 });
 
 describe("cron", () => {
+  it("does not apply Gmail uncertainty recovery to upload operations", async () => {
+    for (const state of ["claimed", "executing"]) {
+      const id = `op_upload_${state}`;
+      await insertOperation(env.DB, id, "ku", "ka", state, Date.now() - 600_000);
+      await env.DB.prepare("UPDATE operations SET action='attachment.stage_upload' WHERE id=?").bind(id).run();
+    }
+    await runCron(env, Date.now());
+    expect(await env.DB.prepare("SELECT state FROM operations WHERE id='op_upload_claimed'").first()).toEqual({
+      state: "claimed",
+    });
+    expect(await env.DB.prepare("SELECT state FROM operations WHERE id='op_upload_executing'").first()).toEqual({
+      state: "executing",
+    });
+  });
   it("expires pending, promotes stale executing, fails stale claimed transactionally, purges old audit", async () => {
     const old = Date.now() - 10 * 60_000;
     await env.DB.prepare(

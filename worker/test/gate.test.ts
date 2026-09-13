@@ -440,6 +440,13 @@ describe("ask with URL elicitation and resume", () => {
 });
 
 describe("executePending", () => {
+  it("refuses staging approval before claiming it through the MCP executor", async () => {
+    const id = await pendingId();
+    await env.DB.prepare("UPDATE pending_actions SET action='attachment.stage_upload' WHERE id=?").bind(id).run();
+    await approvePending(env.DB, { id, userId: "tg", via: "browser" });
+    await expect(executePending(ctx(), id)).rejects.toMatchObject({ code: "pending_not_approved" });
+    expect(await getPending(env.DB, id, "tg")).toMatchObject({ state: "approved", operation_id: null });
+  });
   async function pendingId(): Promise<string> {
     return parse(await run(ctx(), await input())).action_id as string;
   }

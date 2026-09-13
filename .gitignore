@@ -9,3 +9,7 @@ CLAUDE.md
 
 # Isolated implementation checkouts
 .worktrees/
+
+# Swift build products
+.build/
+.swiftpm/

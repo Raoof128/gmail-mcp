@@ -3,6 +3,7 @@ import { createMcpHandler } from "agents/mcp/server";
 import type { Env } from "./env";
 import { runCron } from "./cron";
 import { defaultDeps, type Deps } from "./deps";
+import { isCompanionName } from "./auth/companion";
 import { authorizeRoutes } from "./auth/authorize";
 import { connectRoutes } from "./google/connect";
 import { accountsRoutes } from "./web/pages/accounts";
@@ -43,6 +44,8 @@ function oauthOptions(env: Env, deps: Deps): OAuthProviderOptions<Env> {
     authorizeEndpoint: "/authorize",
     tokenEndpoint: "/token",
     clientRegistrationEndpoint: "/register",
+    clientRegistrationCallback: ({ clientMetadata }) =>
+      isCompanionName(clientMetadata.client_name) ? { description: "reserved companion client name" } : undefined,
     scopesSupported: ["mcp", "staging"],
     clientIdMetadataDocumentEnabled: true,
     allowPlainPKCE: false,

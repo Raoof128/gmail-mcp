@@ -101,7 +101,7 @@ Each Google account gets an owner-chosen alias (`personal`, `university`, `work`
 
 Both paths land on the same Worker page, which requires a browser session whose identity matches the pending row's owner. A model-relayed confirmation code is not an accepted approval path for any write.
 
-Form-mode elicitation is used only for the companion's local `+overwrite` question when the client advertises `elicitation.form`. Otherwise overwrite is refused.
+Plan 4 amendment (2026-09-12): V1 refuses overwrite under every client. Approval-based overwrite is deferred as P4-OVERWRITE.
 
 ### 1.5 Threat model
 
@@ -194,13 +194,15 @@ Every read result echoes `account`. Message, thread, draft and attachment identi
 
 ### 2.4 Companion tools (3)
 
-| Tool              | Action                  | Notes                                                                                                                                                                                                                                                                                                               |
-| ----------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `save_attachment` | fs.save                 | `handle`, optional `subdir`, optional `filename`. Resolves under a configured root; rejects `..`, path separators, NUL and symlink escape; Unicode-normalises the name; writes to a temp file, verifies sha256, atomic rename, then ACKs. `+overwrite` asks via form elicitation when advertised, otherwise refuses |
-| `stage_file`      | attachment.stage_upload | `account`, `path` under a root. Sends metadata first for the policy check (3.6), uploads bytes only on `allow`. 25 MB ceiling                                                                                                                                                                                       |
-| `list_roots`      | read                    | configured roots and free space                                                                                                                                                                                                                                                                                     |
+Plan 4 amendment (2026-09-12): the reviewed [companion design](../plans/2026-09-11-gmail-mcp-plan-4-companion-and-staging.md) supersedes the original path and ticket model.
 
-Config: `~/.config/gmail-mcp/companion.json` with `roots`, `default_subdir`, `overwrite` (`ask` or `deny`). Companion token in macOS Keychain.
+| Tool              | Action                  | Inputs and behavior                                                                                                                                                       |
+| ----------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `save_attachment` | fs.save                 | `handle`, `root`, `path`. Validate a relative destination, verify bytes, publish exclusively, journal the inode and ACK. V1 refuses overwrite.                            |
+| `stage_file`      | attachment.stage_upload | `account`, `root`, `path`, `mime`, optional `idempotency_key`. Snapshot before approval, then create or recover the same owner-bound transfer. Maximum 25 MiB, inclusive. |
+| `list_roots`      | read                    | Logical root IDs and read/write permissions; no absolute paths in results.                                                                                                |
+
+Configuration lives in owner-only `~/.config/gmail-mcp/config.json`. SQLite receipts and snapshots live under `~/Library/Application Support/gmail-mcp/`, outside granted roots. The native helper accesses Keychain through Security.framework and serializes cross-process work with a permanent lock file.
 
 ### 2.5 Annotations
 
@@ -212,7 +214,7 @@ Standard MCP hints, set truthfully and treated as hints only:
 - `trash_*`, `unlabel_*`, `mark_*_spam`, `delete_label`: `destructiveHint: true`
 - `untrash_*`, `unmark_*_spam`, `label_*`, `create_label`, `update_label`, `create_draft`, `update_draft`: `destructiveHint: false`
 - `stage_file`: `readOnlyHint: false`, `openWorldHint: false`
-- `save_attachment`: `readOnlyHint: false`, `destructiveHint: true`, `openWorldHint: false`
+- `save_attachment`: `readOnlyHint: false`, `destructiveHint: false`, `openWorldHint: false`
 
 Not used: `_meta.anthropic/requiresUserInteraction` (forces a client prompt on every call and would override `allow`), `_meta.anthropic/maxResultSizeChars` (raises the persistence threshold; pagination handles size).
 
@@ -443,12 +445,13 @@ There is no content-based dedupe. Identical content sent twice on purpose is two
 
 ### 3.6 Upload policy path (companion to Worker)
 
-`stage_file(account, path)` does not upload first. The companion reads filename, size and mime, then:
+Plan 4 amendment (2026-09-12): authenticate to `/staging/identity`, persist a private snapshot and owner/origin/client-scoped request key, then call `POST /staging/intent` with `{mode, transfer_id, account, metadata}`. `ensure` creates or recovers authority; `status` reads it; `retry` additionally requires `expected_generation` and a durable `retry_request_id`.
 
-1. `POST /staging/intent` with `{account, filename, size, mime, sha256}`. The Worker runs the policy engine for `attachment.stage_upload`.
-2. `allow`: response carries a one-time upload ticket (60 s TTL, bound to the metadata hash). `deny`: 403 with the audited reason. `ask`: response is the standard pending action; the companion surfaces it as a URL-mode elicitation when advertised, else returns the approval URL as text. After approval the companion calls `POST /staging/intent` again with the pending id; ticket issuance is the same atomic `approved → executing` claim as 3.4, so a pending stage action yields exactly one ticket. A `PUT` whose computed sha256 differs from the ticket's declared hash is rejected and the ticket is void.
+`ask` creates one pending action without accepting bytes. Browser approval permits issuance under that same intent. Generic MCP `execute_pending` refuses staging actions before claim. The companion supports modern URL input requests, legacy URL elicitation, and a text-link fallback. A client response cannot substitute for Worker approval.
 
-The companion must speak both elicitation wire forms: the 2026-07-28 `InputRequiredResult` and the 2025 server-initiated `elicitation/create`, because Claude Code negotiates the new revision with stdio servers only when `MCP_PROTOCOL_NEGOTIATION=auto`. 3. `PUT /staging/<ticket>` streams the bytes. The Worker enforces the 25 MB ceiling by `Content-Length` and by counting, rejects blocked extensions, then reads the body to completion in memory before anything reaches R2, computes sha256, verifies it matches the declared hash, and only then writes the object and the account-bound row.
+Ticket IDs are identifiers, not credentials. PUT requires the staging OAuth bearer and the current owner-bound generation. The Worker checks headers, length, SHA-256, account credential version and lease, then publishes one handle in the completion batch. Replays return the original result; they do not create new objects. Retrying an expired or interrupted generation requires a subsequent tool invocation and remains bound to the original snapshot and authority deadline.
+
+Use the exact deadlines, quotas and recovery rules in [Plan 4 sections 6–8](../plans/2026-09-11-gmail-mcp-plan-4-companion-and-staging.md). Expired leases fence publication; unknown writers keep their cleanup charge.
 
 ### 3.7 Staging handle lifecycle
 
@@ -456,7 +459,7 @@ Handle: `sh_` plus 32 random bytes base64url. Non-enumerable, carries no Google 
 
 Ingest validates before it writes. The body is materialised and hashed first, bounded by the 25 MB cap against a 128 MB isolate, so no failure path can orphan an object. Streaming straight into R2 was tried and rejected: a wrong declared length aborts the in-flight upload, leaves a partial object, and surfaces as an unhandled rejection.
 
-Download: `download_attachment` first reads the part's `size` from message metadata and refuses anything above 25 MB before any bytes move. It then calls `attachments.get`, which returns JSON with base64url `data`. V1 buffers the response (at most about 34 MB of text plus 25 MB decoded, within the 128 MB isolate), decodes, hashes the decoded bytes and writes them to R2, then writes the row with `expires_at = now + 30 min`. The 25 MB Worker round-trip test in 4.7 is an implementation gate for this choice. The companion fetches `GET /staging/<handle>` with its `staging` bearer; the Worker checks `user_id` in the query and expiry, streams from R2. Re-fetch before ACK is allowed. After temp write, sha256 verify and atomic rename, the companion `POST /staging/<handle>/ack` sets `consumed_at`.
+Download: `download_attachment` first reads the part's `size` from message metadata and refuses anything above 25 MB before any bytes move. It then calls `attachments.get`, which returns JSON with base64url `data`. V1 buffers the response (at most about 34 MB of text plus 25 MB decoded, within the 128 MB isolate), decodes, hashes the decoded bytes and writes them to R2, then writes the row with `expires_at = now + 30 min`. The 25 MB Worker round-trip test in 4.7 is an implementation gate for this choice. The companion GET requires a staging bearer and an atomic owner-bound download lease. After durable exclusive publication, ACK records consumption and an independent seven-day tombstone. Repeated ACK returns success without requiring the original staging row.
 
 Hold at pending creation: when an `ask` action references upload handles, the same request extends each referenced handle's `expires_at` to the pending row's `expires_at` plus 5 minutes, so a handle staged 29 minutes earlier cannot expire between approval and execution.
 
@@ -526,7 +529,7 @@ The verification and CASA exclusion holds only while this remains a personal-use
 
 ### 4.5 Flow C: Companion to Worker
 
-`gmail-mcp-companion login` runs PKCE against the Worker's AS as the pre-registered public client `companion`, redirect `http://127.0.0.1:<ephemeral>/callback`, same Google OIDC identity step, token scope `staging` only. Access and refresh tokens in macOS Keychain via the `security` CLI. Staging routes check the bearer's `sub` against `staging_objects.user_id` inside the query.
+`gmail-mcp-companion login` runs PKCE against the Worker's AS as the pre-registered public client `companion`, redirect `http://127.0.0.1:<ephemeral>/callback`, same Google OIDC identity step, token scope `staging` only. The native helper stores access and refresh tokens in macOS Keychain through Security.framework, with no secrets in argv or environment. A persisted epoch fences logout against older login commits. Staging routes check the bearer's `sub` against `staging_objects.user_id` inside the query.
 
 ### 4.6 Web pages and session security
 
@@ -571,7 +574,7 @@ X-Content-Type-Options: nosniff
   - argument limits: over-cap body, 501 recipients, 1 MB-plus inline attachments, 1 MB-plus canonical payload all rejected before any row is written
   - blocked extensions: every seeded entry rejected at intent and at send
   - MIME encoders: RFC 2047 words at most 75 characters, RFC 2231 continuations, header injection refused (added 2026-09-10, plan 3)
-  - companion: traversal, symlink escape, overwrite without approval refused; sha mismatch deletes the temp file; bidi and control filenames sanitised; upload proceeds only with a valid ticket
+  - companion: traversal, symlink escape, all overwrites refused; sha mismatch deletes the temp file; bidi and control path components refused; upload proceeds only with a valid ticket
 - Workers integration against a fake Gmail HTTP adapter: full tool round-trips, `ask` result shape, approval page POST, elicitation resume, `send_draft` path, media vs resumable upload selection at the 5 MB boundary, 25 MB MIME streamed without exceeding memory.
 - **Fault injection** at each checkpoint, killing or throwing deliberately: operation inserted; pending action claimed; attachments reserved; MIME construction begins; Google request headers sent; Google request body partially sent; Google response received; before D1 success write; after D1 success write; before audit outcome write. For each, assert either no duplicate external side effect or `delivery_unknown` with no automatic retry.
 - OAuth and web adversarial: redirect_uri substitution, authorization-code replay, `state` replay, `nonce` replay, issuer mix-up, wrong audience, expired `id_token`, session fixation, CSRF token from another pending action, open-redirect attempts, CIMD metadata tampering, a DCR client requesting `staging`, `mcp` token to `/staging`, `staging` token to `/mcp`, `execute_pending` replay, `requestState` field tampering one field at a time, retried elicitation call with changed recipients, approval URL opened under a different session, `last_seen_at` alone attempting a recent-auth action.
@@ -618,7 +621,7 @@ gmail/
   docs/parity/hosted-2026-09-09.json                       (Appendix A schemas, captured in plan task 0)
 ```
 
-TypeScript throughout. MCP and OAuth dependencies pinned to exact versions. Worker uses Cloudflare's MCP package and `@cloudflare/workers-oauth-provider` >= 0.10.2. Companion uses the MCP TypeScript SDK 2.x over stdio.
+TypeScript for the Worker and companion protocol; Swift, Darwin C wrappers and SQLite for native authority. MCP and OAuth dependencies pinned to exact versions. Worker uses Cloudflare's MCP package and `@cloudflare/workers-oauth-provider` >= 0.10.2. Companion uses the MCP TypeScript SDK 2.x over stdio.
 
 ## 6. Deferred (signed IOUs)
 

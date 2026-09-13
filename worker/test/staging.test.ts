@@ -100,7 +100,7 @@ describe("read and ack", () => {
     await expect(openForRead(env, { handle: row.handle, userId: "su2" })).rejects.toThrow(/handle_invalid/);
     await openForRead(env, { handle: row.handle, userId: "su" });
     expect(await ack(env, { handle: row.handle, userId: "su" })).toBe(true);
-    expect(await ack(env, { handle: row.handle, userId: "su" })).toBe(false);
+    expect(await ack(env, { handle: row.handle, userId: "su" })).toBe(true);
     await expect(openForRead(env, { handle: row.handle, userId: "su" })).rejects.toThrow(/handle_invalid/);
     const stale = await down("stale.txt", bytes(1));
     await env.DB.prepare("UPDATE staging_objects SET expires_at = 1 WHERE handle = ?").bind(stale.handle).run();

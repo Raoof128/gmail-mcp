@@ -176,10 +176,11 @@ reached Gmail and we never recorded the answer" is a real state that deserves a 
 Handles are 32 random bytes, non-enumerable, and carry no Google identifiers. Objects live in R2 with a
 30-minute TTL and metadata in D1.
 
-Ingest validates before it writes: the body is read to completion, length-checked and hashed before
-anything reaches R2. Streaming straight through was tried first. A wrong declared length aborts the
-in-flight upload, leaves a partial object behind, and surfaces as an unhandled rejection. Buffering is
-bounded by the 25 MB cap against a 128 MB isolate, and in exchange no failure path can orphan an object.
+Uploads use an owner-bound transfer and at most three ticket generations. D1 reserves capacity before admission. The Worker counts and hashes bytes before writing the deterministic R2 key, then publishes a handle only through a transaction that checks the current generation, lease and account credential version.
+
+R2 writes and D1 commits are separate. A rejected or expired writer leaves cleanup debt. The Worker releases that charge only after writer termination and deletion; an absent object or elapsed timer is insufficient. Existing Gmail attachment materialization shares the upload buffer admission limit and reserves retained-byte capacity before fetching data.
+
+Download GET admits a bounded lease before opening R2. Purge claims the row before deletion, and ACK records a seven-day owner-bound tombstone independent of the object row.
 
 Reservation, consumption and release are separate steps so a crash mid-send leaves handles reserved rather
 than reusable, and the scheduled job releases them only when it can prove the operation never started.
@@ -215,12 +216,19 @@ must never undermine idempotency.
 
 `worker/src/cron.ts`
 
-Every five minutes it expires stale approvals, promote operations stuck in `executing` to
-`delivery_unknown`, and recover ones stuck in `claimed`, which by construction never opened a request.
+Every five minutes cron expires stale approvals and recovers Gmail operations. Upload operations use separate recovery: expired generations lose publication authority, while unknown writers retain cleanup debt.
 
 Recovery is one transaction with an assertion, so an operation that progressed between the query and the
 recovery is left alone. Without that, the job could release attachments out from under a send that was
 still in flight.
+
+## Local companion
+
+`companion/src/` contains the stdio tools, HTTPS adapter and loopback PKCE login. `companion/native/` contains the Swift helper with Darwin filesystem calls, SQLite and Security.framework.
+
+The helper reads owner-only configuration and holds a permanent process lock during each transaction. Tool arguments name logical root IDs and relative paths. Snapshots precede remote intent creation, and request keys include the authenticated Worker owner, origin and client ID. Repeated calls recover the original snapshot and result. A new explicit idempotency key requests a fresh snapshot.
+
+For saves, the helper records the temporary path and inode before publication. Exclusive rename prevents replacement. Recovery verifies the destination identity and hash before ACK; missing or changed evidence produces `publication_unknown`. The journal reserves snapshot and save capacity across helper processes. Logout persists an epoch change before deleting the Keychain item.
 
 ## Technology choices
 
@@ -229,7 +237,7 @@ still in flight.
 | Cloudflare Workers    | Remote by requirement, so the server works from claude.ai and mobile, not only a laptop           |
 | D1                    | Transactional batches and real constraints, which is what the ownership and claim invariants need |
 | R2                    | Attachment bytes are large, short-lived and do not belong in a row                                |
-| KV                    | Only OAuth and CSRF state, where the TTL semantics fit                                            |
+| KV                    | OAuth client and grant storage; one-use web state remains in D1                                   |
 | Stateless MCP handler | Matches the 2026-07-28 protocol revision and suits a Worker with no sticky sessions               |
 
 The Workers Paid plan is assumed: the free plan's 10 ms CPU limit is not enough to hash a 25 MB

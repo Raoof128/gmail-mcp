@@ -1,3 +1,6 @@
+import { withMaterialization, type Materialization } from "./materialization";
+import { byteQuota, accountAssert, assertion } from "./transfers";
+import { leasedDownload, acknowledgeDownload } from "./downloads";
 import { GmailMcpError } from "@gmail-mcp/shared/errors";
 import type { Env } from "../env";
 import { sha256Hex } from "../crypto/canonical";
@@ -59,6 +62,7 @@ async function readExactly(body: ReadableStream<Uint8Array>, length: number): Pr
 export async function ingest(
   env: Env,
   o: {
+    materialization?: Materialization;
     userId: string;
     accountId: string;
     direction: "download" | "upload";
@@ -70,6 +74,8 @@ export async function ingest(
     source?: { messageId: string; attachmentId: string };
   },
 ): Promise<StagingRow> {
+  if (!o.materialization)
+    return withMaterialization(env, async (materialization) => ingest(env, { ...o, materialization }));
   const filename = sanitizeFilename(o.filename);
   // The blocked list describes what Gmail refuses to send, so it gates uploads only, never
   // attachments the owner is saving to their own disk.
@@ -81,42 +87,67 @@ export async function ingest(
     );
   }
 
-  // Validate the bytes fully before touching storage, so no failure path can orphan an object.
-  const bytes = await readExactly(o.body, o.length);
-  const sha256 = await sha256Hex(bytes);
-  if (o.declaredSha256 && o.declaredSha256.toLowerCase() !== sha256) {
-    throw new GmailMcpError("handle_invalid", "handle_invalid: declared sha256 mismatch");
-  }
-
   const handle = randomHandle();
   const r2Key = `stg/${o.userId}/${handle}`;
-  await env.STAGING.put(r2Key, bytes, { httpMetadata: { contentType: o.mime } });
-
-  const now = Date.now();
-  const row: StagingRow = {
-    handle,
-    user_id: o.userId,
-    account_id: o.accountId,
-    direction: o.direction,
-    r2_key: r2Key,
-    filename,
-    mime: o.mime,
-    size: o.length,
-    sha256,
-    source_message_id: o.source?.messageId ?? null,
-    source_attachment_id: o.source?.attachmentId ?? null,
-    reserved_by_operation_id: null,
-    created_at: now,
-    expires_at: now + DOWNLOAD_TTL_MS,
-    consumed_at: null,
-  };
+  const account = await env.DB.prepare(
+    "SELECT credential_version FROM accounts WHERE id=? AND user_id=? AND status='active'",
+  )
+    .bind(o.accountId, o.userId)
+    .first<{ credential_version: number }>();
+  if (!account) throw new GmailMcpError("account_needs_reconnect", "account_needs_reconnect");
+  await env.DB.batch([
+    env.DB.prepare("UPDATE staging_materializations SET reserved_bytes=0 WHERE id=?").bind(o.materialization.id),
+    ...byteQuota(env.DB, o.userId, o.length),
+    assertion(env.DB, "(SELECT count(*) FROM staging_ingests)<2000"),
+    assertion(env.DB, "EXISTS(SELECT 1 FROM staging_materializations WHERE id=? AND lease_until>?)", [
+      o.materialization.id,
+      Date.now(),
+    ]),
+    env.DB.prepare(
+      "INSERT INTO staging_ingests(id,user_id,account_id,r2_key,reserved_bytes,lease_until,state) VALUES(?,?,?,?,?,?,'active')",
+    ).bind(handle, o.userId, o.accountId, r2Key, o.length, o.materialization.until),
+  ]);
+  let putStarted = false,
+    putReturned = false;
   try {
-    await env.DB.prepare(
-      `INSERT INTO staging_objects (handle, user_id, account_id, direction, r2_key, filename, mime, size, sha256,
+    const bytes = await readExactly(o.body, o.length);
+    const sha256 = await sha256Hex(bytes);
+    if (o.declaredSha256 && o.declaredSha256.toLowerCase() !== sha256)
+      throw new GmailMcpError("handle_invalid", "handle_invalid: declared sha256 mismatch");
+    if (Date.now() >= o.materialization.until)
+      throw new GmailMcpError("handle_expired", "handle_expired: materialization");
+    putStarted = true;
+    await env.STAGING.put(r2Key, bytes, { httpMetadata: { contentType: o.mime } });
+    putReturned = true;
+    const now = Date.now();
+    const row: StagingRow = {
+      handle,
+      user_id: o.userId,
+      account_id: o.accountId,
+      direction: o.direction,
+      r2_key: r2Key,
+      filename,
+      mime: o.mime,
+      size: o.length,
+      sha256,
+      source_message_id: o.source?.messageId ?? null,
+      source_attachment_id: o.source?.attachmentId ?? null,
+      reserved_by_operation_id: null,
+      created_at: now,
+      expires_at: now + DOWNLOAD_TTL_MS,
+      consumed_at: null,
+    };
+    await env.DB.batch([
+      accountAssert(env.DB, o.userId, o.accountId, account.credential_version),
+      assertion(env.DB, "EXISTS(SELECT 1 FROM staging_ingests WHERE id=? AND state='active' AND lease_until>?)", [
+        handle,
+        Date.now(),
+      ]),
+      env.DB.prepare(
+        `INSERT INTO staging_objects (handle, user_id, account_id, direction, r2_key, filename, mime, size, sha256,
          source_message_id, source_attachment_id, created_at, expires_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-      .bind(
+      ).bind(
         row.handle,
         row.user_id,
         row.account_id,
@@ -130,14 +161,26 @@ export async function ingest(
         row.source_attachment_id,
         row.created_at,
         row.expires_at,
-      )
-      .run();
+      ),
+      env.DB.prepare("UPDATE staging_ingests SET state='published',writer_stopped=1 WHERE id=?").bind(handle),
+    ]);
+    return row;
   } catch (e) {
-    // The metadata row is the record of existence. Without it the object is unreachable, so drop it.
-    await env.STAGING.delete(r2Key).catch(() => {});
+    if (await env.DB.prepare("SELECT handle FROM staging_objects WHERE handle=?").bind(handle).first()) throw e;
+    const stopped = !putStarted || putReturned;
+    await env.DB.prepare("UPDATE staging_ingests SET state='debt',writer_stopped=? WHERE id=? AND state!='published'")
+      .bind(stopped ? 1 : 0, handle)
+      .run();
+    if (stopped) {
+      if (putReturned) await env.STAGING.delete(r2Key);
+      await env.DB.prepare(
+        "UPDATE staging_ingests SET state='released' WHERE id=? AND state='debt' AND writer_stopped=1",
+      )
+        .bind(handle)
+        .run();
+    }
     throw e;
   }
-  return row;
 }
 
 /** Download handles only: a staging bearer must never read back an upload it did not create. */
@@ -145,27 +188,10 @@ export async function openForRead(
   env: Env,
   o: { handle: string; userId: string },
 ): Promise<{ row: StagingRow; body: ReadableStream }> {
-  const row = await env.DB.prepare(
-    "SELECT * FROM staging_objects WHERE handle = ? AND user_id = ? AND direction = 'download' AND consumed_at IS NULL",
-  )
-    .bind(o.handle, o.userId)
-    .first<StagingRow>();
-  if (!row) throw new GmailMcpError("handle_invalid", "handle_invalid");
-  if (row.expires_at <= Date.now()) throw new GmailMcpError("handle_expired", "handle_expired");
-  const obj = await env.STAGING.get(row.r2_key);
-  if (!obj) throw new GmailMcpError("handle_invalid", "handle_invalid: object missing");
-  return { row, body: obj.body };
+  return leasedDownload(env, o.userId, o.handle);
 }
-
-/** Acknowledges a completed local write. Re-reads are allowed until this lands. */
 export async function ack(env: Env, o: { handle: string; userId: string }): Promise<boolean> {
-  const now = Date.now();
-  const res = await env.DB.prepare(
-    "UPDATE staging_objects SET consumed_at = ? WHERE handle = ? AND user_id = ? AND direction = 'download' AND consumed_at IS NULL AND expires_at > ?",
-  )
-    .bind(now, o.handle, o.userId, now)
-    .run();
-  return (res.meta.changes ?? 0) === 1;
+  return (await acknowledgeDownload(env, o.userId, o.handle)) !== null;
 }
 
 /** Holds referenced handles open while an approval is pending. Only ever raises the expiry. */
@@ -190,7 +216,7 @@ export function reserveStatements(
       .prepare(
         `UPDATE staging_objects SET reserved_by_operation_id = ?
          WHERE handle IN (${o.handles.map(() => "?").join(",")}) AND user_id = ? AND account_id = ? AND direction = 'upload'
-           AND consumed_at IS NULL AND reserved_by_operation_id IS NULL AND expires_at > ?`,
+           AND consumed_at IS NULL AND reserved_by_operation_id IS NULL AND cleanup_state='available' AND expires_at > ?`,
       )
       .bind(o.operationId, ...o.handles, o.userId, o.accountId, o.now),
     db
@@ -211,7 +237,7 @@ export function extendExpiryStatement(
   if (handles.length === 0) return null;
   return db
     .prepare(
-      `UPDATE staging_objects SET expires_at = MAX(expires_at, ?) WHERE handle IN (${handles.map(() => "?").join(",")}) AND user_id = ? AND account_id = ?`,
+      `UPDATE staging_objects SET expires_at = MAX(expires_at, ?) WHERE handle IN (${handles.map(() => "?").join(",")}) AND user_id = ? AND account_id = ? AND cleanup_state='available'`,
     )
     .bind(until, ...handles, userId, accountId);
 }
@@ -264,16 +290,24 @@ export async function release(db: D1Database, operationId: string): Promise<void
 
 /** Collects expired or consumed objects that no operation is holding. Bounded per run. */
 export async function purgeExpired(env: Env, now: number, limit = 200): Promise<{ deleted: number }> {
-  const rows = await env.DB.prepare(
-    `SELECT handle, r2_key FROM staging_objects
-     WHERE (expires_at <= ? OR consumed_at IS NOT NULL) AND reserved_by_operation_id IS NULL LIMIT ?`,
+  const candidates = await env.DB.prepare(
+    "SELECT handle,r2_key FROM staging_objects WHERE ((expires_at<=? OR consumed_at IS NOT NULL) AND reserved_by_operation_id IS NULL AND COALESCE(download_lease_until,0)<=?) OR cleanup_state='deleting' LIMIT ?",
   )
-    .bind(now, limit)
+    .bind(now, now, limit)
     .all<{ handle: string; r2_key: string }>();
-  if (rows.results.length === 0) return { deleted: 0 };
-  await env.STAGING.delete(rows.results.map((r) => r.r2_key));
-  await env.DB.batch(
-    rows.results.map((r) => env.DB.prepare("DELETE FROM staging_objects WHERE handle = ?").bind(r.handle)),
-  );
-  return { deleted: rows.results.length };
+  let deleted = 0;
+  for (const row of candidates.results) {
+    const claimed = await env.DB.prepare(
+      "UPDATE staging_objects SET cleanup_state='deleting' WHERE handle=? AND reserved_by_operation_id IS NULL AND COALESCE(download_lease_until,0)<=? AND (expires_at<=? OR consumed_at IS NOT NULL OR cleanup_state='deleting') RETURNING handle",
+    )
+      .bind(row.handle, now, now)
+      .first();
+    if (!claimed) continue;
+    await env.STAGING.delete(row.r2_key);
+    const result = await env.DB.prepare("DELETE FROM staging_objects WHERE handle=? AND cleanup_state='deleting'")
+      .bind(row.handle)
+      .run();
+    deleted += result.meta.changes ?? 0;
+  }
+  return { deleted };
 }

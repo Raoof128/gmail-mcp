@@ -486,6 +486,9 @@ export async function executePending(t: ToolContext, pendingId: string): Promise
   const userId = t.principal.userId;
   const before = await getPending(db, pendingId, userId);
   if (!before) throw new GmailMcpError("pending_not_approved", "pending_not_approved: unknown");
+  // Staging approvals are consumed only by the owner-bound transfer protocol.
+  if (before.action === "attachment.stage_upload")
+    throw new GmailMcpError("pending_not_approved", "pending_not_approved: resume this transfer through the companion");
   const account = await accountById(t.env, userId, before.account_id);
 
   const { operationId, pending } = await claimPending(db, { id: pendingId, userId });

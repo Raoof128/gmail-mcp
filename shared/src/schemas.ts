@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ACTIONS, MODIFIERS } from "./actions";
+import { ACTIONS, MODIFIERS } from "./actions.ts";
 
 export const AccountAlias = z.string().regex(/^[a-z0-9_-]{1,32}$/);
 export const StagingHandle = z.string().regex(/^sh_[A-Za-z0-9_-]{43}$/);
