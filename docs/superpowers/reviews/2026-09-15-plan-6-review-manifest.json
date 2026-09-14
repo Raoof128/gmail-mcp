@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "review_date": "2026-09-15",
+  "reviewed_commit": "ac4eb0c8de666c4e97417dacfe8bab8566b99d3d",
+  "runtime_baseline": "f8a7c86363640c01453ac05a0e3a33838c83933f",
+  "reviewed_lines": 335,
+  "open_findings": {
+    "P1": 4,
+    "P2": 2
+  },
+  "files": [
+    {
+      "path": "docs/superpowers/plans/2026-09-15-gmail-mcp-plan-6-closure-and-qualification.md",
+      "sha256": "6d37bb6d63c95bf6059f71926fd3cd8a9dffacf2a02ec6e342ee588d6a4ca51f",
+      "bytes": 33617
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-15-gmail-mcp-plan-6-closure-design.md",
+      "sha256": "4bdac00a66e882e07944f1e80ae020518ad62865d5de2092fb135644578a8e46",
+      "bytes": 13333
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-15-gmail-mcp-deferred-feature-register.md",
+      "sha256": "1a4710d68ccac789433d929f56ef0b5462f0e1c8ada80112b602a8804ad32222",
+      "bytes": 6712
+    },
+    {
+      "path": "docs/superpowers/reviews/2026-09-15-plan-6-gauntlet.md",
+      "sha256": "221aa3aee6f878f15e4bd8f879db4d1938b07e0be3264dedb5e2cefbe511493a",
+      "bytes": 17236
+    },
+    {
+      "path": "docs/superpowers/reviews/2026-09-15-plan-6-review-probes.py",
+      "sha256": "3e36fc46efdcfa17ff575f532596bd815a89b9ca1deee13d02fd91150d0c9789",
+      "bytes": 3798
+    },
+    {
+      "path": "docs/superpowers/reviews/2026-09-15-plan-6-line-review.csv",
+      "sha256": "80a690c2210df4b82dd67d91b04347f515a19c3a6cbc4d49230e9aba47986883",
+      "bytes": 55441
+    }
+  ]
+}
