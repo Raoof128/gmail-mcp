@@ -1,0 +1,35 @@
+{
+  "revision": 3,
+  "baseline": "6e78bc548c97bbe5194e3f780c717e5519930c1a",
+  "scope": "planning-only",
+  "files": {
+    "docs/superpowers/specs/2026-09-13-gmail-mcp-plan-5-recovery-design.md": {
+      "sha256": "9ae239f4b1c6f12fb4a6da2ce41c5cc8f5c403741647247c2f66908591ede7c0",
+      "lines": 95
+    },
+    "docs/superpowers/plans/2026-09-13-gmail-mcp-plan-5-recovery-and-release.md": {
+      "sha256": "d60e6099c184874a618e02f8f0238a3d042a5f2414a9f9b684d3efd365778acf",
+      "lines": 164
+    },
+    "docs/superpowers/plans/2026-09-13-plan-5-contracts.md": {
+      "sha256": "752c40e951daf50f73162a9324076f6e906e6129d1fdb3259f835a6dee6561a9",
+      "lines": 347
+    },
+    "docs/superpowers/reviews/2026-09-13-plan-5-revision3-resolution.md": {
+      "sha256": "c05fa9652e2e44345f68fce8b3f8d0e8c187bd6a520997babc30ca09f267444e",
+      "lines": 66
+    },
+    "docs/superpowers/reviews/2026-09-13-plan-5-revision3-review-bundle.md": {
+      "sha256": "1f61bf64b30591a6bde73095456e03d9e4e64b582ea141a020868fa0ca2fcbc6",
+      "lines": 703
+    },
+    "docs/superpowers/reviews/2026-09-13-plan-5-writer-inventory.csv": {
+      "sha256": "11990854f4b0dd41835d27e7740787019c7c56de229ba007ccb0dd431db1cbca",
+      "lines": 182
+    },
+    "docs/superpowers/reviews/2026-09-13-plan-5-conformance.py": {
+      "sha256": "f81625bf10af9fdfa298b809b057f9fe21a4caaaa65a8f3cc439090693501c81",
+      "lines": 298
+    }
+  }
+}

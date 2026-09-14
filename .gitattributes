@@ -7,3 +7,7 @@
 
 package-lock.json linguist-generated=true -diff
 worker/worker-configuration.d.ts linguist-generated=true -diff
+
+# Historical review manifests hash the original CSV bytes, including CRLF.
+docs/superpowers/reviews/2026-09-13-plan-5-line-review.csv -text whitespace=cr-at-eol
+docs/superpowers/reviews/2026-09-13-plan-5-writer-inventory.csv -text whitespace=cr-at-eol
