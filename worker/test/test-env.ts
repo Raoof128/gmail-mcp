@@ -16,6 +16,9 @@ export function testEnv(overrides: Record<string, unknown> = {}): Env {
   delete copy.DEV_STATIC_USER;
   return {
     ...copy,
+    BUILD_ID: "test-build",
+    RESTORE_GENERATION: "test-generation",
+    RECOVERY_PROFILE: "normal",
     TOKEN_KEKS: JSON.stringify({ k1: K }),
     TOKEN_KEK_CURRENT: "k1",
     STATE_HMAC_KEY: K,

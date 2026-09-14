@@ -114,7 +114,7 @@ export async function recoverUploads(env: Env, now: number, limit = 200): Promis
       .bind(now),
     db
       .prepare(
-        "DELETE FROM upload_generations WHERE EXISTS(SELECT 1 FROM upload_transfers t WHERE t.user_id=upload_generations.user_id AND t.id=upload_generations.transfer_id AND t.retain_until<=? AND t.state IN ('completed','failed','expired','denied') AND NOT EXISTS(SELECT 1 FROM upload_generations g WHERE g.user_id=t.user_id AND g.transfer_id=t.id AND g.cleanup_state IN ('debt','deleting','reserved')))",
+        "DELETE FROM upload_generations WHERE NOT EXISTS(SELECT 1 FROM staging_objects s WHERE s.r2_key=upload_generations.r2_key) AND EXISTS(SELECT 1 FROM upload_transfers t WHERE t.user_id=upload_generations.user_id AND t.id=upload_generations.transfer_id AND t.retain_until<=? AND t.state IN ('completed','failed','expired','denied') AND NOT EXISTS(SELECT 1 FROM upload_generations g WHERE g.user_id=t.user_id AND g.transfer_id=t.id AND g.cleanup_state IN ('debt','deleting','reserved')))",
       )
       .bind(now),
     db

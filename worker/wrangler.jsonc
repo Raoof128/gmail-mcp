@@ -4,7 +4,12 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
-  "vars": { "WORKER_HOSTNAME": "gmail-mcp.example.workers.dev" },
+  "vars": {
+    "WORKER_HOSTNAME": "gmail-mcp.example.workers.dev",
+    "RECOVERY_PROFILE": "normal",
+    "RESTORE_GENERATION": "uninstalled",
+  },
+  "version_metadata": { "binding": "WORKER_VERSION" },
   "d1_databases": [
     { "binding": "DB", "database_name": "gmail-mcp", "database_id": "local-dev", "migrations_dir": "migrations" },
   ],

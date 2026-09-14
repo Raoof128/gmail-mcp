@@ -1,7 +1,10 @@
+import { assertInstallation } from "../operations/installation";
 import { GmailMcpError } from "@gmail-mcp/shared/errors";
 import type { Deps } from "../deps";
 import type { Env } from "../env";
-import { getAccessToken } from "./tokens";
+import { validateSessionUrl } from "./resumable";
+import type { UploadEndpoint } from "../operations/recovery-types";
+import { getAccessToken, getAccessTokenPinned } from "./tokens";
 
 export const GMAIL = {
   api: "https://gmail.googleapis.com/gmail/v1/users/me/",
@@ -18,6 +21,7 @@ export type Upload =
   | { kind: "media"; contentType: string; bytes: Uint8Array }
   | { kind: "multipart"; contentType: string; bytes: Uint8Array; metadata: Record<string, unknown> };
 export type GmailRequest = {
+  expectedCredentialVersion?: number | undefined;
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   path: string;
   query?: Record<string, string | string[] | number | boolean | undefined>;
@@ -150,14 +154,22 @@ function plainTarget(o: GmailRequest) {
  * with a body that may have reached Gmail is never re-sent, and the caller decides what the failure means.
  */
 export async function gmailFetch(env: Env, deps: Deps, acct: GmailAccount, o: GmailRequest): Promise<Response> {
-  let token = await getAccessToken(env, deps, acct.userId, acct.accountId);
+  const acquire = (forceRefresh: boolean) =>
+    o.expectedCredentialVersion === undefined
+      ? getAccessToken(env, deps, acct.userId, acct.accountId, { forceRefresh })
+      : getAccessTokenPinned(env, deps, acct.userId, acct.accountId, {
+          expectedVersion: o.expectedCredentialVersion,
+          forceRefresh,
+        });
+  let token = await acquire(false);
   let refreshed = false;
   for (let attempt = 1; ; attempt++) {
+    await assertInstallation(env);
     const res = await once(deps, token, o, plainTarget(o));
     if (res.ok) return res;
-    if (res.status === 401 && !refreshed) {
+    if (res.status === 401 && !refreshed && o.retry === "safe") {
       refreshed = true;
-      token = await getAccessToken(env, deps, acct.userId, acct.accountId, { forceRefresh: true });
+      token = await acquire(true);
       continue;
     }
     const transient = (await isRateLimited(res)) || res.status >= 500;
@@ -185,12 +197,19 @@ export async function openResumableSession(
   env: Env,
   deps: Deps,
   acct: GmailAccount,
-  o: { path: string; contentType: string; length: number; metadata?: Record<string, unknown> },
+  o: {
+    path: string;
+    contentType: string;
+    length: number;
+    metadata?: Record<string, unknown>;
+    expectedCredentialVersion?: number | undefined;
+  },
 ): Promise<string> {
   const res = await gmailFetch(env, deps, acct, {
     method: "POST",
     path: o.path,
     base: "resumable",
+    expectedCredentialVersion: o.expectedCredentialVersion,
     query: { uploadType: "resumable" },
     headers: { "x-upload-content-type": o.contentType, "x-upload-content-length": String(o.length) },
     json: o.metadata ?? {},
@@ -207,15 +226,37 @@ export async function putResumable(
   deps: Deps,
   acct: GmailAccount,
   sessionUrl: string,
-  o: { contentType: string; length: number; body: ReadableStream<Uint8Array> },
+  o: {
+    expectedCredentialVersion?: number | undefined;
+    endpoint: UploadEndpoint;
+    contentType: string;
+    length: number;
+    body: ReadableStream<Uint8Array>;
+  },
 ): Promise<Response> {
-  const token = await getAccessToken(env, deps, acct.userId, acct.accountId);
-  const res = await deps.googleFetch(sessionUrl, {
-    method: "PUT",
-    headers: { authorization: `Bearer ${token}`, "content-type": o.contentType },
-    body: o.body.pipeThrough(new FixedLengthStream(o.length)),
-  });
+  validateSessionUrl(sessionUrl, o.endpoint);
+  await assertInstallation(env);
+  const token =
+    o.expectedCredentialVersion === undefined
+      ? await getAccessToken(env, deps, acct.userId, acct.accountId)
+      : await getAccessTokenPinned(env, deps, acct.userId, acct.accountId, {
+          expectedVersion: o.expectedCredentialVersion,
+          forceRefresh: false,
+        });
+  // Token refresh may yield across a maintenance transition. Recheck before byte admission.
+  await assertInstallation(env);
+  const res = await deps
+    .googleFetch(sessionUrl, {
+      redirect: "manual",
+      method: "PUT",
+      headers: { authorization: `Bearer ${token}`, "content-type": o.contentType },
+      body: o.body.pipeThrough(new FixedLengthStream(o.length)),
+    })
+    .catch(() => {
+      throw new GmailApiError(0, "resumable transport failed", null);
+    });
   if (res.ok) return res;
-  const { message, reason } = await readError(res);
-  throw new GmailApiError(res.status, message, reason);
+  // A session URI may appear in provider error text; never relay that body.
+  await res.body?.cancel();
+  throw new GmailApiError(res.status, "resumable request failed", null);
 }

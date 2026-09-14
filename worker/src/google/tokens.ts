@@ -55,10 +55,17 @@ export async function getAccessToken(
   deps: Deps,
   userId: string,
   accountId: string,
-  o: { forceRefresh?: boolean } = {},
+  o: { forceRefresh?: boolean; expectedVersion?: number } = {},
 ): Promise<string> {
   const row = await load(env.DB, userId, accountId);
   if (row.status !== "active") throw reconnect(row.status);
+  if (o.expectedVersion !== undefined && row.credential_version !== o.expectedVersion) throw reconnect("grant changed");
+  const checkPinned = async () => {
+    if (o.expectedVersion === undefined) return;
+    const current = await load(env.DB, userId, accountId);
+    if (current.status !== "active" || current.credential_version !== o.expectedVersion)
+      throw reconnect("grant changed");
+  };
   const ring = Keyring.fromEnv(env);
   const now = Date.now();
 
@@ -94,6 +101,7 @@ export async function getAccessToken(
         userId,
       );
     }
+    await checkPinned();
     return token;
   }
 
@@ -103,6 +111,7 @@ export async function getAccessToken(
     accountId,
     field: "refresh_token",
   });
+  await checkPinned();
   const result = await refreshAccessToken(env, deps, refresh);
   if (result === "invalid_grant") {
     // Same guard: if the account was revoked meanwhile, leave the revoked row exactly as it is.
@@ -127,6 +136,7 @@ export async function getAccessToken(
     row,
     userId,
   );
+  await checkPinned();
   return result.access_token;
 }
 
@@ -160,4 +170,17 @@ export async function revokeAccount(env: Env, deps: Deps, userId: string, accoun
     return;
   }
   throw new GmailMcpError("internal", "revoke lost three races with concurrent credential writes");
+}
+
+/** credential_version identifies a grant; refreshing its access token never advances it. */
+export function getAccessTokenPinned(
+  env: Env,
+  deps: Deps,
+  userId: string,
+  accountId: string,
+  options: { expectedVersion: number; forceRefresh: boolean },
+): Promise<string> {
+  if (!Number.isSafeInteger(options.expectedVersion) || options.expectedVersion < 0)
+    throw reconnect("invalid grant version");
+  return getAccessToken(env, deps, userId, accountId, options);
 }

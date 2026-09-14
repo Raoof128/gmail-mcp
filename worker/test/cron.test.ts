@@ -1,3 +1,4 @@
+import { testEnv } from "./test-env";
 import { env } from "cloudflare:test";
 import { describe, it, expect, beforeAll } from "vitest";
 import { seedUserAndAccount, insertOperation } from "./fixtures";
@@ -48,7 +49,7 @@ describe("cron", () => {
       await insertOperation(env.DB, id, "ku", "ka", state, Date.now() - 600_000);
       await env.DB.prepare("UPDATE operations SET action='attachment.stage_upload' WHERE id=?").bind(id).run();
     }
-    await runCron(env, Date.now());
+    await runCron(testEnv(), Date.now());
     expect(await env.DB.prepare("SELECT state FROM operations WHERE id='op_upload_claimed'").first()).toEqual({
       state: "claimed",
     });
@@ -83,7 +84,7 @@ describe("cron", () => {
       .bind(Date.now() - 91 * 86_400_000)
       .run();
 
-    const report = await runCron(env, Date.now());
+    const report = await runCron(testEnv(), Date.now());
     expect(report.expiredPending).toBeGreaterThanOrEqual(1);
     expect(report.promotedUnknown).toBeGreaterThanOrEqual(1);
     expect(report.failedSafe).toBeGreaterThanOrEqual(1);

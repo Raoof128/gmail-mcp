@@ -149,10 +149,9 @@ approved for.
 first, because opening one moves no bytes and may be retried, and only then does the operation move to
 `executing` and the PUT open.
 
-A 4xx is Gmail's definitive no: `failed_safe`, reservations released, the error surfaced verbatim.
-Anything else after the upload opened leaves the row `executing`; the cron promotes it to
-`delivery_unknown` and the tool reports the same, with the instruction never to retry automatically.
-Reconciliation waits for Plan 5's Message-ID preservation gate.
+New send-message, reply, forward and send-draft operations persist a protocol-2 binding before bytes are admitted. Generated-message sends may qualify for exact Message-ID search or zero-body resumable status observations. Draft sends remain manual. Once admitted, an error of any HTTP class preserves an unknown delivery outcome and holds its idempotency key; a 401 never repeats the original MIME request.
+
+Positive evidence and direct replies share one guarded settlement transaction. D1 permits enforce one operation transition and one matching audit, while compatibility triggers reject legacy writers on protocol-2 rows. The first result identity and label set survive replay, metadata expiry and storage cleanup. See the [release qualification runbook](runbooks/release-qualification.md) for the current live boundary.
 
 ### Operation journal
 
@@ -216,11 +215,11 @@ must never undermine idempotency.
 
 `worker/src/cron.ts`
 
-Every five minutes cron expires stale approvals and recovers Gmail operations. Upload operations use separate recovery: expired generations lose publication authority, while unknown writers retain cleanup debt.
+Every five minutes cron handles legacy maintenance separately from protocol-2 delivery observation. Qualified observations use durable leases, per-window attempt limits and both scheduled-window and actual rolling-time HTTP budgets. Refreshes and retries consume the same request budget. Eligibility and per-account ordering precede the candidate limit so blocked work cannot hide another account.
 
-Recovery is one transaction with an assertion, so an operation that progressed between the query and the
-recovery is left alone. Without that, the job could release attachments out from under a send that was
-still in flight.
+Session ciphertext expires at the 24-hour observation horizon or on disable/revoke. Recovery metadata expires after seven days without deleting operation truth or idempotency bindings. Published producer records remain while their staging objects exist, allowing safe cleanup after a late delivery receipt. Unknown producers retain cleanup debt.
+
+Every mutation ingress, network admission and protocol-2 settlement checks the installation's external restore generation. Time Travel remains quarantined because an older snapshot may have lost sent operations and keys. Restoring an active flag does not authorize resuming service.
 
 ## Local companion
 

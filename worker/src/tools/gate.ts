@@ -16,6 +16,8 @@ import {
 import { APPROVAL_STATE_VERSION, type ApprovalState } from "../approval/state";
 import { canonicalize, hashCanonical } from "../crypto/canonical";
 import { randomId } from "../crypto/random";
+import { operationFor, recordFailure, settleDirect, sendResult } from "../operations/recovery-state";
+import type { SendRecoveryContext } from "../operations/send";
 import { GmailApiError } from "../google/gmail";
 import { insertOperationStatement } from "../operations/journal";
 import { decide } from "../policy/engine";
@@ -48,6 +50,7 @@ export function roundOf(ctx: ServerContext, codec: RequestStateCodec<ApprovalSta
 export type ToolContext = { env: Env; deps: Deps; principal: Principal; urlElicitation: boolean; round: Round };
 
 export type ExecRun = {
+  recoveryContext?: SendRecoveryContext | undefined;
   userId: string;
   account: AccountRef;
   payload: Record<string, unknown>;
@@ -413,8 +416,41 @@ export async function runExecutor(t: ToolContext, run: ExecutorRun): Promise<Rec
       payload: run.payload,
       operationId: run.operationId,
       pendingId: run.pendingId,
+      ...(run.tool === "send_message" || run.tool === "reply" || run.tool === "forward" || run.tool === "send_draft"
+        ? {
+            recoveryContext: {
+              executor: run.tool,
+              pendingId: run.pendingId,
+              audit: {
+                action: run.action,
+                modifiers: run.modifiers,
+                recipients: run.facts.recipients ?? 0,
+                attachments: run.facts.attachments ?? 0,
+              },
+            },
+          }
+        : {}),
     });
   } catch (e) {
+    const recovery = run.operationId ? await operationFor(db, run.operationId) : null;
+    if (recovery?.settlement_protocol === 2) {
+      const state = await recordFailure(t.env, recovery.id);
+      if (state === "executed") {
+        const winner = await operationFor(db, recovery.id);
+        return {
+          status: "executed",
+          account: run.account.alias,
+          operation_id: recovery.id,
+          replayed: true,
+          ...sendResult.parse(JSON.parse(winner!.result_json!)),
+        };
+      }
+      throw new GmailMcpError(
+        "delivery_unknown",
+        "delivery_unknown: The Gmail request may have succeeded. Do not retry automatically.",
+        { operation_id: recovery.id },
+      );
+    }
     const state = run.operationId
       ? (await db.prepare("SELECT state FROM operations WHERE id = ?").bind(run.operationId).first<{ state: string }>())
           ?.state
@@ -443,6 +479,39 @@ export async function runExecutor(t: ToolContext, run: ExecutorRun): Promise<Rec
     }
     await settleFailedSafe(db, { operationId: run.operationId, pendingId: run.pendingId, audit, error: err.code });
     throw err;
+  }
+  const recovery = run.operationId ? await operationFor(db, run.operationId) : null;
+  if (recovery?.settlement_protocol === 2) {
+    const receipt = sendResult.safeParse(out);
+    if (!receipt.success) {
+      await recordFailure(t.env, recovery.id);
+      throw new GmailMcpError(
+        "delivery_unknown",
+        "delivery_unknown: Invalid delivery receipt. Do not retry automatically.",
+        { operation_id: recovery.id },
+      );
+    }
+    try {
+      const outcome = await settleDirect(t.env, recovery.id, receipt.data);
+      const winner = await operationFor(db, recovery.id);
+      return {
+        status: "executed",
+        account: run.account.alias,
+        operation_id: recovery.id,
+        ...(run.pendingId ? { action_id: run.pendingId } : {}),
+        ...(outcome !== "settled" ? { replayed: true } : {}),
+        ...(outcome === "conflict" ? { receipt_conflict: true } : {}),
+        ...sendResult.parse(JSON.parse(winner!.result_json!)),
+      };
+    } catch {
+      return {
+        status: "executed",
+        account: run.account.alias,
+        operation_id: recovery.id,
+        ...out,
+        local_settlement_failed: true,
+      };
+    }
   }
   const gmailResultId = typeof out.gmail_result_id === "string" ? out.gmail_result_id : null;
   const result: Record<string, unknown> = {

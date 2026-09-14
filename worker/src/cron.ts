@@ -1,3 +1,4 @@
+import { assertInstallation } from "./operations/installation";
 import { recoverUploads } from "./staging/recovery";
 import type { Env } from "./env";
 import { purgeExpired } from "./staging/store";
@@ -24,7 +25,7 @@ export async function recoverClaimed(db: D1Database, operationId: string, now: n
     await db.batch([
       db
         .prepare(
-          `UPDATE operations SET state = 'failed_safe', updated_at = ? WHERE id = ? AND state = 'claimed' AND action != 'attachment.stage_upload'`,
+          `UPDATE operations SET state = 'failed_safe', updated_at = ? WHERE id = ? AND settlement_protocol=1 AND state = 'claimed' AND action != 'attachment.stage_upload'`,
         )
         .bind(now, operationId),
       db
@@ -50,22 +51,23 @@ export async function recoverClaimed(db: D1Database, operationId: string, now: n
 }
 
 export async function runCron(env: Env, now: number, limit = 200): Promise<CronReport> {
+  await assertInstallation(env);
   const expired = await env.DB.prepare(
     `UPDATE pending_actions SET state = 'expired', payload_json = NULL, summary = 'redacted'
-     WHERE id IN (SELECT id FROM pending_actions WHERE state IN ('pending','approved') AND expires_at <= ? LIMIT ?)`,
+     WHERE id IN (SELECT id FROM pending_actions WHERE NOT EXISTS(SELECT 1 FROM operations o WHERE o.id=pending_actions.operation_id AND o.settlement_protocol=2) AND state IN ('pending','approved') AND expires_at <= ? LIMIT ?)`,
   )
     .bind(now, limit)
     .run();
 
   const promoted = await env.DB.prepare(
     `UPDATE operations SET state = 'delivery_unknown', updated_at = ?
-     WHERE id IN (SELECT id FROM operations WHERE state = 'executing' AND action != 'attachment.stage_upload' AND updated_at <= ? LIMIT ?)`,
+     WHERE id IN (SELECT id FROM operations WHERE settlement_protocol=1 AND state = 'executing' AND action != 'attachment.stage_upload' AND updated_at <= ? LIMIT ?)`,
   )
     .bind(now, now - STALE_MS, limit)
     .run();
 
   const stale = await env.DB.prepare(
-    `SELECT id FROM operations WHERE state = 'claimed' AND action != 'attachment.stage_upload' AND updated_at <= ? LIMIT ?`,
+    `SELECT id FROM operations WHERE settlement_protocol=1 AND state = 'claimed' AND action != 'attachment.stage_upload' AND updated_at <= ? LIMIT ?`,
   )
     .bind(now - STALE_MS, limit)
     .all<{ id: string }>();

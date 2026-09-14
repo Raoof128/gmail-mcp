@@ -165,12 +165,13 @@ describe("send_message", () => {
     expect(raw).toContain("multipart/alternative");
     expect(raw).toContain('filename="notes.txt"');
     const op = await env.DB.prepare(
-      "SELECT state, rfc822_message_id, gmail_result_id, result_json FROM operations WHERE id = ?",
+      "SELECT state, settlement_protocol, rfc822_message_id, gmail_result_id, result_json FROM operations WHERE id = ?",
     )
       .bind(r.result.operation_id)
       .first<any>();
     expect(op).toMatchObject({
       state: "executed",
+      settlement_protocol: 2,
       rfc822_message_id: `<${r.result.operation_id}@gmail-mcp.example.workers.dev>`,
       gmail_result_id: r.result.message.id,
     });
@@ -221,20 +222,19 @@ describe("send_message", () => {
     expect(await stagingCount()).toBe(before + 1);
     await setPolicy(env.DB, { userId: "owner-sub", accountId: "sa", action: "send.message", level: "ask" });
   });
-  it("Gmail rejecting the message after approval is failed_safe and the error is verbatim", async () => {
+  it("a 400 after byte admission stays unknown and retains its key", async () => {
     const r = await call("send_message", { account: "uni", to: ["prof@uni.test"], subject: "s", body: "b" });
     await approvePending(env.DB, { id: r.result.action_id, userId: "owner-sub", via: "browser" });
     gm().faults.push({ status: 400, message: "Recipient address required" });
     const done = await call("execute_pending", { action_id: r.result.action_id });
-    expect(done.result).toMatchObject({ error: "gmail_error" });
-    expect(done.result.message).toContain("Recipient address required");
+    expect(done.result).toMatchObject({ error: "delivery_unknown" });
     const row = (await getPending(env.DB, r.result.action_id, "owner-sub"))!;
-    expect(row).toMatchObject({ state: "failed", error: "gmail_error" });
+    expect(row).toMatchObject({ state: "failed", error: "delivery_unknown" });
     expect(
       (await env.DB.prepare("SELECT state FROM operations WHERE id = ?").bind(row.operation_id).first<any>()).state,
-    ).toBe("failed_safe");
+    ).toBe("delivery_unknown");
   });
-  it("a 503 after the body was opened is delivery_unknown and the operation stays executing for the cron", async () => {
+  it("a 503 after the body was opened is delivery_unknown and the operation is recorded immediately", async () => {
     const r = await call("send_message", { account: "uni", to: ["prof@uni.test"], subject: "s", body: "b" });
     await approvePending(env.DB, { id: r.result.action_id, userId: "owner-sub", via: "browser" });
     gm().faults.push({ status: 503 });
@@ -247,7 +247,7 @@ describe("send_message", () => {
           .bind(done.result.details.operation_id)
           .first<any>()
       ).state,
-    ).toBe("executing");
+    ).toBe("delivery_unknown");
     expect((await getPending(env.DB, r.result.action_id, "owner-sub"))!).toMatchObject({
       state: "failed",
       error: "delivery_unknown",
@@ -421,4 +421,27 @@ describe("send_draft", () => {
       (await env.DB.prepare("SELECT state FROM operations WHERE id = ?").bind(row.operation_id).first<any>()).state,
     ).toBe("failed_safe");
   });
+});
+
+it("a malformed direct success receipt remains unknown", async () => {
+  await setPolicy(env.DB, { userId: "owner-sub", accountId: "sa", action: "send.message", level: "allow" });
+  const original = g.fetch;
+  const badWorker = createWorker({
+    ...testDeps(g),
+    googleFetch: async (input, init) =>
+      (input instanceof Request ? input.url : input.toString()).includes("uploadType=media")
+        ? Response.json({})
+        : original(input, init),
+  });
+  const result = await callTool(badWorker, e, token, "send_message", {
+    account: "uni",
+    to: ["prof@uni.test"],
+    body: "receipt test",
+    idempotency_key: "bad-receipt",
+  });
+  expect(result.result.error).toBe("delivery_unknown");
+  const key = await env.DB.prepare("SELECT operation_id FROM idempotency_keys WHERE key='bad-receipt'").first<any>();
+  expect(await env.DB.prepare("SELECT state FROM operations WHERE id=?").bind(key.operation_id).first("state")).toBe(
+    "delivery_unknown",
+  );
 });

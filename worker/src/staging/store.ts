@@ -1,3 +1,4 @@
+import { storageBatch, producerStopped } from "./settlement";
 import { withMaterialization, type Materialization } from "./materialization";
 import { byteQuota, accountAssert, assertion } from "./transfers";
 import { leasedDownload, acknowledgeDownload } from "./downloads";
@@ -291,23 +292,25 @@ export async function release(db: D1Database, operationId: string): Promise<void
 /** Collects expired or consumed objects that no operation is holding. Bounded per run. */
 export async function purgeExpired(env: Env, now: number, limit = 200): Promise<{ deleted: number }> {
   const candidates = await env.DB.prepare(
-    "SELECT handle,r2_key FROM staging_objects WHERE ((expires_at<=? OR consumed_at IS NOT NULL) AND reserved_by_operation_id IS NULL AND COALESCE(download_lease_until,0)<=?) OR cleanup_state='deleting' LIMIT ?",
+    "SELECT handle,r2_key,settlement_operation_id FROM staging_objects WHERE ((expires_at<=? OR consumed_at IS NOT NULL) AND reserved_by_operation_id IS NULL AND COALESCE(download_lease_until,0)<=?) OR cleanup_state='deleting' LIMIT ?",
   )
     .bind(now, now, limit)
-    .all<{ handle: string; r2_key: string }>();
+    .all<{ handle: string; r2_key: string; settlement_operation_id: string | null }>();
   let deleted = 0;
   for (const row of candidates.results) {
-    const claimed = await env.DB.prepare(
+    if (row.settlement_operation_id && !(await producerStopped(env.DB, row.r2_key))) continue;
+    const claimStatement = env.DB.prepare(
       "UPDATE staging_objects SET cleanup_state='deleting' WHERE handle=? AND reserved_by_operation_id IS NULL AND COALESCE(download_lease_until,0)<=? AND (expires_at<=? OR consumed_at IS NOT NULL OR cleanup_state='deleting') RETURNING handle",
-    )
-      .bind(row.handle, now, now)
-      .first();
-    if (!claimed) continue;
+    ).bind(row.handle, now, now);
+    const claim = await storageBatch(env.DB, [row.handle], [claimStatement]);
+    if (!claim[0]?.results.length) continue;
     await env.STAGING.delete(row.r2_key);
-    const result = await env.DB.prepare("DELETE FROM staging_objects WHERE handle=? AND cleanup_state='deleting'")
-      .bind(row.handle)
-      .run();
-    deleted += result.meta.changes ?? 0;
+    const result = await storageBatch(
+      env.DB,
+      [row.handle],
+      [env.DB.prepare("DELETE FROM staging_objects WHERE handle=? AND cleanup_state='deleting'").bind(row.handle)],
+    );
+    deleted += result[0]?.meta.changes ?? 0;
   }
   return { deleted };
 }

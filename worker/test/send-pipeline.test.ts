@@ -163,14 +163,14 @@ describe("sendMime", () => {
     gm().afterSession = null;
     expect((await opRow(id)).state).toBe("executing");
   });
-  it("a 401 on a small send refreshes and re-sends once, because Gmail never processed the first body", async () => {
+  it("a 401 on a small send never repeats its mutation body", async () => {
     const id = await op();
     await seedAccessToken(e, { ...acct, access: "at-stale", refresh: "rt-x" });
     g.refreshTokens.set("rt-x", "ok");
     gm().rejectTokens.add("at-stale");
-    const sent = await send(id, mime());
-    expect(sent.id).toMatch(/^m/);
-    expect(gm().sent.filter((s) => s.id === sent.id)).toHaveLength(1);
+    const before = gm().requests.length;
+    await expect(send(id, mime())).rejects.toMatchObject({ status: 401 });
+    expect(gm().requests.length - before).toBe(1);
     await seedAccessToken(e, acct);
   });
   it("refuses a message over Gmail's ceiling before any request", async () => {

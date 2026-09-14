@@ -6,6 +6,7 @@ declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Cloudflare {
     interface Env {
+      BUILD_ID: string;
       TOKEN_KEKS: string; // JSON { key_id: base64 32 bytes }
       TOKEN_KEK_CURRENT: string; // key_id
       STATE_HMAC_KEY: string; // base64 32 bytes
@@ -18,7 +19,10 @@ declare global {
     }
   }
 }
-export type Env = Cloudflare.Env;
+export type Env = Omit<Cloudflare.Env, "RECOVERY_PROFILE" | "RESTORE_GENERATION"> & {
+  RECOVERY_PROFILE: "normal" | "scratch";
+  RESTORE_GENERATION: string;
+};
 
 export function ownerSubs(env: Env): string[] {
   return env.OWNER_GOOGLE_SUBS.split(",")

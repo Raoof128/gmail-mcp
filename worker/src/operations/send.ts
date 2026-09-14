@@ -2,6 +2,8 @@ import { GmailMcpError } from "@gmail-mcp/shared/errors";
 import type { Deps } from "../deps";
 import type { Env } from "../env";
 import { gmailFetch, gmailJson, openResumableSession, putResumable, type Upload } from "../google/gmail";
+import { beginRecoverableOperation } from "./recovery-state";
+import type { Binding } from "./recovery-types";
 import { beginOperation } from "./journal";
 
 export const MEDIA_UPLOAD_MAX = 5 * 1024 * 1024;
@@ -11,10 +13,69 @@ export const GMAIL_SEND_MAX = 36_700_160;
 export type SentMessage = { id: string; thread_id: string; label_ids: string[] };
 type Wire = { id: string; threadId: string; labelIds?: string[] };
 type Acct = { userId: string; accountId: string };
-type Body = { body: ReadableStream<Uint8Array>; length: number; threadId: string | null; rfc822MessageId: string };
+export type SendRecoveryContext = Pick<Binding, "executor" | "pendingId" | "audit">;
+type Body = {
+  recoveryContext?: SendRecoveryContext | undefined;
+  body: ReadableStream<Uint8Array>;
+  length: number;
+  threadId: string | null;
+  rfc822MessageId: string;
+};
 
 export function messageIdFor(env: Env, operationId: string): string {
   return `<${operationId}@${env.WORKER_HOSTNAME}>`;
+}
+
+async function beginSend(
+  env: Env,
+  acct: Acct,
+  operationId: string,
+  body: {
+    recoveryContext?: SendRecoveryContext | undefined;
+    rfc822MessageId: string | null;
+    threadId: string | null;
+    length: number | null;
+  },
+  sessionUrl: string | null,
+  expectedVersion?: number,
+): Promise<number | undefined> {
+  if (!body.recoveryContext) {
+    await beginOperation(env.DB, operationId, body.rfc822MessageId ? { rfc822_message_id: body.rfc822MessageId } : {});
+    return undefined;
+  }
+  const row = await env.DB.prepare(
+    "SELECT credential_version FROM accounts WHERE user_id=? AND id=? AND status='active'",
+  )
+    .bind(acct.userId, acct.accountId)
+    .first<{ credential_version: number }>();
+  if (!row || (expectedVersion !== undefined && row.credential_version !== expectedVersion))
+    throw new GmailMcpError("account_needs_reconnect", "account_needs_reconnect");
+  if (body.recoveryContext.executor === "send_draft" && body.rfc822MessageId) {
+    await env.DB.prepare(
+      "UPDATE operations SET rfc822_message_id=? WHERE id=? AND user_id=? AND account_id=? AND state='claimed' AND settlement_protocol=1",
+    )
+      .bind(body.rfc822MessageId, operationId, acct.userId, acct.accountId)
+      .run();
+  }
+  await beginRecoverableOperation(
+    env,
+    {
+      ...body.recoveryContext,
+      operationId,
+      userId: acct.userId,
+      accountId: acct.accountId,
+      credentialVersion: row.credential_version,
+      resultVersion: "send-v1",
+      generatedMessageId: body.recoveryContext.executor === "send_draft" ? null : body.rfc822MessageId,
+      threadId: body.threadId,
+      startedAt: Date.now(),
+      mimeLength: body.length,
+      buildId: env.BUILD_ID,
+      origin: `https://${env.WORKER_HOSTNAME}`,
+    },
+    sessionUrl,
+  );
+  return row.credential_version;
 }
 
 /** Exactly `length` bytes, for the small-message path where the whole body is one request. */
@@ -56,17 +117,41 @@ async function upload(
     const up: Upload = metadata
       ? { kind: "multipart", contentType: o.contentType, bytes, metadata }
       : { kind: "media", contentType: o.contentType, bytes };
-    await beginOperation(env.DB, o.operationId, { rfc822_message_id: o.rfc822MessageId });
-    return gmailFetch(env, deps, acct, { method: o.method, path: o.path, upload: up, retry: "none" });
+    const expectedCredentialVersion = await beginSend(env, acct, o.operationId, o, null);
+    return gmailFetch(env, deps, acct, {
+      method: o.method,
+      path: o.path,
+      upload: up,
+      retry: "none",
+      expectedCredentialVersion,
+    });
   }
+  const initiationVersion = o.recoveryContext
+    ? await env.DB.prepare("SELECT credential_version FROM accounts WHERE user_id=? AND id=? AND status='active'")
+        .bind(acct.userId, acct.accountId)
+        .first<number>("credential_version")
+    : undefined;
+  if (initiationVersion === null) throw new GmailMcpError("account_needs_reconnect", "account_needs_reconnect");
   const session = await openResumableSession(env, deps, acct, {
     path: o.path,
+    expectedCredentialVersion: initiationVersion,
     contentType: o.contentType,
     length: o.length,
     ...(metadata ? { metadata } : {}),
   });
-  await beginOperation(env.DB, o.operationId, { rfc822_message_id: o.rfc822MessageId });
-  return putResumable(env, deps, acct, session, { contentType: o.contentType, length: o.length, body: o.body });
+  const expectedCredentialVersion = await beginSend(env, acct, o.operationId, o, session, initiationVersion);
+  return putResumable(env, deps, acct, session, {
+    expectedCredentialVersion,
+    endpoint:
+      o.path === "messages/send"
+        ? { kind: "send" }
+        : o.path === "drafts"
+          ? { kind: "draft_create" }
+          : { kind: "draft_update", draftId: decodeURIComponent(o.path.slice(7)) },
+    contentType: o.contentType,
+    length: o.length,
+    body: o.body,
+  });
 }
 
 export async function sendMime(env: Env, deps: Deps, o: Acct & Body & { operationId: string }): Promise<SentMessage> {
@@ -98,12 +183,24 @@ export async function uploadDraft(
 export async function sendDraft(
   env: Env,
   deps: Deps,
-  o: Acct & { operationId: string; draftId: string; rfc822MessageId: string | null },
+  o: Acct & {
+    operationId: string;
+    draftId: string;
+    rfc822MessageId: string | null;
+    recoveryContext?: SendRecoveryContext | undefined;
+  },
 ): Promise<SentMessage> {
-  await beginOperation(env.DB, o.operationId, o.rfc822MessageId ? { rfc822_message_id: o.rfc822MessageId } : {});
+  const expectedCredentialVersion = await beginSend(
+    env,
+    o,
+    o.operationId,
+    { ...o, threadId: null, length: null },
+    null,
+  );
   const m = await gmailJson<Wire>(env, deps, o, {
     method: "POST",
     path: "drafts/send",
+    expectedCredentialVersion,
     json: { id: o.draftId },
     retry: "none",
   });

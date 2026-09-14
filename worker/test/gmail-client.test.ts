@@ -140,6 +140,7 @@ describe("gmailFetch", () => {
     expect(start.headers.get("x-upload-content-length")).toBe(String(bytes.byteLength));
     expect(session).toContain("upload_id=");
     const put = await putResumable(e, deps, acct, session, {
+      endpoint: { kind: "send" },
       contentType: "message/rfc822",
       length: bytes.byteLength,
       body: new Response(bytes).body!,

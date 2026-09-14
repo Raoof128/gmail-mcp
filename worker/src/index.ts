@@ -1,3 +1,6 @@
+import { BUILD_ID } from "./build-identity";
+import { assertInstallation } from "./operations/installation";
+import { recoverDeliveries } from "./operations/recovery-cron";
 import { OAuthProvider, type OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
 import { createMcpHandler } from "agents/mcp/server";
 import type { Env } from "./env";
@@ -95,17 +98,50 @@ export type Worker = WorkerHandler & { oauthOptions: (env: Env) => OAuthProvider
 
 export function createWorker(deps: Deps = defaultDeps): Worker {
   return {
-    fetch: (request, env, ctx) => providerFor(env, deps).provider.fetch(request, env, ctx),
-    scheduled(_controller, env, ctx) {
+    fetch: async (request, env, ctx) => {
+      const stamp = (response: Response) => {
+        const headers = new Headers(response.headers);
+        headers.set("x-recovery-build", env.BUILD_ID);
+        if (env.WORKER_VERSION?.id) headers.set("x-recovery-version", env.WORKER_VERSION.id);
+        return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+      };
+      let ready = true;
+      try {
+        await assertInstallation(env);
+      } catch {
+        ready = false;
+      }
+      if (new URL(request.url).pathname === "/healthz" && request.method === "GET")
+        return stamp(Response.json({ status: ready ? "ready" : "maintenance" }, { status: ready ? 200 : 503 }));
+      if (!ready) return stamp(Response.json({ error: "maintenance" }, { status: 503 }));
+      try {
+        return stamp(await providerFor(env, deps).provider.fetch(request, env, ctx));
+      } catch {
+        return stamp(Response.json({ error: "internal" }, { status: 500 }));
+      }
+    },
+    scheduled(controller, env, ctx) {
       ctx.waitUntil(
-        Promise.all([
-          runCron(env, Date.now()),
-          providerFor(env, deps).provider.purgeExpiredData(env, { batchSize: 100 }),
-        ]),
+        (async () => {
+          try {
+            await assertInstallation(env);
+          } catch {
+            return;
+          }
+          const now = Date.now();
+          await recoverDeliveries(env, deps, controller.scheduledTime, now);
+          await runCron(env, Date.now());
+          await providerFor(env, deps).provider.purgeExpiredData(env, { batchSize: 100 });
+        })(),
       );
     },
     oauthOptions: (env) => providerFor(env, deps).options,
   };
 }
 
-export default createWorker() satisfies ExportedHandler<Env>;
+const worker = createWorker();
+// Production uses a bundled constant. A mutable binding cannot impersonate a qualified build.
+export default {
+  fetch: (request, env, ctx) => worker.fetch(request, { ...env, BUILD_ID }, ctx),
+  scheduled: (controller, env, ctx) => worker.scheduled(controller, { ...env, BUILD_ID }, ctx),
+} satisfies ExportedHandler<Env>;
