@@ -1,0 +1,21 @@
+{
+  "name": "@gmail-mcp/qualification",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "start": "node admin.ts"
+  },
+  "dependencies": {
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.2",
+    "vitest": "4.1.11"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  }
+}

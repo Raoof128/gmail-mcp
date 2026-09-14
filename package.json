@@ -4,7 +4,8 @@
   "workspaces": [
     "shared",
     "worker",
-    "companion"
+    "companion",
+    "scripts/qualification"
   ],
   "scripts": {
     "test": "npm run test --workspaces --if-present",
@@ -35,6 +36,6 @@
   "description": "A Gmail MCP server for Claude with attachment support and a server-enforced permission model.",
   "license": "MIT",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.18.0"
   }
 }

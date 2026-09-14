@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Raoof128/gmail-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/Raoof128/gmail-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](package.json)
+[![Node](https://img.shields.io/badge/node-%3E%3D22.18-brightgreen.svg)](package.json)
 
 A Gmail [Model Context Protocol](https://modelcontextprotocol.io) server that moves attachments to and
 from your disk, works across several Google accounts, and puts every mailbox mutation behind a permission
@@ -10,7 +10,7 @@ model the server enforces rather than the model.
 
 > **Status: pre-release.** The Worker, Google OAuth, Gmail tools and macOS companion are implemented.
 > Local tests cover the protocol and recovery paths. Deployment, real Keychain/browser login and installed
-> Claude client checks remain release gates. See [the companion runbook](docs/runbooks/companion.md).
+> Claude client checks remain release gates. Plan 5 adds guarded, status-only send recovery; live fault/device controllers remain gated. See [recovery qualification](docs/runbooks/release-qualification.md) and [the companion runbook](docs/runbooks/companion.md).
 
 ## Why this exists
 
