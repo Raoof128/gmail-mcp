@@ -1,4 +1,4 @@
-# Gmail MCP Plan 6 Closure and Qualification Implementation Plan (Revision 2)
+# Gmail MCP Plan 6 Closure and Qualification Implementation Plan (Revision 3)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task, inline. Steps use checkbox (`- [ ]`) syntax for tracking. The user has already selected inline execution; do not ask them to choose again.
 
@@ -8,11 +8,11 @@
 
 **Tech Stack:** Existing TypeScript/Node >=22.18.0, pinned Zod/Vitest, Cloudflare Worker/D1/R2, Swift/Darwin/SQLite native helper. No new production dependency is assumed.
 
-**Spec:** `docs/superpowers/specs/2026-09-15-gmail-mcp-plan-6-closure-design.md` (revision 2); normative v2 appendix: `docs/superpowers/plans/2026-09-15-plan-6-contracts.md`; inherited contracts: `docs/superpowers/plans/2026-09-13-plan-5-contracts.md`.
+**Spec:** `docs/superpowers/specs/2026-09-15-gmail-mcp-plan-6-closure-design.md` (revision 3); normative v2 appendix: `docs/superpowers/plans/2026-09-15-plan-6-contracts.md`; inherited contracts: `docs/superpowers/plans/2026-09-13-plan-5-contracts.md`.
 
 ## Global constraints
 
-- Revision 2 resolves F01–F06 at the planning level. The user authorized these document corrections; implementation and target actions remain separate. The v2 appendix owns the explicit amendments to inherited evidence/probe contracts.
+- Revision 3 retains F01–F06 and addresses B1–B6/M1–M9 from the attached follow-up review at the planning level. The user authorized these document corrections; implementation and target actions remain separate. The v2 appendix owns the explicit amendments to inherited evidence/probe contracts.
 - Baseline `f8a7c86363640c01453ac05a0e3a33838c83933f`. Preserve existing local commits and historical review manifests.
 - Implement inline after approval. Use existing branch unless the user requests another; if creating a branch, use an available `main/` prefix or record the existing `main` ref conflict.
 - Phase A recovery sends zero additional MIME bytes; drafts remain manual when only search evidence exists. Preserve all numeric limits in the design's retained-constraints section and Plan 5 contracts.
@@ -139,7 +139,7 @@ expect(snapshot.keyOperationId).toBe(snapshot.operationId);
 
 - [ ] Establish a supported way to exclude old/queued writers through restore and record its authoritative source and failure assumptions. Write tests that withhold proof, introduce an old routed version or release a delayed write. Without a defensible mechanism, implement preparation and refusal only and report C08 unresolved; do not manufacture quiescence.
 - [ ] Run controller tests for RED. Example: `await expect(controller.restore(target)).rejects.toThrow("quiescence")`; assert the restore POST spy has zero calls, and maintenance remains active. Define the controller factory in this task using the new verified-proof interface and existing platform API.
-- [ ] Implement private preflight, shared deployment exclusion, external generation rotation, routed maintenance verification, streamed private journal/key export and external receipt publication. Archive data separately from <=64 KiB result JSON; hash and verify the complete archive before restore. Recheck authorization and proof immediately before the single restore request.
+- [ ] Implement private preflight, shared deployment exclusion, external generation rotation, routed maintenance verification, streamed private operation-journal and idempotency-record export (excluding Worker secrets, TOKEN_KEK, OAuth plaintext and token ciphertexts; any credential-backup design requires separate review) and external receipt publication. Archive data separately from <=64 KiB result JSON; hash and verify the complete archive before restore. Recheck authorization and proof immediately before the single restore request.
 - [ ] Test lost restore response without repeating POST, pre-0005 snapshots, old active flags/epochs, lost sent keys, partial migration failure and private receipt failure. Reapply append-only migrations only under maintenance and install a frozen marker. No resume path. Update the controller to reconcile uncertain response state through read-only authoritative queries.
 - [ ] Run restore tests plus existing installation/cron regressions; commit `feat(recovery): add guarded private restore administration`. Actual Time Travel requires its own concrete authorization and proven quiescence.
 
@@ -176,7 +176,7 @@ expect(snapshot.keyOperationId).toBe(snapshot.operationId);
 - [ ] Write tests that refuse missing mandatory cases, mismatched component versions, malformed artifacts, unperformed device/resource checks, unapproved normal probe contract and transferred scratch evidence. Test that revocation component evidence cannot enable a new grant.
 - [ ] Run assessment tests for RED; implement a public projection containing only finite status/reason/count/hash fields and private artifact references. Separate implementation, qualification and release verdicts; unresolved controller feasibility blocks implementation completion.
 - [ ] Prepare exact targets, recipients, accounts, count/byte budgets, capabilities, expiry, disposable device and release/rollback identities. Complete all authorized local preparation before requesting missing external action authorization. Never infer it from “proceed with implementation.”
-- [ ] Run the eleven cases with the exact sample requirements in the table below when prerequisites exist. Preserve first failures, stop for safety/drift, and keep unavailable cases not-run. Enable each mode only from its own valid target run under deployment exclusion; use a fresh epoch and verify post-write containment. Publish/deploy only when the user explicitly authorizes that target action.
+- [ ] Run one generated_search proof run, one send_session_status proof run, and nine independently typed common component runs with the exact sample requirements below. Each run has its own identity and manifest; the two mode runs have separate epochs. Preserve first failures, stop for safety/drift, and keep unavailable cases not-run. Enable each mode only from its own valid target run under deployment exclusion; use a fresh epoch and verify post-write containment. Publish/deploy only when the user explicitly authorizes that target action.
 - [ ] Run `npm run verify`, `npm run verify:native`, `python3 scripts/qualification/sql_conformance.py` and `git diff --check`; record actual results and commits. Keep README pre-release for missing mandatory acceptance. Commit `docs(release): record qualified surfaces and remaining blockers`.
 
 ## Task 12: Close the ledger and define signed-IOU follow-ons (C12)
@@ -185,7 +185,7 @@ expect(snapshot.keyOperationId).toBe(snapshot.operationId);
 
 **Interfaces:** each register entry has ID, current behavior, dependency, next design deliverable, acceptance condition and status. `deferred` is distinct from implemented or verified.
 
-- [ ] Reconcile each item in the drafted register against implementation; fail the document coverage check if any original section-6 IOU, P4-OVERWRITE or Phase B entry is absent.
+- [ ] Reconcile each item in the drafted register against implementation; fail the document coverage check if any original section-6 IOU or retired item, P4-OVERWRITE or Phase B entry is absent.
 - [ ] Phase B: prepare a separate provider-proof/design package covering preceding-response authorization, immutable encrypted MIME chunks/manifest/AAD, source pinning, quotas including ciphertext, one retained MIME/owner, one global materializer/writer, 24h retention, three admissions and cleanup debt. Keep `phase_b_verified=false`; inconclusive provider evidence means no continuation implementation.
 - [ ] Specify follow-on designs for overwrite with native approval/durability semantics; batch mutations with server-side +bulk; all-account search with per-account authorization and pagination; full local proxy with path confinement; multi-user onboarding/tenant isolation; Google verification/CASA applicability and evidence; >25 MB download streaming with quotas. These are independently reviewed expansions, not implicit Plan 6 production changes.
 - [ ] Cross-check C01–C12 against committed tests, working controller entry points and real evidence. Open items keep their blocker and next action; do not close a task solely because a stub returns not-run.
@@ -214,3 +214,7 @@ The appendix enumerates all fifteen installed-client flows: remote and companion
 Planning checks: run `node docs/superpowers/reviews/2026-09-15-plan-6-contract-check.mjs`, then verify C01–C12 task coverage, existing referenced paths, proposed interface consistency, explicit contract amendments, specimen assertions against actual state names and absence of placeholder steps. Format the documents and run `git diff --check`. Planning does not require rerunning unchanged production tests or claim new runtime evidence.
 
 Implementation complete requires real controller wiring, full local matrices and passing verification, with no unresolved feasibility gaps hidden behind ports. Target qualification complete requires the mandatory observations. Production release complete additionally requires an authorized rollout and observed target results. Deferred feature designs remain separately tracked; they are not delivered features.
+
+Runtime implementation remains pending, with provider-barrier, writer-quiescence, and peak-memory feasibility gates explicitly retained.
+
+Revision-3 implementation acceptance: Task 1 owns the seven exact purpose/phase manifest shapes, ToolCapability and central validateResolvedMutation adapter, with exact sender/To and empty CC/BCC tests across effective draft/reply/send payloads. Task 4 owns Consumption hash equality, per-native-action slots, bounded-before-parse artifact reads and component source ordering/crash closure. Task 6 verifies the sacrificial scope and consumed intent in reply/revoke sources. Task 8 binds both generation fields and exports only operation-journal/idempotency records. Task 10 verifies counted payload bytes and fixture hashes. Tasks 11–12 use separate mode/component runs and account for the retired audit header. The revision-3 resolution record and manifest preserve the evidence; prior revision manifests refer to their original commits.

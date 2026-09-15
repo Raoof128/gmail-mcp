@@ -1,0 +1,65 @@
+{
+  "revision": 3,
+  "date": "2026-09-15",
+  "previous_revision_commit": "b7c06e48716f18f57675f688932b429b8961f0b7",
+  "scope": "planning corrections; runtime implementation pending",
+  "addressed_findings": ["B1", "B2", "B3", "B4", "B5", "B6", "M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8", "M9"],
+  "verification": {
+    "planning_checks": 28,
+    "strict_types": "passed including negative authority fixtures",
+    "npm_run_verify_exit_code": 0,
+    "repository_tests": 358,
+    "inventory_rows": 136,
+    "inventory_unique_bodies": 129,
+    "inventory_duplicate_body_sites": 7,
+    "inventory_body_hashes": "all matched"
+  },
+  "remaining_feasibility_gates": ["provider-barrier", "writer-quiescence and deployment exclusion", "peak-memory"],
+  "files": [
+    {
+      "path": "docs/superpowers/plans/2026-09-15-gmail-mcp-plan-6-closure-and-qualification.md",
+      "bytes": 38681,
+      "sha256": "39c6a2788ade60ae9fdc47a3324f29a9ade4240c80ab63f945f1e0348f850886"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-15-plan-6-contracts.md",
+      "bytes": 64934,
+      "sha256": "2a515afa7c1cf4664657aa219f9a285796d8b6528d64f39e0aefe8a70fab9a87"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-15-gmail-mcp-deferred-feature-register.md",
+      "bytes": 7051,
+      "sha256": "7e505db76954ca875b61ef58dd5946ddcc45c994c02543ebfeb3cc1006610527"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-15-gmail-mcp-plan-6-closure-design.md",
+      "bytes": 16739,
+      "sha256": "f4955e799697ab9f7a9a621cfd5c4fd8c454537e4772fd3bc0181d0a09f2b351"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-13-plan-5-contracts.md",
+      "bytes": 43864,
+      "sha256": "752c40e951daf50f73162a9324076f6e906e6129d1fdb3259f835a6dee6561a9"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-09-gmail-mcp-design.md",
+      "bytes": 84532,
+      "sha256": "4e07ba757ce9ef01055695a97972013e9dd6956d3dd2f2efba85473a4ec46bdf"
+    },
+    {
+      "path": "docs/superpowers/reviews/2026-09-13-plan-5-writer-inventory.csv",
+      "bytes": 39545,
+      "sha256": "11990854f4b0dd41835d27e7740787019c7c56de229ba007ccb0dd431db1cbca"
+    },
+    {
+      "path": "docs/superpowers/reviews/2026-09-15-plan-6-contract-check.mjs",
+      "bytes": 24726,
+      "sha256": "73cae6003ce6f8771da06f0dd6b086a3c291576698c35ce4be73be39a60c9d26"
+    },
+    {
+      "path": "docs/superpowers/reviews/2026-09-15-plan-6-revision3-resolution.md",
+      "bytes": 8300,
+      "sha256": "f2c87fc99e94fc1217b7ac7c753af29631133bbc8a5a9e324f7e1fe8613fcb41"
+    }
+  ]
+}

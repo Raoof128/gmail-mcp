@@ -1,6 +1,6 @@
-# Gmail MCP Plan 6 closure design (revision 2)
+# Gmail MCP Plan 6 closure design (revision 3)
 
-Status: revision 2 for implementation review; F01–F06 corrections are documented in `docs/superpowers/plans/2026-09-15-plan-6-contracts.md`, the normative v2 appendix. This document proposes remaining work; it does not authorize deployment, Gmail sends, revocation, restore, power loss or production enablement.
+Status: revision 3 for implementation review; F01–F06 corrections are documented in `docs/superpowers/plans/2026-09-15-plan-6-contracts.md`, the normative v2 appendix. This document proposes remaining work; it does not authorize deployment, Gmail sends, revocation, restore, power loss or production enablement.
 
 Baseline: `f8a7c86363640c01453ac05a0e3a33838c83933f` on `plan5-recovery`. The Plan 5 implementation ledger records 358 TypeScript tests, 18 supplemental SQLite checks and 13 native tests plus a release build. Those are historical local results, not new Plan 6 verification.
 
@@ -91,3 +91,9 @@ Phase B requires provider evidence authorizing another writer, immutable encrypt
 | F06     | Complete strict v2 schemas, source graph, identity domains, typed controller/adapter/restore interfaces, explicit paths and executable planning checks |
 
 The provider barrier, quiescence/exclusion and peak-memory mechanisms remain feasibility gates. The corrected plan does not claim those mechanisms exist or that any runtime behavior changed.
+
+Runtime implementation remains pending, with provider-barrier, writer-quiescence, and peak-memory feasibility gates explicitly retained.
+
+## Revision-3 contract corrections
+
+The follow-up review B1–B6/M1–M9 is addressed in the normative appendix: consumed slots bind the exact resolved mutation, read and mutation transports are separate, and a central adapter enforces capability/tool/recipient authority. Each manifest operation has one strict shape. Restore generation agrees with the frozen snapshot. Component sources follow the committed identity without a closure cycle; payload evidence records measured bytes and fixture digests. Grant version means grant identity, and revoke evidence binds the sacrificial grant. The register accounts for the original design's retired audit header. These planning corrections do not complete runtime or target qualification.
