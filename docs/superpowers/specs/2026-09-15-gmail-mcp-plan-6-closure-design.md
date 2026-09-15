@@ -1,6 +1,6 @@
-# Gmail MCP Plan 6 closure design
+# Gmail MCP Plan 6 closure design (revision 2)
 
-Status: draft for review. This document proposes remaining work; it does not authorize deployment, Gmail sends, revocation, restore, power loss or production enablement.
+Status: revision 2 for implementation review; F01–F06 corrections are documented in `docs/superpowers/plans/2026-09-15-plan-6-contracts.md`, the normative v2 appendix. This document proposes remaining work; it does not authorize deployment, Gmail sends, revocation, restore, power loss or production enablement.
 
 Baseline: `f8a7c86363640c01453ac05a0e3a33838c83933f` on `plan5-recovery`. The Plan 5 implementation ledger records 358 TypeScript tests, 18 supplemental SQLite checks and 13 native tests plus a release build. Those are historical local results, not new Plan 6 verification.
 
@@ -33,10 +33,10 @@ Sources: Plan 5 implementation ledger and revision-3 contracts; Plan 4 implement
 
 ## Contract revisions proposed for approval
 
-1. Evidence format version 2 distinguishes a release run from a recovery-mode qualification run. Preserve version-1 files as historical inputs; reject them for new enablement. A release run references per-mode runs and component suites without merging their frozen identities. A recovery enable consumes only evidence for its exact origin/build/version/account/grant/mode/epoch/generation.
+1. Evidence format version 2 distinguishes a release run from a recovery-mode qualification run. Preserve version-1 files as historical inputs; reject them for new enablement. A release run references per-mode runs and component suites without merging their frozen identities. A recovery enable consumes its one mode-specific proof case plus all nine common safety components, bound as specified in the appendix. Generated search and session status never substitute for each other. Common components retain separate identities and match the exact snapshot; this preserves the inherited device/resource gates.
 2. Each case contains bounded typed sample records and hashes of source observations. Required aggregate counts derive from those records. Media-boundary and legacy-writer tests remain synthetic components even inside a live release assessment. They cannot satisfy generated-id or session live requirements. No operator-entered aggregate alone can qualify a case.
 3. Physical trials record `acknowledged_before_loss`, `recovered_digest_matches` and `uncertain_acknowledged` per trial. Three trials are required; each acknowledged save must survive, and every uncertain save must remain unacknowledged. Include both acknowledged and uncertain publication windows in the scheduled trials. Remove the unsupported requirement that all three trials acknowledge.
-4. Add an explicitly authorized, operation-scoped probe on a normal deployment to remove the bootstrap dead end. This is a proposed change to Plan 5's scratch-only restriction, not an interpretation of the old contract. Require a concrete private intent naming owner/account/grant, exact fixture recipient, deployment identity, expiry and at most twenty existing operation IDs. Verify those IDs and their binding ownership before the control edit. Recovery remains confined to that list, with the existing budget, epoch and horizon checks. No broad mode enablement occurs before a matching live run passes. Update every admin, preflight, platform and Worker admission predicate together. If this amendment is not approved, normal-profile enablement stays unsupported and pre-release; do not copy scratch evidence.
+4. Add an explicitly authorized, operation-scoped probe on a normal deployment to remove the bootstrap dead end. This is a proposed change to Plan 5's scratch-only restriction, not an interpretation of the old contract. Require a concrete private intent naming owner/account/grant, exact fixture recipient, deployment identity, expiry and at most twenty existing operation IDs. Verify those IDs and their binding ownership before the control edit. Recovery remains confined to that list, with the existing budget, epoch and horizon checks. No broad mode enablement occurs before a matching live run passes. Update every function in the appendix predicate inventory, including dueRecoveries, claimRecovery, qualificationFence and recovery settlement. Persist probe expiry as min(now+7 days, intent.expiresAt); no new recovery request/refresh/retry or settlement is allowed at expiry. Enabled qualification lifetime and late original direct positive receipts retain separate contracts. If this amendment is not approved, normal-profile enablement stays unsupported and pre-release; do not copy scratch evidence.
 5. Expand fixture authorization to include operation count and byte ceilings plus explicit capabilities for send, revoke, device power loss, deployment and restore. The plan document itself grants none of these capabilities. Per-case allocation must fit the run ceiling before credentials are read; each mutation consumes durable intent once. Recovery HTTP stays zero-body Phase A.
 
 ## Controller boundaries and evidence
@@ -49,7 +49,7 @@ A real lost-response case requires evidence that Gmail committed before the Work
 
 Use authenticated Worker MCP/staging APIs and inherited-pipe native IPC. Installed-client observations come from the actual named/versioned client, with model traces checked for credential and byte leakage. Avoid retaining full traces or MIME in result files. Keep any necessary fixture transport buffers in memory; persist only allowed IDs in private operational state and counts/digests in evidence. Session URIs and tokens never enter result artifacts, including private results.
 
-The runner freezes case selection, identity, sample allocation and operation intents before activity. Stop on the first duplicate send, false confirmation, unexpected recipient, credential leak, overwrite, resource error or identity drift. Interrupted runs preserve their first attempt records. Resumption cannot silently rerun a mutation or replace failure evidence. New attempts require a new explicitly authorized run.
+Before fixture activity, publish PreparationIdentity, the exact sample allocation and all mutation intent references. This commitment has no qualification epoch. Preserve every ready/failed/uncertain/not-run outcome under the same preparation identity. Only a complete all-ready mode preparation transitions through a preallocated probe epoch to RunIdentity, which binds the complete preparation and transition roots. Stop on the first duplicate send, false confirmation, unexpected recipient, credential leak, overwrite, resource error or identity drift. Interrupted runs preserve their first attempt records. Resumption cannot silently rerun a mutation or replace failure evidence. New attempts require a new explicitly authorized run.
 
 ## Restore safety and its feasibility gate
 
@@ -78,3 +78,16 @@ Phase B requires provider evidence authorizing another writer, immutable encrypt
 - [Gmail attachment uploads](https://developers.google.com/workspace/gmail/api/guides/uploads): empty PUT status queries and resumable response semantics; this does not certify this application's lost-response fixture.
 - [D1 Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/): bookmark restoration and its limits.
 - [D1 Time Travel API](https://developers.cloudflare.com/api/resources/d1/subresources/database/subresources/time_travel/): bookmark and restore endpoints. No writer-drain guarantee is inferred from the endpoint's existence.
+
+## Revision-2 correction map
+
+| Finding | Normative correction                                                                                                                                   |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| F01     | Appendix section 5 enumerates scheduler, admission, HTTP/settlement and administration predicates; Task 1 requires the scheduled normal-profile path   |
+| F02     | One proof case per mode; all nine common safety components still gate enablement; separate release aggregation                                         |
+| F03     | Pre-execution preparation/intent commitment, closed outcome set and one-way probe transition; failed attempts cannot disappear                         |
+| F04     | Persist bounded intent expiry in the probe; no recovery grace at expiry; explicit original-direct-receipt exception                                    |
+| F05     | 136 baseline site keys with multiplicity, not 129 SQL-hash set members                                                                                 |
+| F06     | Complete strict v2 schemas, source graph, identity domains, typed controller/adapter/restore interfaces, explicit paths and executable planning checks |
+
+The provider barrier, quiescence/exclusion and peak-memory mechanisms remain feasibility gates. The corrected plan does not claim those mechanisms exist or that any runtime behavior changed.

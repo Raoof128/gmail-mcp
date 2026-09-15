@@ -1,0 +1,59 @@
+{
+  "version": 2,
+  "revision_date": "2026-09-15",
+  "original_review_commit": "b25eefaf3bc10f6bb4ee5dbd07121b7e96cfc97c",
+  "original_input_commit": "ac4eb0c8de666c4e97417dacfe8bab8566b99d3d",
+  "runtime_baseline": "f8a7c86363640c01453ac05a0e3a33838c83933f",
+  "findings": {
+    "F01": "resolved in planning; runtime implementation pending",
+    "F02": "resolved in planning; runtime implementation pending",
+    "F03": "resolved in planning; runtime implementation pending",
+    "F04": "resolved in planning; runtime implementation pending",
+    "F05": "resolved in planning; runtime implementation pending",
+    "F06": "resolved in planning; runtime implementation pending"
+  },
+  "remaining_feasibility_gates": [
+    "provider response-loss instrumentation on the exact artifact",
+    "authoritative writer quiescence and deployment exclusion",
+    "deployed peak-memory coverage"
+  ],
+  "verification": {
+    "strict_contract_compilation": "passed",
+    "planning_checks_passed": 18,
+    "npm_run_verify_exit_code": 0,
+    "tests_passed": 358,
+    "native_tests": "unchanged; not rerun"
+  },
+  "files": [
+    {
+      "path": "docs/superpowers/plans/2026-09-15-gmail-mcp-plan-6-closure-and-qualification.md",
+      "sha256": "12f2470caa7a384000207c08790abbe60ff0663f75432bb023890864f515feff",
+      "bytes": 37313
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-15-gmail-mcp-plan-6-closure-design.md",
+      "sha256": "68be9a7d5167186ff2a74fc9c9c1534b3370f78b0c071815750c77520a5f57eb",
+      "bytes": 15864
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-15-gmail-mcp-deferred-feature-register.md",
+      "sha256": "1a4710d68ccac789433d929f56ef0b5462f0e1c8ada80112b602a8804ad32222",
+      "bytes": 6712
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-15-plan-6-contracts.md",
+      "sha256": "0b59c94fcdf693131adae5fcd259f0830c846a0ca0293337d19c0711ebdbab1b",
+      "bytes": 49207
+    },
+    {
+      "path": "docs/superpowers/reviews/2026-09-15-plan-6-contract-check.mjs",
+      "sha256": "92ab853ec8d7398f2458d4b2923dbaf850bd4b6a6115497231d0687b9734b27d",
+      "bytes": 12361
+    },
+    {
+      "path": "docs/superpowers/reviews/2026-09-15-plan-6-revision2-resolution.md",
+      "sha256": "10e50da413537201bb8b368d0058429fedfa633b5dafe35513a556c1fc7b66cd",
+      "bytes": 7579
+    }
+  ]
+}
