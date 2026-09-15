@@ -97,3 +97,9 @@ Runtime implementation remains pending, with provider-barrier, writer-quiescence
 ## Revision-3 contract corrections
 
 The follow-up review B1–B6/M1–M9 is addressed in the normative appendix: consumed slots bind the exact resolved mutation, read and mutation transports are separate, and a central adapter enforces capability/tool/recipient authority. Each manifest operation has one strict shape. Restore generation agrees with the frozen snapshot. Component sources follow the committed identity without a closure cycle; payload evidence records measured bytes and fixture digests. Grant version means grant identity, and revoke evidence binds the sacrificial grant. The register accounts for the original design's retired audit header. These planning corrections do not complete runtime or target qualification.
+
+## Runtime map
+
+The [runtime implementation and feasibility map](../plans/2026-09-15-gmail-mcp-plan-6-closure-and-qualification.md#runtime-implementation-and-feasibility-map) tracks all twelve tasks, their pending work and completion evidence. Provider-barrier, writer-quiescence/deployment-exclusion and peak-memory gates each have explicit dependencies, required decisions and refusal behavior. Runtime implementation remains pending; planning fixes do not change those statuses.
+
+The revision-3 review manifest describes the reviewed snapshot at `b124739`; this map is a subsequent tracking addition.
