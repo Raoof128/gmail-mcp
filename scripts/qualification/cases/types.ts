@@ -1,5 +1,5 @@
 import type { Manifest } from "../manifest.ts";
-import type { CaseOutcome, RunIdentity, TestCase } from "../run.ts";
+import type { CaseOutcome, RunIdentity, TestCase } from "../legacy-run.ts";
 export interface CaseContext {
   manifest: Manifest;
   synthetic: boolean;

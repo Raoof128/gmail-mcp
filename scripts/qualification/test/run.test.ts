@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { runCases, caseResultSchema, type RunIdentity } from "../run.ts";
+import { runCases, caseResultSchema, type RunIdentity } from "../legacy-run.ts";
 import { caseIds } from "../manifest.ts";
 const identity: RunIdentity = {
   runId: "11111111-1111-4111-8111-111111111111",

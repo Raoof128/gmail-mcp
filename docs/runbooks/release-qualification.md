@@ -34,35 +34,37 @@ All modes remain disabled until qualified. No public administration or fault-inj
 
 Create an owner-only directory outside repositories and attachment roots, with mode 0700. JSON inputs and outputs must be regular owner-only files, at most 64 KiB. Symlinks and unsafe writable ancestors are refused. Results publish atomically without replacing an existing file.
 
-`manifest.ts` defines the complete strict input schema. A manifest names the exact origin, Worker, platform account, D1 database, owner/account/grant version, profile, mode, embedded build, deployment/version, external restore generation, expected qualification epoch, selected cases, receipt and result paths. Probe mode requires a scratch deployment and at most twenty explicit operation IDs. Account alias and authorized sender must match the authoritative D1 account before Worker traffic. Sender/recipient authorization includes an expiry and exact capabilities; it is not inferred from a plan document.
+`contracts.ts` defines the strict v2 phase manifests. `preflight-v2.ts` defines deployment receipts and preparation commitment records. Preflight checks exact artifact hashes, deployment snapshots, authorization expiry, preparation allocation and intent budgets. Reading a deployment-exclusion artifact does not verify its claim.
 
 ```sh
-node scripts/qualification/admin.ts probe --manifest /private/operator/evidence/manifest.json
-node scripts/qualification/admin.ts disable --manifest /private/operator/evidence/manifest.json
-node scripts/qualification/run.ts --manifest /private/operator/evidence/manifest.json --synthetic
-node scripts/qualification/admin.ts enable --manifest /private/operator/evidence/manifest.json
-node scripts/qualification/admin.ts abandon-storage --manifest /private/operator/evidence/storage.json
+node scripts/qualification/cli.ts run --manifest /private/operator/evidence/manifest-v2.json
 ```
 
-Platform credentials come from `CLOUDFLARE_API_TOKEN` only after local preflight. Do not put credentials, session URIs, SQL or mail bodies on the command line. The optional real MCP fixture adapter acquires a Worker credential through its injected private credential provider; it does not retry mutation requests.
+The default v2 CLI currently writes a private `command-status` with `not_run` and `deployment_exclusion_unavailable`, then exits 1. Production target/exclusion verification, controller construction and preparation finalization are still pending. The same boundary applies to `prepare`, `probe`, `enable` and `disable`; these commands do not currently perform administrative changes. Credentials, session URIs, SQL and mail bodies must stay off the command line.
 
-All administration uses one host-wide deployment lock keyed by platform account and Worker name. Keep exclusive operator control over deployment on every host for the entire run and enable sequence. An independent Wrangler rollout does not participate automatically: operators must use the same lock wrapper or suspend other deployment mechanisms. A stale lock requires investigation; never remove it solely because a timer expired.
+The internal v2 driver accepts trusted verification and controller ports. It checks authorization before and after target verification, validates the returned source graph before publishing a pass, and records expiry or target drift after execution as failure. Controllers receive frozen identity and authorization values. Local tests exercise these ports with fixtures; they do not establish live deployment exclusion.
 
-Every control edit generates a fresh 256-bit epoch and a seven-day expiry. A stale expected epoch refuses the transaction. Enable requires one complete live run, matching artifact hashes and mandatory sample metrics under one frozen identity. It records the run hash and a private receipt containing the parent run/epoch. Synthetic evidence cannot enable a live mode.
+Historical v1 diagnostics are available only with this explicit synthetic form:
+
+```sh
+node scripts/qualification/run.ts --manifest /private/operator/evidence/manifest-v1.json --synthetic
+```
+
+The legacy path rejects live and administrative commands. Its reports cannot enable recovery. The old host lock used by synthetic diagnostics does not exclude independent deployments across hosts.
 
 ## Cases and current live boundary
 
-The executable registry includes generated identity, session status, draft negative, byte round trip, media boundary, reply/revoke, installed clients, native, physical durability, resource measurements and rollback. Synthetic mode invokes the selected workerd regression suites. Native-device, physical-power and deployed-resource cases remain `not_run` in synthetic mode.
+Each v2 run selects one mode proof or one common release component. Mode evidence must later combine the corresponding mode proof with all nine required common components under the reviewed identity rules. `SourceCaseAdapter` derives verdicts from observations and exact private source artifacts; caller-supplied verdicts are rejected. Duplicate samples, identity drift and nonzero safety counters cannot pass.
 
-Live fixture controllers are explicit ports. The current command-line registry does not attach recipient-bearing fault controllers or installed client/device controllers; it records `missing_authorization` or `missing_adapter` instead of executing an approximation. The real MCP adapter validates every credentialed response's serving identity and constrains fixture sends to the authorized sender/recipient. Connecting it to the full provider-commit-loss and device procedures remains required before live qualification. No current CLI run can satisfy all live release gates.
+The legacy synthetic registry runs selected workerd regression suites. Native-device, physical-power and deployed-resource cases remain `not_run`. The real MCP adapter and administrative modules remain programmatic building blocks; the v2 CLI does not yet connect them to live procedures. Durable mutation-journal resolution, corpus/resource verification and the complete mode-to-enable flow remain pending. No current CLI run can satisfy all live release gates.
 
-Freeze the run identity before the first live case. Check deployment, configuration, grant and qualification identity before and after each case and check each credentialed Worker response. Drift or a safety failure stops subsequent cases. Do not retry a failed live case until it passes. Preserve its first failure record. Missing selected or mandatory cases produce a nonzero exit.
+Check deployment, configuration, grant and qualification identity before and after each live case and on each credentialed Worker response. Preserve the first failure and its observations. A retry must not erase an earlier failed or uncertain preparation.
 
-The normative sample counts and stop rules are in `docs/superpowers/plans/2026-09-13-plan-5-contracts.md`. Resource qualification needs measured peak isolate memory below 128,000,000 bytes and CPU below the actual configured limit. Node RSS and an absence of runtime errors do not establish that measurement. A process kill is not a physical power-loss test.
+The current sample counts, source requirements and stop rules are in `docs/superpowers/plans/2026-09-15-plan-6-contracts.md`. Resource qualification needs measured peak isolate memory below 128,000,000 bytes and CPU below the actual configured limit. Node RSS and an absence of runtime errors do not establish that measurement. A process kill is not a physical power-loss test. Provider-barrier, writer-quiescence and peak-memory feasibility gates remain open.
 
 ## Storage abandonment
 
-A storage manifest adds an exact operation ID, verified staging bucket and a `storageIntent` containing explicit handles, intent reference and expiry. Administration checks owner/account/operation linkage and published, stopped producer evidence before any R2 delete. Unknown producers refuse deletion and retain quota debt.
+The programmatic storage-abandonment module remains available for integration; the v2 CLI has no storage command. Its legacy storage manifest adds an exact operation ID, verified staging bucket and a `storageIntent` containing explicit handles, intent reference and expiry. Administration checks owner/account/operation linkage and published, stopped producer evidence before any R2 delete. Unknown producers refuse deletion and retain quota debt.
 
 The transaction marks selected objects deleting under storage permits. R2 deletion occurs outside the D1 transaction; bookkeeping then removes only the selected deleting rows under fresh permits. An interruption retains cleanup debt. This operation never changes delivery truth or removes the operation/idempotency key. A late positive direct response can still settle once after the storage objects are gone.
 
