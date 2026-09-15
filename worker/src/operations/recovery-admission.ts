@@ -27,7 +27,7 @@ export const recoveryRow = (db: D1Database, id: string) =>
 export function qualificationFence(env: Env, b: Binding, lease: Lease, now: number): D1PreparedStatement {
   return assertion(
     env.DB,
-    `EXISTS(SELECT 1 FROM recovery_control c WHERE c.origin=? AND c.build_id=? AND c.user_id=? AND c.account_id=? AND c.credential_version=? AND c.mode=? AND c.epoch=? AND c.expires_at>? AND (c.state='enabled' OR (c.state='probe' AND ?='scratch' AND EXISTS(SELECT 1 FROM json_each(c.probe_ids) WHERE value=?))))`,
+    `EXISTS(SELECT 1 FROM recovery_control c WHERE c.origin=? AND c.build_id=? AND c.user_id=? AND c.account_id=? AND c.credential_version=? AND c.mode=? AND c.epoch=? AND c.expires_at>? AND (c.state='enabled' OR (c.state='probe' AND ? IN ('normal','scratch') AND EXISTS(SELECT 1 FROM json_each(c.probe_ids) WHERE value=?))))`,
     b.origin,
     env.BUILD_ID,
     b.userId,
@@ -79,7 +79,7 @@ export async function claimRecovery(
   if (b.executor === "send_draft" || b.buildId !== env.BUILD_ID || b.origin !== `https://${env.WORKER_HOSTNAME}`)
     return null;
   const controls = await env.DB.prepare(
-    `SELECT mode,epoch FROM recovery_control c WHERE origin=? AND build_id=? AND user_id=? AND account_id=? AND credential_version=? AND expires_at>? AND (state='enabled' OR (state='probe' AND ?='scratch' AND EXISTS(SELECT 1 FROM json_each(c.probe_ids) WHERE value=?))) ORDER BY CASE mode WHEN 'send_session_status' THEN 0 ELSE 1 END`,
+    `SELECT mode,epoch FROM recovery_control c WHERE origin=? AND build_id=? AND user_id=? AND account_id=? AND credential_version=? AND expires_at>? AND (state='enabled' OR (state='probe' AND ? IN ('normal','scratch') AND EXISTS(SELECT 1 FROM json_each(c.probe_ids) WHERE value=?))) ORDER BY CASE mode WHEN 'send_session_status' THEN 0 ELSE 1 END`,
   )
     .bind(b.origin, env.BUILD_ID, b.userId, b.accountId, b.credentialVersion, now, env.RECOVERY_PROFILE, operationId)
     .all<{ mode: RecoveryMode; epoch: string }>();

@@ -53,7 +53,7 @@ export async function dueRecoveries(env: Env, now: number, window: number, limit
     AND EXISTS(SELECT 1 FROM recovery_control c WHERE c.origin=json_extract(r.binding_json,'$.origin')
       AND c.build_id=json_extract(r.binding_json,'$.buildId') AND c.user_id=r.user_id AND c.account_id=r.account_id
       AND c.credential_version=r.credential_version AND c.expires_at>?
-      AND (c.state='enabled' OR (c.state='probe' AND ?='scratch' AND EXISTS(SELECT 1 FROM json_each(c.probe_ids) WHERE value=r.operation_id)))
+      AND (c.state='enabled' OR (c.state='probe' AND ? IN ('normal','scratch') AND EXISTS(SELECT 1 FROM json_each(c.probe_ids) WHERE value=r.operation_id)))
       AND ((c.mode='generated_search' AND json_extract(r.binding_json,'$.generatedMessageId') IS NOT NULL) OR (c.mode='send_session_status' AND r.session_enc IS NOT NULL)))
     ) SELECT * FROM eligible WHERE account_rank<=2 ORDER BY next_attempt_at,attempts,started_at,operation_id LIMIT ?`,
   )

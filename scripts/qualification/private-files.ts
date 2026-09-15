@@ -1,3 +1,4 @@
+import { ArtifactRef, parsePrivateArtifact, type PrivateSink } from "./contracts.ts";
 import { constants } from "node:fs";
 import { lstat, open, realpath, link, unlink } from "node:fs/promises";
 import { dirname, resolve, join, sep } from "node:path";
@@ -39,15 +40,24 @@ export async function readPrivateBytes(path: string): Promise<Buffer> {
   try {
     const s = await file.stat();
     if (!s.isFile() || s.uid !== process.getuid?.() || (s.mode & 0o077) !== 0 || s.size > 65536) throw refuse();
-    const bytes = await file.readFile();
-    if (bytes.length > 65536) throw refuse();
-    return bytes;
+    // Bound the allocation even if an owner process grows the file after stat.
+    const buffer = Buffer.alloc(65537);
+    let length = 0;
+    while (length < buffer.length) {
+      const { bytesRead } = await file.read(buffer, length, buffer.length - length, length);
+      if (bytesRead === 0) break;
+      length += bytesRead;
+    }
+    const after = await file.stat();
+    if (length > 65536 || after.size !== s.size || after.mtimeMs !== s.mtimeMs || after.ctimeMs !== s.ctimeMs)
+      throw refuse();
+    return buffer.subarray(0, length);
   } finally {
     await file.close();
   }
 }
 export async function readPrivateJson(path: string): Promise<unknown> {
-  return JSON.parse((await readPrivateBytes(path)).toString("utf8")) as unknown;
+  return parsePrivateArtifact(await readPrivateBytes(path));
 }
 export async function writePrivateJson(directory: string, name: string, value: unknown): Promise<string> {
   const dir = await privateDirectory(directory);
@@ -87,4 +97,22 @@ export async function writePrivateJson(directory: string, name: string, value: u
     throw error;
   }
   return digest(bytes);
+}
+
+/** Owns path and byte-hash verification; consumers receive only bounded parsed artifacts. */
+export async function createPrivateSink(directory: string): Promise<PrivateSink> {
+  const dir = await privateDirectory(directory);
+  return {
+    write: async (name, value) => {
+      ArtifactRef.shape.name.parse(name);
+      parsePrivateArtifact(Buffer.from(JSON.stringify(value) + "\n"));
+      return { name, sha256: await writePrivateJson(dir, name, value) };
+    },
+    read: async (input) => {
+      const ref = ArtifactRef.parse(input);
+      const bytes = await readPrivateBytes(join(dir, ref.name));
+      if (digest(bytes) !== ref.sha256) throw new Error("artifact digest changed");
+      return parsePrivateArtifact(bytes);
+    },
+  };
 }

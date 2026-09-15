@@ -458,6 +458,7 @@ export const CaseReport = z
     caseId: z.enum(CaseIds),
     identity: RunIdentity,
     preparationRoot: Hash,
+    preparationClosure: ArtifactRef,
     result: Verdict,
     limitation: Reason.nullable(),
     attempts: z.number().int().min(0).max(128),
@@ -1028,3 +1029,7 @@ The component sequence helper awaits each persistence step. sealInterrupted must
 RestoreTarget.generation identifies the external generation already rotated and freshly captured in Snapshot.restoreGeneration before the restore request. A proposed next generation is not a RestoreTarget. Recheck both values and routed versions under quiescence; a mismatched snapshot must be recaptured, not patched by the caller.
 
 Writer-count evidence: `docs/superpowers/reviews/2026-09-13-plan-5-writer-inventory.csv` has SHA-256 `11990854f4b0dd41835d27e7740787019c7c56de229ba007ccb0dd431db1cbca`. CSV parsing yields 136 rows, 129 distinct SQL-body hashes and seven additional sites sharing bodies. Recomputing SHA-256 for every stored SQL string matches its row. This verifies inventory counts; Task 3 still must bind parameters and execute every site's disposition against the baseline and current guards.
+
+## Runtime integration clarification
+
+Inline implementation has begun. CaseReport now includes preparationClosure: ArtifactRef so the verifier can resolve the closed preparation without inferring a filename from a semantic hash. The strict closure record is `{version:2, identity:PreparationIdentity, authorization:ArtifactRef, intentRefs:ArtifactRef[], outcomes:PreparationOutcome[], sourceRefs:ArtifactRef[]}` with bounds 64 intents and 128 outcomes/sources. Intent refs follow allocation/slot order; outcomes and preparation-source refs follow allocation order. The verifier recomputes the semantic root and pre-execution commitment after checking the referenced files. Qualification source filenames are `source-<sha256>.json`; the SHA covers their exact stored bytes. The implementation plan's execution record distinguishes implemented schema/source checks from pending CLI, journal, corpus and measurement integration.

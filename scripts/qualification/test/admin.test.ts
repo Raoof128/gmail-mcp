@@ -71,6 +71,7 @@ it("disables its fresh epoch if deployment drifts immediately after activation",
   const m = { ...fixtureManifest(), expectedEpoch: "qe_" + "A".repeat(43) };
   const port = { verify: () => (++checks === 2 ? Promise.reject(new Error("drift")) : Promise.resolve()), batch };
   const evidence = {
+    version: 2 as const,
     mode: "live" as const,
     runId: "11111111-1111-4111-8111-111111111111",
     runSha256: "b".repeat(64),
@@ -81,4 +82,21 @@ it("disables its fresh epoch if deployment drifts immediately after activation",
   await expect(changeQualification("enable", m, "a".repeat(64), port, evidence)).rejects.toThrow();
   expect(batch).toHaveBeenCalledTimes(2);
   expect(JSON.stringify(batch.mock.calls[1])).toContain("disabled");
+});
+
+it("refuses version-1 enable evidence even with matching aggregate hashes", async () => {
+  const port = { verify: vi.fn(), batch: vi.fn() };
+  const m = { ...fixtureManifest(), expectedEpoch: "qe_" + "A".repeat(43) };
+  const evidence = {
+    mode: "live" as const,
+    runId: "11111111-1111-4111-8111-111111111111",
+    runSha256: "b".repeat(64),
+    manifestSha256: "a".repeat(64),
+    qualificationEpoch: m.expectedEpoch,
+    verify: () => Promise.resolve(),
+  };
+  // @ts-expect-error The runtime guard also applies to JS callers and persisted legacy objects.
+  await expect(changeQualification("enable", m, "a".repeat(64), port, evidence)).rejects.toThrow();
+  expect(port.verify).not.toHaveBeenCalled();
+  expect(port.batch).not.toHaveBeenCalled();
 });

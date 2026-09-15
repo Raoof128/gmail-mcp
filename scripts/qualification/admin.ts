@@ -8,6 +8,7 @@ export interface AdminPort {
 }
 export type Command = "probe" | "enable" | "disable";
 export interface EnableEvidence {
+  version: 2;
   mode: "live";
   runId: string;
   runSha256: string;
@@ -30,6 +31,7 @@ export async function changeQualification(
   if (
     command === "enable" &&
     (!evidence ||
+      evidence.version !== 2 ||
       evidence.mode !== "live" ||
       evidence.manifestSha256 !== evidenceHash ||
       !m.expectedEpoch ||
