@@ -199,11 +199,9 @@ public final class SafeFiles {
     else { throw NativeError.refused("temporary_path") }
     let fd = gm_open(r.fd, temp, O_WRONLY | O_CREAT | O_EXCL, 0o600)
     guard fd >= 0 else { throw NativeError.system("temporary_create", errno) }
-    var published = false
-    defer {
-      close(fd)
-      if !published { gm_remove(r.fd, temp) }
-    }
+    // Retain failed temporaries for journal recovery. The path may now name a
+    // replacement inode, so unconditionally unlinking it would delete another file.
+    defer { close(fd) }
     var created = stat()
     guard fstat(fd, &created) == 0 else { throw NativeError.refused("temporary_stat") }
     try afterCreate?(
@@ -218,34 +216,47 @@ public final class SafeFiles {
       FileResult(
         path: path, size: bytes.count, sha256: sha256, device: UInt64(st.st_dev),
         inode: UInt64(st.st_ino)))
+    // Journal callbacks may yield to another process. Revalidate the named temporary
+    // against the descriptor and digest before publishing it.
+    let expected = FileResult(
+      path: path, size: bytes.count, sha256: sha256, device: UInt64(st.st_dev),
+      inode: UInt64(st.st_ino))
+    try verifyFile(r, path: temp, expected: expected)
     try r.check()
     guard gm_publish(r.fd, temp, path) == 0 else { throw NativeError.system("publish", errno) }
-    published = true
     let parentFD = parent.isEmpty ? dup(r.fd) : gm_open(r.fd, parent, O_RDONLY | O_DIRECTORY, 0)
     guard parentFD >= 0 else { throw NativeError.system("parent_open", errno) }
     defer { close(parentFD) }
     guard fsync(parentFD) == 0 else { throw NativeError.system("directory_sync", errno) }
-    return FileResult(
-      path: path, size: bytes.count, sha256: sha256, device: UInt64(st.st_dev),
-      inode: UInt64(st.st_ino))
+    // A replacement racing the rename must never produce an acknowledgable receipt.
+    try verify(root: id, relative: path, expected: expected)
+    return expected
+  }
+  private func verifyFile(_ r: Root, path: String, expected: FileResult) throws {
+    let fd = gm_open(r.fd, path, O_RDONLY | O_NONBLOCK, 0)
+    guard fd >= 0 else { throw NativeError.refused("publication_unknown") }
+    defer { close(fd) }
+    var before = stat()
+    guard fstat(fd, &before) == 0, before.st_mode & S_IFMT == S_IFREG,
+      before.st_nlink == 1, UInt64(before.st_dev) == expected.device,
+      UInt64(before.st_ino) == expected.inode, before.st_size == expected.size
+    else { throw NativeError.refused("publication_unknown") }
+    let bytes =
+      try FileHandle(fileDescriptor: fd, closeOnDealloc: false)
+      .read(upToCount: Self.maximum + 1) ?? Data()
+    var after = stat()
+    guard bytes.count == expected.size, Self.digest(bytes) == expected.sha256,
+      fstat(fd, &after) == 0, after.st_size == before.st_size,
+      after.st_nlink == 1, after.st_mtimespec.tv_sec == before.st_mtimespec.tv_sec,
+      after.st_mtimespec.tv_nsec == before.st_mtimespec.tv_nsec,
+      after.st_ctimespec.tv_sec == before.st_ctimespec.tv_sec,
+      after.st_ctimespec.tv_nsec == before.st_ctimespec.tv_nsec
+    else { throw NativeError.refused("publication_unknown") }
   }
   public func verify(root id: String, relative: String, expected: FileResult) throws {
     let r = try root(id, write: true)
     let path = try validated(relative)
-    let fd = gm_open(r.fd, path, O_RDONLY | O_NONBLOCK, 0)
-    guard fd >= 0 else { throw NativeError.refused("publication_unknown") }
-    defer { close(fd) }
-    var st = stat()
-    guard fstat(fd, &st) == 0, st.st_mode & S_IFMT == S_IFREG, st.st_nlink == 1,
-      UInt64(st.st_dev) == expected.device, UInt64(st.st_ino) == expected.inode,
-      st.st_size == expected.size
-    else { throw NativeError.refused("publication_unknown") }
-    let bytes =
-      try FileHandle(fileDescriptor: fd, closeOnDealloc: false).read(upToCount: Self.maximum + 1)
-      ?? Data()
-    guard bytes.count == expected.size, Self.digest(bytes) == expected.sha256 else {
-      throw NativeError.refused("publication_unknown")
-    }
+    try verifyFile(r, path: path, expected: expected)
     try r.check()
     let parent = (path as NSString).deletingLastPathComponent
     let directory = parent.isEmpty ? dup(r.fd) : gm_open(r.fd, parent, O_RDONLY | O_DIRECTORY, 0)
