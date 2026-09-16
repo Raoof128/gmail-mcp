@@ -43,3 +43,15 @@ jobs:
       # Runs against the real Workers runtime through @cloudflare/vitest-plugin, not a mock.
       - name: Tests
         run: npm test
+
+      # The supplemental corpus intentionally uses the pre-recovery writer baseline.
+      - name: Fetch immutable legacy writer baseline
+        run: git fetch --no-tags --depth=1 origin 6e78bc548c97bbe5194e3f780c717e5519930c1a
+
+      - name: Installed SQL conformance
+        run: |
+          python3 scripts/qualification/sql_conformance.py
+          python3 scripts/qualification/capture_writer_corpus.py --check
+
+      - name: Plan 6 contract checks
+        run: node docs/superpowers/reviews/2026-09-15-plan-6-contract-check.mjs

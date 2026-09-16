@@ -16,3 +16,5 @@ Drafted with Plan 6 on 2026-09-15 against `f8a7c86363640c01453ac05a0e3a33838c839
 | P6-AUDIT-HEADER | No internal audit header emitted | Original design section 6 already retires X-Claude-Audit-Id because it exposes internal correlation metadata to recipients; reopening requires a separate privacy design | Coverage check accounts for the retired item; V1 emits no internal audit header | Retired; not planned for V1 |
 
 V1 blockers remain in the Plan 6 closure plan: provider/device controllers, complete fault/writer coverage, administrative interruption tests, restore quiescence and controller, target deployment receipts, installed clients, physical trials and resource measurements. They are not reclassified as deferred features by this register.
+
+The [follow-on design package](../specs/2026-09-16-gmail-mcp-feature-follow-ons.md) now defines each entry's authority boundary, failure behavior and acceptance evidence. These are design drafts awaiting independent review; implementation status is unchanged.
