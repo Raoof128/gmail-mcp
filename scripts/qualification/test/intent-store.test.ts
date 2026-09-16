@@ -76,3 +76,39 @@ it("never replaces the first terminal outcome after reopening", async () => {
     await rm(directory, { recursive: true, force: true });
   }
 });
+it("reads consumed records after process exit without authorizing another mutation", async () => {
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const { openIntentJournal } = await import("../intent-store.ts");
+  const directory = await mkdtemp(join(await realpath(tmpdir()), "qualification-consumed-crash-"));
+  try {
+    const script = `import { createIntentStore } from ${JSON.stringify(new URL("../intent-store.ts", import.meta.url).href)};
+      const store = await createIntentStore(${JSON.stringify(authorizationId)}, ${JSON.stringify(commitment)}, ${JSON.stringify(directory)});
+      await store.consume(${JSON.stringify(request)}); process.exit(17);`;
+    await expect(
+      promisify(execFile)(process.execPath, ["--input-type=module", "-e", script], { timeout: 10000, maxBuffer: 4096 }),
+    ).rejects.toMatchObject({ code: 17 });
+    const journal = await openIntentJournal(authorizationId, commitment, directory);
+    expect(await journal.readConsumption(request.slotId)).toEqual(request);
+    const store = await createIntentStore(authorizationId, commitment, directory);
+    expect((await store.consume(request)).status).toBe("already-consumed");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+it("does not treat corrupt journal records as absent", async () => {
+  const { writeFile } = await import("node:fs/promises");
+  const { digest } = await import("../private-files.ts");
+  const { canonicalize } = await import("../../../worker/src/crypto/canonical.ts");
+  const directory = await mkdtemp(join(await realpath(tmpdir()), "qualification-corrupt-journal-"));
+  try {
+    const store = await createIntentStore(authorizationId, commitment, directory);
+    const name = `slot-${digest(canonicalize([authorizationId, request.slotId]))}.json`;
+    await writeFile(join(directory, name), "null\n", { mode: 0o600 });
+    await expect(store.readConsumption(request.slotId)).rejects.toThrow();
+    await expect(store.readConsumption("../foreign")).rejects.toThrow();
+    await expect(store.consume(request)).rejects.toThrow();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

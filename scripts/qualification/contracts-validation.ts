@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { EMPTY_SLOT_JOURNAL_ROOT } from "./intent-store.ts";
 import { canonicalize } from "../../worker/src/crypto/canonical.ts";
 import {
   ArtifactRef,
@@ -299,6 +300,7 @@ export class EvidenceVerifier {
       const allocation = prep.allocations[index]!;
       const prepRef = closure.sourceRefs[index]!;
       const prepared = PreparationSource.parse(await sink.read(prepRef));
+      if (prepared.slotJournalRoot !== EMPTY_SLOT_JOURNAL_ROOT) throw new Error("mutation_journal_unavailable");
       if (
         row.sampleId !== allocation.sampleId ||
         outcome.sampleId !== row.sampleId ||

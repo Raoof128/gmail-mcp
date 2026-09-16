@@ -1,3 +1,4 @@
+import { EMPTY_SLOT_JOURNAL_ROOT } from "../intent-store.ts";
 import { createHash } from "node:crypto";
 import { canonicalize } from "../../../worker/src/crypto/canonical.ts";
 import { identityHash, preparationRoot, type PrivateSink, type ArtifactRef, type RunIdentity } from "../contracts.ts";
@@ -126,7 +127,7 @@ export function fixture(options: { manifestSha256?: string } = {}) {
       recordedAt: 400 + i,
       operationId: null,
       bindingSha256: null,
-      slotJournalRoot: hash,
+      slotJournalRoot: EMPTY_SLOT_JOURNAL_ROOT,
       observationSourceSha256: sourceHash,
       intendedBarrierReached: false,
       reason: null,

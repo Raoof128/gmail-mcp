@@ -40,7 +40,7 @@ Create an owner-only directory outside repositories and attachment roots, with m
 node scripts/qualification/cli.ts run --manifest /private/operator/evidence/manifest-v2.json
 ```
 
-The default v2 CLI currently writes a private `command-status` with `not_run` and `deployment_exclusion_unavailable`, then exits 1. Production target/exclusion verification, controller construction and preparation finalization are still pending. The same boundary applies to `prepare`, `probe`, `enable` and `disable`; these commands do not currently perform administrative changes. Credentials, session URIs, SQL and mail bodies must stay off the command line.
+The default v2 CLI currently writes a private `command-status` with `not_run` and `deployment_exclusion_unavailable`, then exits 1. Production target/exclusion verification and controller construction are still pending. Durable preparation finalization currently supports only components without mutation slots. The same boundary applies to `prepare`, `probe`, `enable` and `disable`; these commands do not currently perform administrative changes. Credentials, session URIs, SQL and mail bodies must stay off the command line.
 
 The internal v2 driver accepts trusted verification and controller ports. It checks authorization before and after target verification, validates the returned source graph before publishing a pass, and records expiry or target drift after execution as failure. Controllers receive frozen identity and authorization values. Local tests exercise these ports with fixtures; they do not establish live deployment exclusion.
 
@@ -49,6 +49,8 @@ Historical v1 diagnostics are available only with this explicit synthetic form:
 ```sh
 node scripts/qualification/run.ts --manifest /private/operator/evidence/manifest-v1.json --synthetic
 ```
+
+The host journal supports read-only reconciliation after interruption. Component finalization preserves the first sample source and outcome; reopening a preparation cannot replace a failure with a success. Consumed slots never grant a second mutation.
 
 The legacy path rejects live and administrative commands. Its reports cannot enable recovery. The old host lock used by synthetic diagnostics does not exclude independent deployments across hosts.
 
