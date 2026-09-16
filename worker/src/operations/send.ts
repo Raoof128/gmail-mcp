@@ -1,7 +1,8 @@
+import { readMutationReceipt } from "../google/mutation-receipt";
 import { GmailMcpError } from "@gmail-mcp/shared/errors";
 import type { Deps } from "../deps";
 import type { Env } from "../env";
-import { gmailFetch, gmailJson, openResumableSession, putResumable, type Upload } from "../google/gmail";
+import { gmailFetch, openResumableSession, putResumable, type Upload } from "../google/gmail";
 import { beginRecoverableOperation } from "./recovery-state";
 import type { Binding } from "./recovery-types";
 import { beginOperation } from "./journal";
@@ -161,7 +162,7 @@ export async function sendMime(env: Env, deps: Deps, o: Acct & Body & { operatio
     method: "POST",
     contentType: "message/rfc822",
   });
-  const m = await res.json<Wire>();
+  const m = await readMutationReceipt<Wire>(res);
   return { id: m.id, thread_id: m.threadId, label_ids: m.labelIds ?? [] };
 }
 
@@ -176,7 +177,7 @@ export async function uploadDraft(
     method: o.draftId ? "PUT" : "POST",
     contentType: "message/rfc822",
   });
-  const d = await res.json<{ id: string; message: Wire }>();
+  const d = await readMutationReceipt<{ id: string; message: Wire }>(res);
   return { id: d.id, message_id: d.message.id, thread_id: d.message.threadId };
 }
 
@@ -197,12 +198,13 @@ export async function sendDraft(
     { ...o, threadId: null, length: null },
     null,
   );
-  const m = await gmailJson<Wire>(env, deps, o, {
+  const response = await gmailFetch(env, deps, o, {
     method: "POST",
     path: "drafts/send",
     expectedCredentialVersion,
     json: { id: o.draftId },
     retry: "none",
   });
+  const m = await readMutationReceipt<Wire>(response);
   return { id: m.id, thread_id: m.threadId, label_ids: m.labelIds ?? [] };
 }
