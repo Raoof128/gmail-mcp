@@ -119,3 +119,55 @@ it("keeps duplicate-body site identities and exact immutable SQL digests", async
     expect(Array.from(new Uint8Array(bytes), (v) => v.toString(16).padStart(2, "0")).join("")).toBe(site.sha256);
   }
 });
+for (const variant of ["success", "failed-safe", "unknown"] as const) {
+  for (const state of ["legacy", "before", "after"] as const) {
+    it(`executes original ${variant} transaction in ${state} state`, async () => {
+      const e = testEnv(),
+        id = `legacy-batch-${variant}-${state}`;
+      await seedRecovery(e, id, { linked: true, protocol: state === "legacy" ? 1 : 2 });
+      if (state === "after")
+        await settleDirect(e, id, {
+          gmail_result_id: "winner",
+          message: { id: "winner", thread_id: "thread", label_ids: ["SENT"] },
+        });
+      const snapshot = async () => ({
+        operation: await e.DB.prepare("SELECT * FROM operations WHERE id=?").bind(id).first(),
+        pending: await e.DB.prepare("SELECT * FROM pending_actions WHERE id=?").bind(`${id}-pending`).first(),
+        storage: (await e.DB.prepare("SELECT * FROM staging_objects WHERE user_id=?").bind(id).all()).results,
+        audit: (await e.DB.prepare("SELECT * FROM audit_log WHERE operation_id=? ORDER BY id").bind(id).all()).results,
+        keys: (await e.DB.prepare("SELECT * FROM idempotency_keys WHERE user_id=?").bind(id).all()).results,
+      });
+      const initial = await snapshot();
+      const lines =
+        variant === "success"
+          ? ["26", "31", "36", "45", "50"]
+          : variant === "failed-safe"
+            ? ["70", "75", "80", "89"]
+            : ["106"];
+      const statements = lines.map((line) => {
+        const site = sites.find((s) => s.file.endsWith("tools/settle.ts") && s.line === line)!;
+        return e.DB.prepare(site.sql).bind(...parameters(site.file, line, id));
+      });
+      const audit = sites.find((s) => s.file.endsWith("audit/log.ts"))!;
+      const auditBinds = parameters(audit.file, audit.line, id);
+      auditBinds[7] = variant === "success" ? "executed" : variant === "failed-safe" ? "failed" : "delivery_unknown";
+      statements.push(e.DB.prepare(audit.sql).bind(...auditBinds));
+      if (state !== "legacy") {
+        await expect(e.DB.batch(statements)).rejects.toThrow();
+        expect(await snapshot()).toEqual(initial);
+      } else {
+        await e.DB.batch(statements);
+        const final = await snapshot();
+        expect(final.pending).toMatchObject({
+          state: variant === "success" ? "executed" : "failed",
+          payload_json: null,
+        });
+        expect(final.operation).toMatchObject({
+          state: variant === "success" ? "executed" : variant === "failed-safe" ? "failed_safe" : "executing",
+        });
+        expect(final.audit).toHaveLength(1);
+        expect(final.keys).toEqual(initial.keys);
+      }
+    });
+  }
+}

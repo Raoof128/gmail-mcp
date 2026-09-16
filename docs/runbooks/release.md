@@ -39,7 +39,7 @@ The command validates private artifacts and publishes an exclusive preparation r
 
 ```sh
 python3 scripts/qualification/capture_writer_corpus.py --check
-npm test -w @gmail-mcp/worker -- --run test/recovery-legacy-corpus.test.ts
+npm test -w @gmail-mcp/worker -- --run test/recovery-legacy-corpus.test.ts test/recovery-legacy-journal.test.ts test/recovery-legacy-cron.test.ts
 ```
 
-The generator verifies 136 distinct site identities and SQL hashes against the pinned baseline. Current executable mappings cover the 11 settlement/audit sites: each runs before and after a protocol-2 winner and against a matched protocol-1 fixture. Successful zero-row updates after the winner establish unchanged state, not a guard refusal. The other 125 sites still require executable mappings and transaction-context tests.
+The generator verifies 136 distinct site identities and SQL hashes against the pinned baseline. Current executable mappings cover 22 settlement, audit, journal and cron sites. Matched protocol-1 controls prove positive behavior; enrolled protocol-2 fixtures check refusal or predicate exclusion before and after a winner. Original success, failure and claimed-operation recovery batches also run against the installed migrations. Successful zero-row updates after the winner establish unchanged state, not a guard refusal. The other 114 sites still require executable mappings and transaction-context tests.
