@@ -39,7 +39,7 @@ The command validates private artifacts and publishes an exclusive preparation r
 
 ```sh
 python3 scripts/qualification/capture_writer_corpus.py --check
-npm test -w @gmail-mcp/worker -- --run test/recovery-legacy-corpus.test.ts test/recovery-legacy-journal.test.ts test/recovery-legacy-cron.test.ts
+npm test -w @gmail-mcp/worker -- --run test/recovery-legacy
 ```
 
-The generator verifies 136 distinct site identities and SQL hashes against the pinned baseline. Current executable mappings cover 22 settlement, audit, journal and cron sites. Matched protocol-1 controls prove positive behavior; enrolled protocol-2 fixtures check refusal or predicate exclusion before and after a winner. Original success, failure and claimed-operation recovery batches also run against the installed migrations. Successful zero-row updates after the winner establish unchanged state, not a guard refusal. The other 114 sites still require executable mappings and transaction-context tests.
+The generator verifies 136 distinct site identities and SQL hashes against the pinned baseline. All 136 sites now have matched-row execution accounting across eight fixture groups. Each group records a site only after its statements and state assertions pass; missing duplicate-body sites fail coverage. The fixture matrix includes protocol-1 controls, protocol-2 refusal or predicate-exclusion checks, and original settlement/claimed-operation batches. Upload-specific multi-statement interruption and race acceptance remains separate; complete site coverage does not close those tests or authorize a release.

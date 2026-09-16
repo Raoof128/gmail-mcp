@@ -1,4 +1,5 @@
-import { expect, it } from "vitest";
+import { LegacyCoverage } from "./legacy-coverage";
+import { afterAll, expect, it } from "vitest";
 import { legacyWriterCorpus } from "./fixtures/legacy-writer-corpus";
 import { seedRecovery } from "./recovery-fixtures";
 import { testEnv } from "./test-env";
@@ -109,6 +110,7 @@ for (const site of sites) {
       .run();
     expect(result.success).toBe(true);
     if (site.table !== "_assert") expect(result.meta.changes).toBeGreaterThan(0);
+    coverage.record(site);
   });
 }
 it("keeps duplicate-body site identities and exact immutable SQL digests", async () => {
@@ -171,3 +173,6 @@ for (const variant of ["success", "failed-safe", "unknown"] as const) {
     });
   }
 }
+
+const coverage = new LegacyCoverage("settlement");
+afterAll(() => coverage.verify());

@@ -1,4 +1,5 @@
-import { expect, it } from "vitest";
+import { LegacyCoverage } from "./legacy-coverage";
+import { afterAll, expect, it } from "vitest";
 import { legacyWriterCorpus } from "./fixtures/legacy-writer-corpus";
 import { seedRecovery } from "./recovery-fixtures";
 import { testEnv } from "./test-env";
@@ -69,6 +70,7 @@ for (const site of sites) {
       );
     if (site.line === "78")
       expect(await e.DB.prepare("SELECT count(*) n FROM audit_log WHERE operation_id=?").bind(id).first("n")).toBe(0);
+    coverage.record(site);
   });
 }
 for (const line of ["27", "32", "37", "42", "54", "61"]) {
@@ -146,3 +148,6 @@ for (const phase of ["legacy", "before", "after"] as const) {
     }
   });
 }
+
+const coverage = new LegacyCoverage("cron");
+afterAll(() => coverage.verify());

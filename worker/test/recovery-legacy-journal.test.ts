@@ -1,4 +1,5 @@
-import { expect, it } from "vitest";
+import { LegacyCoverage } from "./legacy-coverage";
+import { afterAll, expect, it } from "vitest";
 import { legacyWriterCorpus } from "./fixtures/legacy-writer-corpus";
 import { seedRecovery } from "./recovery-fixtures";
 import { testEnv } from "./test-env";
@@ -32,6 +33,7 @@ for (const site of sites.filter((s) => s.verb.startsWith("INSERT"))) {
       expect((await statement.run()).meta.changes).toBe(0);
       expect(await e.DB.prepare("SELECT count(*) n FROM operations WHERE user_id=?").bind(id).first("n")).toBe(1);
     }
+    coverage.record(site);
   });
 }
 const transition = sites.find((s) => s.line === "73")!;
@@ -77,6 +79,7 @@ for (const from of [["executing"], ["claimed", "executing"]]) {
             .first(),
         ).toEqual({ state: "delivery_unknown", gmail_result_id: "provider-id", rfc822_message_id: "rfc-id" });
       }
+      coverage.record(transition);
     });
   }
 }
@@ -84,3 +87,6 @@ it("preserves both independently captured duplicate insertion sites", () => {
   expect(sites.map((s) => s.line)).toEqual(["35", "44", "73", "99"]);
   expect(sites.find((s) => s.line === "35")!.sha256).toBe(sites.find((s) => s.line === "99")!.sha256);
 });
+
+const coverage = new LegacyCoverage("journal");
+afterAll(() => coverage.verify());
