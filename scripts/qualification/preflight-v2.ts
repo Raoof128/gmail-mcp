@@ -1,3 +1,4 @@
+import { validateIntentGraph } from "./intent-graph.ts";
 import { z } from "zod";
 import { basename, dirname, resolve } from "node:path";
 import { canonicalize } from "../../worker/src/crypto/canonical.ts";
@@ -88,9 +89,11 @@ export async function preflightV2(path: string, command: V2Command, now = Date.n
       p.allocations.some((a) => !manifest.caseIds.some((id) => id === a.caseId))
     )
       throw new Error("preparation budget mismatch");
+    const templates = [];
     for (const [index, ref] of preparation.intentRefs.entries()) {
       const t = IntentTemplate.parse(await sink.read(ref)),
         slot = slots[index]!;
+      templates.push(t);
       if (
         !MutationTools.safeParse(t.tool).success ||
         ToolCapability[MutationTools.parse(t.tool)] !== t.capability ||
@@ -103,6 +106,7 @@ export async function preflightV2(path: string, command: V2Command, now = Date.n
       )
         throw new Error("intent binding mismatch");
     }
+    validateIntentGraph(p, originalAuthorization, preparation.intentRefs, templates);
   }
   if (
     manifest.resultName === basename(path) ||

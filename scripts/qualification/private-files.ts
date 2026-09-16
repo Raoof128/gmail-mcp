@@ -1,3 +1,4 @@
+import { canonicalize } from "../../worker/src/crypto/canonical.ts";
 import { ArtifactRef, parsePrivateArtifact, type PrivateSink } from "./contracts.ts";
 import { constants } from "node:fs";
 import { lstat, open, realpath, link, unlink } from "node:fs/promises";
@@ -59,10 +60,15 @@ export async function readPrivateBytes(path: string): Promise<Buffer> {
 export async function readPrivateJson(path: string): Promise<unknown> {
   return parsePrivateArtifact(await readPrivateBytes(path));
 }
-export async function writePrivateJson(directory: string, name: string, value: unknown): Promise<string> {
+export async function writePrivateJson(
+  directory: string,
+  name: string,
+  value: unknown,
+  encoding: "json" | "canonical" = "json",
+): Promise<string> {
   const dir = await privateDirectory(directory);
   if (!/^[A-Za-z0-9_-]+\.json$/.test(name)) throw refuse();
-  const bytes = Buffer.from(JSON.stringify(value) + "\n");
+  const bytes = Buffer.from(encoding === "canonical" ? canonicalize(value) : JSON.stringify(value) + "\n");
   if (bytes.length > 65536) throw new Error("artifact too large");
   const final = join(dir, name);
   if (

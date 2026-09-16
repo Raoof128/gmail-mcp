@@ -1,3 +1,4 @@
+import { validateIntentGraph } from "./intent-graph.ts";
 import { z } from "zod";
 import { EMPTY_SLOT_JOURNAL_ROOT } from "./intent-store.ts";
 import { canonicalize } from "../../worker/src/crypto/canonical.ts";
@@ -266,9 +267,11 @@ export class EvidenceVerifier {
       throw new Error("preparation_incomplete");
     const slots = prep.allocations.flatMap((a) => a.slots.map((s) => ({ sampleId: a.sampleId, ...s })));
     if (slots.length !== closure.intentRefs.length) throw new Error("preparation_incomplete");
+    const templates = [];
     for (const [index, ref] of closure.intentRefs.entries()) {
       const intent = IntentTemplate.parse(await sink.read(ref));
       const slot = slots[index]!;
+      templates.push(intent);
       if (
         intent.slotId !== slot.slotId ||
         intent.sampleId !== slot.sampleId ||
@@ -278,6 +281,7 @@ export class EvidenceVerifier {
       )
         throw new Error("preparation_incomplete");
     }
+    validateIntentGraph(prep, auth, closure.intentRefs, templates);
     if (
       prep.allocations.some((a) => a.caseId !== report.caseId) ||
       report.attempts !== prep.allocations.length ||
