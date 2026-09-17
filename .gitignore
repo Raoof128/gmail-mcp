@@ -13,3 +13,6 @@ CLAUDE.md
 # Swift build products
 .build/
 .swiftpm/
+
+# Private effective deployment configuration (real account topology)
+wrangler.prod.jsonc
