@@ -15,7 +15,15 @@ export function canonicalize(value: unknown): string {
       return JSON.stringify(value);
     case "object": {
       if (Array.isArray(value)) {
-        return "[" + value.map((v) => canonicalize(v)).join(",") + "]";
+        // Indexed rather than mapped: map skips a hole and join then renders it as nothing, so a
+        // sparse array used to canonicalise to "[1,,3]", which is not JSON. A hole is not an I-JSON
+        // value, so it is refused like any other one.
+        const parts: string[] = [];
+        for (let i = 0; i < value.length; i++) {
+          if (!(i in value)) throw new TypeError("hole in array");
+          parts.push(canonicalize(value[i]));
+        }
+        return "[" + parts.join(",") + "]";
       }
       const proto: unknown = Object.getPrototypeOf(value);
       if (proto !== Object.prototype && proto !== null) throw new TypeError("non-plain object");

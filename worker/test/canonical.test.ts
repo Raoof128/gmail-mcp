@@ -28,6 +28,21 @@ describe("JCS canonicalize", () => {
     expect(() => canonicalize({ s: String.fromCharCode(0xd800) })).toThrow(TypeError);
     expect(() => canonicalize({ b: 1n })).toThrow(TypeError);
   });
+  // map() skips holes but join() renders them, so a hole used to emit "[1,,3]", which no JSON parser
+  // accepts. Nothing schema-validated can carry one today because JSON.parse never yields a hole, but
+  // this is the primitive the payload and intent hashes are built on, so it refuses rather than guesses.
+  it("rejects a sparse array instead of emitting invalid JSON", () => {
+    // The lint rule that forbids this literal is part of why no first-party caller can produce a hole.
+    // The test needs one anyway, to prove the primitive refuses rather than relying on that rule.
+    // eslint-disable-next-line no-sparse-arrays
+    const sparse = [1, , 3];
+    expect(() => canonicalize(sparse)).toThrow(TypeError);
+    expect(() => canonicalize({ a: sparse })).toThrow(TypeError);
+    const holeAtEnd: unknown[] = [1];
+    holeAtEnd.length = 3;
+    expect(() => canonicalize(holeAtEnd)).toThrow(TypeError);
+    expect(canonicalize([1, null, 3])).toBe("[1,null,3]");
+  });
   it("hashes the exact stored string", async () => {
     const c1 = canonicalize({ to: ["a@x.test"], subject: "s" });
     const c2 = canonicalize({ subject: "s", to: ["a@x.test"] });
