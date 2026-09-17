@@ -81,10 +81,16 @@ export function htmlResponse(
 
 /** Redirects stay on this origin. Anything that could leave it is a programming error, not a request error. */
 export function redirect(location: string): Response {
-  if (!/^\/(?![/\\])/.test(location)) throw new Error(`refusing external redirect: ${location}`);
+  if (!isInternalPath(location)) throw new Error(`refusing external redirect: ${location}`);
   return new Response(null, { status: 303, headers: { ...PAGE_HEADERS, location } });
 }
 
+// A URL parser strips tab, CR and LF from anywhere in a reference before resolving it, so checking
+// only the character after the leading slash is not enough: "/\t//evil.test" passes that check and
+// then resolves to https://evil.test. Matching the control range is the point, so the rule is off here.
+// eslint-disable-next-line no-control-regex
+const CONTROL_IN_PATH = /[\u0000-\u001f\u007f]/;
+
 export function isInternalPath(p: string): boolean {
-  return /^\/(?![/\\])/.test(p);
+  return /^\/(?![/\\])/.test(p) && !CONTROL_IN_PATH.test(p);
 }

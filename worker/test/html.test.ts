@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { escapeHtml, escapeVisible, htmlResponse, redirect, PAGE_HEADERS } from "../src/web/html";
+import { escapeHtml, escapeVisible, htmlResponse, isInternalPath, redirect, PAGE_HEADERS } from "../src/web/html";
 import { staticHandler } from "../src/web/static";
 
 describe("html primitives", () => {
@@ -33,6 +33,20 @@ describe("html primitives", () => {
     expect(() => redirect("https://evil.test/")).toThrow();
     expect(() => redirect("//evil.test/")).toThrow();
     expect(() => redirect("/\\evil.test")).toThrow();
+  });
+  // The URL parser strips tab, CR and LF before resolving, so a guard that only looks at the first
+  // character after the slash lets "/<TAB>//evil.test" through and the browser leaves the origin.
+  it("refuses paths that a URL parser would resolve off-origin", () => {
+    const base = "https://worker.test/oidc/callback";
+    for (const c of ["\t", "\n", "\r", "\u0000", "\u001f"]) {
+      const candidate = `/${c}//evil.test`;
+      expect(isInternalPath(candidate)).toBe(false);
+      expect(() => redirect(candidate)).toThrow();
+    }
+    for (const good of ["/accounts", "/policy?x=1", "/a/b"]) {
+      expect(isInternalPath(good)).toBe(true);
+      expect(new URL(redirect(good).headers.get("location")!, base).origin).toBe("https://worker.test");
+    }
   });
   it("serves the stylesheet with nosniff and no-store", () => {
     const res = staticHandler(new Request("https://x.test/static/app.css"));
