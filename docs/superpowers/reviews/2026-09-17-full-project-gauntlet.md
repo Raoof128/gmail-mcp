@@ -134,7 +134,10 @@ not yet read its assertions, which is weaker and is marked so deliberately. A `d
 be a finding; there are none yet.
 
 One vocabulary addition: `scope-enforced`, for a guarantee that holds because Google was never asked for
-the capability. That is stronger than any local test, since it survives a bug in our own code.
+the capability. It is a separate axis rather than a higher rung: it says the external authorization
+surface makes a class of action unavailable even if our code goes wrong, which is defence in depth, and
+it says nothing about whether our code behaves correctly. A row can need both it and a behavioural
+proof.
 
 | #   | Invariant                                                                            | Implementation                                                                                        | Proof type                                                                          | Historical source                     |
 | --- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------- |
@@ -189,25 +192,58 @@ or grants nothing itself and defers to a browser flow that needs a session, CSRF
 Fourteen adversarial cases in `worker/test/owner-isolation.test.ts`, run against real D1 in workerd.
 All hold. Proof type is DB-enforced throughout: each refusal comes from the query or a constraint.
 
-| Attack | Result |
-| --- | --- |
-| owner A reads owner B's account by id | `account_not_found` |
-| owner A reads owner B's account by alias, where both own the alias `personal` | each owner resolves to their own row |
-| `assertAccount` with a foreign account id | `account_not_found` |
-| default-account read for each owner | never crosses owners |
-| revoked account through explicit alias, and through id | `account_needs_reconnect` on both paths |
-| per-account policy read from the owner's other account | does not leak; falls back to the default |
-| owner-wide policy read by another owner | does not leak |
-| account row versus owner-wide row for one action | account row wins, other accounts keep the owner-wide row |
-| `setPolicy` writing a per-account row for a foreign account | `account_not_found` |
-| modifier applied to an `allow` account policy | raises to `ask`, base stays `allow`; nothing lowers |
-| `cancel_pending` against another owner's pending action | returns false, row stays `pending`, real owner can still cancel |
-| trust context for one account | carries only its own allowlist |
-| allowlist row inserted for a foreign account | FOREIGN KEY constraint |
-| pending action inserted for a foreign account | FOREIGN KEY constraint |
+| Attack                                                                        | Result                                                          |
+| ----------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| owner A reads owner B's account by id                                         | `account_not_found`                                             |
+| owner A reads owner B's account by alias, where both own the alias `personal` | each owner resolves to their own row                            |
+| `assertAccount` with a foreign account id                                     | `account_not_found`                                             |
+| default-account read for each owner                                           | never crosses owners                                            |
+| revoked account through explicit alias, and through id                        | `account_needs_reconnect` on both paths                         |
+| per-account policy read from the owner's other account                        | does not leak; falls back to the default                        |
+| owner-wide policy read by another owner                                       | does not leak                                                   |
+| account row versus owner-wide row for one action                              | account row wins, other accounts keep the owner-wide row        |
+| `setPolicy` writing a per-account row for a foreign account                   | `account_not_found`                                             |
+| modifier applied to an `allow` account policy                                 | raises to `ask`, base stays `allow`; nothing lowers             |
+| `cancel_pending` against another owner's pending action                       | returns false, row stays `pending`, real owner can still cancel |
+| trust context for one account                                                 | carries only its own allowlist                                  |
+| allowlist row inserted for a foreign account                                  | FOREIGN KEY constraint                                          |
+| pending action inserted for a foreign account                                 | FOREIGN KEY constraint                                          |
 
 Still to attack in this section: owner A against owner B's operation, staging handle, attachment
 download id and qualification evidence; and the stale grant epoch case, which belongs with section 27.
+
+## Section 12: the operation state machine
+
+Read from code. Four creators insert an operation: `approval/claim.ts` (any approved action, so the
+claim can be once-only), `operations/journal.ts` twice, and `staging/transfers.ts` for
+`attachment.stage_upload`. `beginOperation` is the only `claimed -> executing` writer for Gmail work and
+throws when the row was not claimed.
+
+| From | To | Writer | Guard |
+| --- | --- | --- | --- |
+| none | `claimed` | claim, journal, transfers | insert |
+| `claimed` | `executing` | `beginOperation` | one row changed, else `internal` |
+| `executing` | `executed` | `settleExecuted` | `WHERE state='executing'` plus an `_assert` that it is now executed |
+| `claimed`, `executing` | `failed_safe` | `settleFailedSafe` | `_assert` it is now failed_safe; reservations released, not consumed |
+| `executing` | stays `executing` | `settleUnknown` | writes no operation state at all |
+| `executing` (stale) | `delivery_unknown` | `cron.ts` | promotes only after the stale window |
+| `claimed` (stale) | `failed_safe` | `cron.ts` `recoverClaimed` | safe because claimed means nothing was sent |
+
+`settleUnknown` is the row that matters for step 7: it never writes `failed_safe`, and it does not move
+the operation at all, so a committed-but-unobserved send stays `executing` until the cron promotes it to
+`delivery_unknown`. There is no path from an ambiguous provider outcome to `failed_safe`.
+
+Seven tests in `worker/test/operation-state-machine.test.ts`. The step 3 assertion records every
+operation row's state at the instant the fake Gmail receives a non-GET request and requires that none is
+`claimed`, for a journaled send, a draft and `create_label`.
+
+The non-journalled contract is different and is tested separately, as it should be. `journal: false`
+governs the direct path only: `label_message` and `untrash_message` under an `allow` policy open no
+operation. Through approval the claim does open one, the executor must call `beginOperation` on it, and
+the replay is refused. Both halves are asserted.
+
+Still open in section 12: fault injection at each barrier, two contenders for one operation, and the
+lost-response case driven through the real transport rather than by reading the settlement code.
 
 ## Coverage ledger
 
