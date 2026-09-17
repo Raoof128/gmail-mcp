@@ -7,8 +7,8 @@ Updated 2026-09-17. This file contains implementation history and safe continuat
 - Repository: `/Users/raoof.r12/Desktop/Raouf/gmail`
 - Branch: `plan5-recovery`
 - Worktree at handoff: clean
-- Latest commit: `55b7c45 feat(qualification): verify v2 deployment and account identity`
-- Previous related commit: `75f2e2b feat(qualification): resolve intents from durable mutation results`
+- Latest commit: `310964f test(audit): scope the owner-leak assertion to the rendered table`
+- Preceding security commits: `eaf55cd`, `1c97467`, `ba56f9b`, `c252ae8`
 
 ## Implemented work
 
@@ -20,7 +20,7 @@ The dependent-intent path resolves only declared fields from earlier slots in th
 
 ## Verification evidence
 
-- `npm run verify`: passed 689 tests (shared 11, Worker 562, companion 9, qualification 107).
+- `npm run verify`: passed 700 tests (shared 11, Worker 573, companion 9, qualification 107).
 - Planning contract checker: 28 passed with strict TypeScript validation.
 - SQLite conformance: 18 passed.
 - Legacy writer corpus regeneration check: passed; all 136 captured sites are accounted for.
@@ -41,30 +41,70 @@ These gates must remain refusal paths. Do not replace them with operator boolean
 
 ## Cloudflare and client setup status
 
-The user supplied a Cloudflare token from `/Users/raoof.r12/Desktop/Raouf/Portfolio/.env`. The token verifies as active but is IP restricted. Cloudflare returned error `9109`: this machine used `110.142.141.23`, while the token allowed `157.211.45.199`. Add the current machine IP to the token restriction while retaining the existing address, or provide a new private token-file path. Do not print or commit the token.
+The token IP restriction is resolved. That token verifies but carries no permission on either
+accessible account, so a dedicated account-scoped token was minted for this work and stored in the
+private qualification directory with owner-only permissions. It expires 2026-10-17. Its permissions are
+account-wide for Workers, D1 and KV because Cloudflare cannot scope those to one script, so it also
+reaches unrelated Workers and buckets in the same account. Narrow or revoke it once setup is finished.
 
-The token's current API calls return HTTP 401/403 for Workers and account discovery. Wrangler authentication can see two accounts, but neither exposes an accessible `gmail-mcp` deployment. No live Worker hostname, account ID, deployment receipt, target manifest, or operation authorization is available.
+A first deployment now exists. Resources were created, all five migrations were applied to the remote
+database, the six secrets were set, and the Worker answers `/healthz` with `ready`. The account
+identifier, database and namespace identifiers, hostname and generation are recorded only in the private
+directory and in the untracked `worker/wrangler.prod.jsonc`, and are absent here by design.
 
-`worker/.dev.vars` has Google OAuth field names but placeholder values, and `OWNER_GOOGLE_SUBS` is empty. A real Google OAuth Web application client and owner identity must be configured before login. Do not place Cloudflare or Google secrets in Claude/Codex MCP configuration.
+The installation marker was bound by hand. The reviewed trusted installer is still one of the missing
+controllers, so the schema was verified first: five migrations applied, all three protocol-2
+triggers present, zero operations and zero accounts, which is the never-restored condition the design
+requires for initial service. That is an operator installation, not the reviewed one, and the private
+record says so. The embedded build identity remains `unqualified`.
 
-Claude Code and Codex are installed. Neither has a Gmail MCP entry yet. Configure them only after a real HTTPS Worker endpoint exists:
+Google OAuth is still the blocker for login. The Worker holds placeholder client credentials, and
+`OWNER_GOOGLE_SUBS` is empty, which is the documented bootstrap state: the login page shows the Google
+`sub` of an address in `OWNER_EMAILS` and grants no session while doing it. A real OAuth Web application
+client with this deployment's two callback URIs must exist before anyone can log in.
 
-```bash
-codex mcp add gmail-mcp --url https://<worker-host>/mcp
-claude mcp add --transport http gmail-mcp https://<worker-host>/mcp
-```
+Because registration is now closed by default, adding a Claude client has an order: log in, open the
+registration window from the accounts page, then run `claude mcp add` or `codex mcp add` against the
+HTTPS `/mcp` endpoint. A window is ten minutes and closes on its own.
 
-The user must complete OAuth in the browser and approve the intended Gmail account. A local `wrangler dev` endpoint cannot complete this repository's HTTPS audience and origin checks.
+## Security review, 2026-09-17
+
+Four defects were found against the deployed Worker and fixed test-first. Each was reproduced before the
+fix and re-attacked after it.
+
+1. Dynamic client registration answered any unauthenticated caller, which is enough to phish the owner's
+   own consent page into handing an attacker an `mcp` token.
+2. Client ID Metadata Documents were accepted, which reopened the same hole without registration and made
+   the authorisation server fetch a caller-chosen URL. This one was found only by re-reviewing against
+   current MCP security guidance after the first fix, which is the argument for doing that pass.
+3. `isInternalPath` and `redirect` allowed a tab, so `/<TAB>//evil.test` left the origin after login.
+4. Unauthenticated requests grew `oauth_states` faster than the cron could drain it.
+
+Attacks that held: the confused-deputy conditions, the remembered-consent cookie against every one of
+its stated requirements, token audience separation per route, state-handle ownership and entropy, MIME
+header injection, the recipient trust grammar, content-security-policy injection through the consent
+page, cross-site request forgery, and session handling.
+
+One deviation is accepted rather than fixed: both protected-resource documents advertise both scopes,
+because the provider takes a single metadata object. A client that requests both is refused.
 
 ## Safe next actions
 
-1. Verify the Cloudflare token from the allowed client IP and identify the intended account and Worker hostname.
-2. Confirm the repository's effective deployment configuration privately; generate a build identity only from clean production inputs.
-3. Deploy only with explicit target authorization, then write a private deployment receipt and run `verifyTargetV2`.
-4. Configure Claude and Codex with the HTTPS `/mcp` endpoint and complete OAuth.
-5. Keep live sends, restore, revocation, device trials, and mode enablement closed until their specific authorization and evidence gates are present.
+1. Create a Google OAuth Web application client for this deployment and replace the placeholder client
+   credentials, then log in once and pin the returned `sub` in `OWNER_GOOGLE_SUBS`.
+2. Open a registration window from the accounts page, then point Claude and Codex at the HTTPS `/mcp`
+   endpoint and complete consent.
+3. Narrow or revoke the qualification token once setup is finished. It reaches unrelated Workers and
+   buckets in the same account.
+4. Generate a build identity only from clean production inputs and the private effective configuration,
+   then write a deployment receipt and run `verifyTargetV2`. Until then the served build is
+   `unqualified`, which is honest rather than a gap to paper over.
+5. Keep live sends, restore, revocation, device trials and mode enablement closed until their specific
+   authorization and evidence gates are present.
 
 ## Files changed in the latest implementation checkpoints
+
+Qualification work:
 
 - `scripts/qualification/intent-resolution.ts`
 - `scripts/qualification/intent-results.ts`
@@ -73,3 +113,11 @@ The user must complete OAuth in the browser and approve the intended Gmail accou
 - `scripts/qualification/platform.ts`
 - focused qualification tests for intent resolution, result sealing, dispatch, and platform identity
 - Plan 6 closure and feasibility records
+
+Security review:
+
+- `worker/src/auth/registration.ts` and `worker/test/registration-window.test.ts`
+- `worker/src/index.ts`, `worker/src/web/pages/accounts.ts`
+- `worker/src/web/html.ts`, `worker/src/web/state.ts`
+- `worker/test/html.test.ts`, `worker/test/state-growth.test.ts`, `worker/test/browser.ts`,
+  `worker/test/oauth.test.ts`, `worker/test/audit-page.test.ts`

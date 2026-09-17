@@ -8,7 +8,7 @@ release.
 
 The project is pre-release. Nothing here has sent an email.
 
-The suite is 250 tests, 243 of them inside the real Workers runtime against D1, R2 and KV emulation with
+The suite is 700 tests, 573 of them inside the real Workers runtime against D1, R2 and KV emulation with
 no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Added
@@ -30,7 +30,7 @@ no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 - Identity and the owner's web pages. Every route is now behind a real principal, and the development
   bearer is deleted rather than disabled.
   - OAuth 2.1 for MCP clients and the local companion through `@cloudflare/workers-oauth-provider`, with
-    Client ID Metadata Documents, S256 PKCE and dynamic registration for compatibility. The owner decides
+    S256 PKCE and dynamic registration for compatibility. The owner decides
     at consent time which scope a client may hold: the companion may hold `staging`, everyone else `mcp`.
     Each scope has its own audience, so a token for one route is refused at the other.
   - Google OIDC login for the owner, with a bootstrap page that shows the Google `sub` to configure on a
@@ -109,6 +109,25 @@ no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Security
 
+- A new client identity can only come into existence while the owner has opened a registration window.
+  Dynamic client registration answered any unauthenticated caller, which is enough to phish the owner's
+  own consent page: register a plausibly named client with your own redirect URI, send the owner a link
+  to `/authorize` on this origin, and an approval hands you the code. Registration is closed by default
+  and the owner opens ten minutes of it from the accounts page, behind the same CSRF and recent-login
+  bar as a policy edit. The window is a database row, so nothing a registration request carries can
+  open it.
+- Client ID Metadata Documents are refused. A CIMD client identifies by URL and never registers, so
+  accepting them left the registration window with a door beside it that any HTTPS host could walk
+  through, and made the authorisation server fetch a URL an unauthenticated caller chose. MCP's 2026
+  security guidance reserves accepting any HTTPS client id for open servers; this deployment has one
+  owner, and the library offers no allowlist to configure instead.
+- A redirect target may not carry control characters. `isInternalPath` and `redirect` checked only the
+  character after the leading slash, and a URL parser strips tab, CR and LF before resolving, so
+  `/<TAB>//evil.test` left the origin. It was reachable through `/login?return=`, which is acted on
+  after a successful Google login. The runtime rejects CR and LF in a header value but not tab.
+- Creating OAuth state collects expired state. Both `/login` and `/authorize` insert a row without
+  authentication, and only a five-minute cron with a 200-row limit removed any, so request volume grew
+  the table without bound. Each insert now collects expired rows in the same batch.
 - OAuth state is strongly consistent. Workers KV is eventually consistent, so a read followed by a delete
   cannot promise one-use semantics; that state moved to D1 and is consumed by one statement.
 - Remembered consent is bound to the owner's Google `sub`, so approving a client under one owner does not
@@ -125,8 +144,19 @@ no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Not yet implemented
 
-The local companion with `/staging/intent` and the upload ticket (Plan 4). The protected Gmail suite,
-fault injection at every checkpoint, and reconciliation of `delivery_unknown` operations (Plan 5).
+Plan 6 closure: production controllers and mode-to-enable wiring, mutation-bearing preparation closure,
+the administration interruption matrix, upload transaction and race acceptance, and restore integration.
+
+Three feasibility gates stay open as refusal paths rather than being argued closed: no supported
+mechanism isolates a Gmail provider commit from a Worker receipt on the exact deployed artifact; D1 Time
+Travel cancelling in-flight queries does not establish that an old or cross-host writer cannot write
+afterwards; and Cloudflare's sampled invocation memory does not establish peak isolate coverage for the
+required runs.
+
+Both protected-resource metadata documents advertise `scopes_supported: ["mcp", "staging"]`, because the
+provider takes one metadata object for both well-known paths. A client following the specification's
+scope selection strategy would request both and be refused, since a client may hold one scope or the
+other. Splitting it means wrapping the well-known routes.
 
 Local development over plain HTTP is deferred by choice: the Worker builds its redirect URIs, token
 audiences and `Origin` check as `https://<WORKER_HOSTNAME>`, so `wrangler dev` cannot complete an OAuth
