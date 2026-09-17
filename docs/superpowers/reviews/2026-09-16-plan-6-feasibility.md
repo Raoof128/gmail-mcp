@@ -23,3 +23,13 @@ Decision: retain `measurement_unavailable` until a target-bound measurement sour
 ## Consequences
 
 Tasks 5, 8, 9, 10 and 11 retain their live gates. Local fault and native race tests can proceed independently. No finding here establishes that a supported mechanism is impossible; each decision records the evidence still missing. Tasks must not be closed merely because their runtime refuses an unavailable mechanism.
+
+## Recheck and target discovery: 2026-09-17
+
+Read-only Wrangler discovery confirmed authentication and checked the exact Worker name `gmail-mcp` in both accessible accounts. Neither query produced an accessible deployment inventory. This does not distinguish an absent Worker from insufficient permissions. The private qualification directory still has no target manifest or concrete operation authorization. The tracked Wrangler configuration contains an example hostname, `local-dev` bindings and an `uninstalled` generation; those values cannot identify a live qualification target.
+
+The current official sources still describe invocation-time sampled memory, resumable upload status and Time Travel restore. They do not establish the three stronger guarantees required here. The [Workers limits documentation](https://developers.cloudflare.com/workers/platform/limits/) also explains that an isolate exceeding its memory limit can finish in-flight requests while the runtime creates another isolate. Successful requests therefore do not prove that a run remained below the required peak.
+
+A new read-only v2 platform adapter verifies a supplied target against deployment routing, version ETag, configuration, database schema, account/grant, sender, installation generation and Worker health headers. It checks authorization expiry before and after I/O. This adapter does not establish bundle provenance, freeze deployment actors or manufacture a quiescence proof. The default mutation commands remain closed.
+
+Closure still requires three distinct evidence sources: a verified commit/receipt-loss mechanism on the exact artifact, authoritative exclusion of old and competing writers, and complete target-isolate peak measurements. A target manifest alone cannot close them. Altering the acceptance criteria or adding a remotely selectable production fault route would change the approved design and is not part of this implementation.

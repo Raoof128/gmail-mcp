@@ -50,7 +50,11 @@ export function platformApi(token: string, transport: typeof fetch = fetch): Api
     }
   };
 }
-export async function d1Batch(m: Manifest, api: Api, statements: Statement[]): Promise<unknown[][]> {
+export async function d1Batch(
+  m: Pick<Manifest, "platformAccountId" | "databaseId">,
+  api: Api,
+  statements: Statement[],
+): Promise<unknown[][]> {
   const result = await api(`/accounts/${m.platformAccountId}/d1/database/${m.databaseId}/query`, { batch: statements });
   const rows = z.array(z.object({ success: z.literal(true), results: z.array(z.unknown()) })).parse(result);
   if (rows.length !== statements.length) throw refused();
@@ -70,8 +74,26 @@ const deployments = z.object({
 const binding = z
   .object({ type: z.string(), name: z.string(), text: z.string().optional(), id: z.string().optional() })
   .passthrough();
+/** Deployment identity only; no manifest assertion is used as exclusion authority. */
+export type DeploymentTarget = Pick<
+  Manifest,
+  | "origin"
+  | "platformAccountId"
+  | "workerName"
+  | "databaseId"
+  | "userId"
+  | "accountId"
+  | "credentialVersion"
+  | "workerBuildId"
+  | "deploymentVersionId"
+  | "deploymentId"
+  | "restoreGeneration"
+  | "profile"
+  | "stagingBucket"
+  | "accountAlias"
+> & { authorization?: { sender: string } | undefined };
 export async function verifyDeployment(
-  m: Manifest,
+  m: DeploymentTarget,
   receiptInput: DeploymentReceipt,
   api: Api,
   transport: typeof fetch = fetch,
