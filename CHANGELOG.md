@@ -8,7 +8,7 @@ release.
 
 The project is pre-release. Nothing here has sent an email.
 
-The suite is 700 tests, 573 of them inside the real Workers runtime against D1, R2 and KV emulation with
+The suite is 730 tests, 603 of them inside the real Workers runtime against D1, R2 and KV emulation with
 no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Added
@@ -109,6 +109,12 @@ no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Security
 
+- Canonicalisation refuses a hole in an array. `canonicalize` mapped over arrays, and `map` skips a hole
+  while `join` renders it as nothing, so a sparse array produced `[1,,3]`, which no JSON parser accepts.
+  This is the primitive `payload_hash` and the intent hash are computed over. Nothing schema-validated
+  can carry a hole, so it was latent, but a primitive whose job is to be exact should refuse rather than
+  guess. The rest of RFC 8785 was probed at the same time and already behaved: negative zero, `1e21`, key
+  order by UTF-16 code unit rather than code point, null-prototype objects, `Date`, `BigInt`, `undefined`.
 - A new client identity can only come into existence while the owner has opened a registration window.
   Dynamic client registration answered any unauthenticated caller, which is enough to phish the owner's
   own consent page: register a plausibly named client with your own redirect URI, send the owner a link

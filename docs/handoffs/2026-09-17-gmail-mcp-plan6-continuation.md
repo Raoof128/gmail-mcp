@@ -20,7 +20,7 @@ The dependent-intent path resolves only declared fields from earlier slots in th
 
 ## Verification evidence
 
-- `npm run verify`: passed 700 tests (shared 11, Worker 573, companion 9, qualification 107).
+- `npm run verify`: passed 730 tests (shared 11, Worker 603, companion 9, qualification 107).
 - Planning contract checker: 28 passed with strict TypeScript validation.
 - SQLite conformance: 18 passed.
 - Legacy writer corpus regeneration check: passed; all 136 captured sites are accounted for.
@@ -87,6 +87,31 @@ page, cross-site request forgery, and session handling.
 
 One deviation is accepted rather than fixed: both protected-resource documents advertise both scopes,
 because the provider takes a single metadata object. A client that requests both is refused.
+
+## Full-project gauntlet, 2026-09-17
+
+A file-by-file audit, test and security pass is underway. Its live ledger is
+`docs/superpowers/reviews/2026-09-17-full-project-gauntlet.md`, which carries the baseline, the standing
+classification of the external gates, a tool matrix built from source, an invariant matrix with proof
+types, the findings and the coverage state. Append to it; do not tidy it.
+
+Covered so far: the baseline gates, the repository inventory of 350 first-party files, the shared
+contracts, a static sweep of every worker and companion source, `crypto` and `policy` in depth, the
+thirty-eight tool matrix, all twenty-one invariants mapped to a proof type, owner and account isolation,
+and the operation state machine including transport-level faults.
+
+Five findings, three fixed. The two open ones are contract-level and neither is exploitable: the inline
+attachment schema describes far more input than the 1 MiB aggregate cap can ever accept and `/mcp` has no
+body ceiling before parsing, and `frameAad` joins with NUL while `hmac.ts` length-prefixes.
+
+Three results are worth carrying into any later review. No modifier combination lowers a policy level.
+`+overwrite` is declared and emitted nowhere, which is what a genuinely deferred feature looks like. And
+`failed_safe` is structurally unreachable unless the bytes were provably never admitted, so an ambiguous
+provider outcome cannot be downgraded to "Gmail did nothing".
+
+Remaining sections are listed at the end of the ledger. The next one is the grant epoch race: a recovery
+that binds epoch N, pauses, and resumes after a reconnect has produced N+1 must fail at the identity
+fence, while an ordinary access-token refresh under the same grant must not invalidate it.
 
 ## Safe next actions
 

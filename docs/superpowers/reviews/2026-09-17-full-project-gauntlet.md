@@ -178,6 +178,22 @@ or grants nothing itself and defers to a browser flow that needs a session, CSRF
 | `connect_account`    | grants nothing; writes a `browser` decision and returns a URL that needs the owner's session  | browser-enforced (read)               |
 | `open_policy_editor` | `policy.edit` is `browser`, so `effectiveLevel` throws rather than resolving a level          | type-enforced (read)                  |
 
+## Test-harness quality rules
+
+Not product defects. Rules this audit binds itself to, because breaking them produces a green test that
+tested nothing, and the fault matrix ahead makes that far more likely.
+
+**QA-001. An adversarial test must prove its trigger fired.** Anything that depends on a hook, barrier,
+query result or enumerated row asserts that the thing happened before asserting what followed. In
+practice: a non-empty result set where emptiness would pass trivially, an invocation counter on every
+hook and barrier, a mutation-call counter, and the expected precondition asserted before any
+before-and-after comparison.
+
+Caught twice while writing section 7 and section 12. `expect(leased === "NO ERROR" || leased.length > 0)`
+is true for every input, and a `for` loop over an empty `seen` array passes without executing a single
+assertion. Both were replaced, and the second exposed a table, `download_streams`, that the snapshot was
+not watching at all.
+
 ## Defects
 
 | ID    | Severity | Area                      | Summary                                                                                                                                                                                                                                                                                                                                                                             | Status |
@@ -219,15 +235,15 @@ claim can be once-only), `operations/journal.ts` twice, and `staging/transfers.t
 `attachment.stage_upload`. `beginOperation` is the only `claimed -> executing` writer for Gmail work and
 throws when the row was not claimed.
 
-| From | To | Writer | Guard |
-| --- | --- | --- | --- |
-| none | `claimed` | claim, journal, transfers | insert |
-| `claimed` | `executing` | `beginOperation` | one row changed, else `internal` |
-| `executing` | `executed` | `settleExecuted` | `WHERE state='executing'` plus an `_assert` that it is now executed |
-| `claimed`, `executing` | `failed_safe` | `settleFailedSafe` | `_assert` it is now failed_safe; reservations released, not consumed |
-| `executing` | stays `executing` | `settleUnknown` | writes no operation state at all |
-| `executing` (stale) | `delivery_unknown` | `cron.ts` | promotes only after the stale window |
-| `claimed` (stale) | `failed_safe` | `cron.ts` `recoverClaimed` | safe because claimed means nothing was sent |
+| From                   | To                 | Writer                     | Guard                                                                |
+| ---------------------- | ------------------ | -------------------------- | -------------------------------------------------------------------- |
+| none                   | `claimed`          | claim, journal, transfers  | insert                                                               |
+| `claimed`              | `executing`        | `beginOperation`           | one row changed, else `internal`                                     |
+| `executing`            | `executed`         | `settleExecuted`           | `WHERE state='executing'` plus an `_assert` that it is now executed  |
+| `claimed`, `executing` | `failed_safe`      | `settleFailedSafe`         | `_assert` it is now failed_safe; reservations released, not consumed |
+| `executing`            | stays `executing`  | `settleUnknown`            | writes no operation state at all                                     |
+| `executing` (stale)    | `delivery_unknown` | `cron.ts`                  | promotes only after the stale window                                 |
+| `claimed` (stale)      | `failed_safe`      | `cron.ts` `recoverClaimed` | safe because claimed means nothing was sent                          |
 
 `settleUnknown` is the row that matters for step 7: it never writes `failed_safe`, and it does not move
 the operation at all, so a committed-but-unobserved send stays `executing` until the cron promotes it to
@@ -242,8 +258,38 @@ governs the direct path only: `label_message` and `untrash_message` under an `al
 operation. Through approval the claim does open one, the executor must call `beginOperation` on it, and
 the replay is refused. Both halves are asserted.
 
-Still open in section 12: fault injection at each barrier, two contenders for one operation, and the
-lost-response case driven through the real transport rather than by reading the settlement code.
+### Faults driven through the real transport
+
+Three cases in `worker/test/operation-faults.test.ts`, measuring what Gmail received rather than what was
+attempted, and reading the terminal state from the row rather than the tool's reply.
+
+| Case                                           | External mutations                 | Terminal                                | Notes                                                      |
+| ---------------------------------------------- | ---------------------------------- | --------------------------------------- | ---------------------------------------------------------- |
+| transport throws at the first mutating request | Gmail received 0, one attempt made | `delivery_unknown`, `byte_admitted = 1` | the honest answer, see below                               |
+| provider commits, response lost                | 1 body, retry adds none            | `delivery_unknown`                      | idempotency key held; no executed audit                    |
+| two concurrent `execute_pending`               | 1                                  | `executed`                              | one executed result, one executed audit, one operation row |
+
+The first row is the interesting one. The fixture knows Gmail received nothing, because it owns the
+fake. The Worker cannot: once the body is handed to the transport, a thrown `fetch` is indistinguishable
+from a commit whose response was lost. `recovery-state.ts` makes the conservative answer structural:
+
+```ts
+const state = op.state === "claimed" && op.byte_admitted === 0 ? "failed_safe" : "delivery_unknown";
+```
+
+`failed_safe` is unreachable unless bytes were provably never admitted, so step 7's invariant is designed
+in rather than tested in. Treating a transport exception as evidence of non-delivery would be the defect.
+
+### Injectability boundary
+
+A fault strictly before `claimed -> executing` is not reachable. The design has no production fault
+selector, so the transport is the earliest injection point and `beginOperation` has already run by then.
+Adding a hook to reach it would change the deployed artifact, which is the thing the design refuses. The
+companion proof is in `operation-state-machine.test.ts`: at the first mutating request no row is ever
+`claimed`.
+
+Still open in section 12: the remaining barrier points from `recovery-barriers.ts` beyond headers and
+provider commit, and settlement-statement level faults.
 
 ## Coverage ledger
 
