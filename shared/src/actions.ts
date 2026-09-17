@@ -54,7 +54,14 @@ export function raise(level: Level): Level {
   return level === "allow" ? "ask" : level;
 }
 
-/** Actions whose external side effect is journaled in `operations` (spec 3.5). */
+/**
+ * Documentation only, and deliberately not the rule the gate reads. Plan 3 finding B5 established that
+ * an action cannot express journaling, because `label.manage` covers `create_label`, which opens an
+ * operation, alongside `update_label` and `delete_label`, which do not. The gate reads `ToolSpec.journal`
+ * per tool, and the seven tools that journal are the four sends, both drafts and `create_label`.
+ * Nothing imports this set; it records the original spec 3.5 grouping and must not be mistaken for
+ * enforcement.
+ */
 export const JOURNALED_ACTIONS: ReadonlySet<Action> = new Set<Action>([
   "send.message",
   "send.draft",

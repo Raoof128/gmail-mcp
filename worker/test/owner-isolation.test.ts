@@ -4,6 +4,9 @@ import { seedUserAndAccount } from "./fixtures";
 import { accountById, resolveAccount, trustContext } from "../src/tools/accounts";
 import { assertAccount, decide, effectiveLevel, setPolicy } from "../src/policy/engine";
 import { cancelPending } from "../src/approval/pending";
+import { claimPending } from "../src/approval/claim";
+import { ack, extendExpiry, listUploadHandles } from "../src/staging/store";
+import { leasedDownload } from "../src/staging/downloads";
 import { GmailMcpError } from "@gmail-mcp/shared/errors";
 
 // Owner A and owner B each hold an account. Every case below is owner A reaching for something that
@@ -153,5 +156,101 @@ describe("owner and account isolation", () => {
         .run(),
     );
     expect(result).toMatch(/FOREIGN KEY|constraint/i);
+  });
+
+  // Each case below asserts twice: that the reach is refused, and that nothing adjacent moved. The
+  // second assertion is the one that catches "refused eventually, but already touched something".
+  describe("a refused reach leaves no trace", () => {
+    const counts = async () => ({
+      audit: (await env.DB.prepare("SELECT count(*) AS n FROM audit_log").first<{ n: number }>())!.n,
+      operations: (await env.DB.prepare("SELECT count(*) AS n FROM operations").first<{ n: number }>())!.n,
+      admissions: (await env.DB.prepare("SELECT count(*) AS n FROM download_admissions").first<{ n: number }>())!.n,
+      streams: (await env.DB.prepare("SELECT count(*) AS n FROM download_streams").first<{ n: number }>())!.n,
+      reserved: (await env.DB.prepare(
+        "SELECT count(*) AS n FROM staging_objects WHERE reserved_by_operation_id IS NOT NULL",
+      ).first<{ n: number }>())!.n,
+      consumed: (await env.DB.prepare("SELECT count(*) AS n FROM staging_objects WHERE consumed_at IS NOT NULL").first<{
+        n: number;
+      }>())!.n,
+    });
+
+    const seedStaged = async (handle: string, userId: string, accountId: string, direction: string) => {
+      const now = Date.now();
+      await env.DB.prepare(
+        `INSERT INTO staging_objects (handle,user_id,account_id,direction,filename,mime,size,sha256,r2_key,created_at,expires_at,cleanup_state)
+         VALUES (?,?,?,?,'f.txt','text/plain',3,'${"a".repeat(64)}',?,?,?,'available')`,
+      )
+        .bind(handle, userId, accountId, direction, `k/${handle}`, now, now + 3_600_000)
+        .run();
+    };
+
+    it("owner A cannot claim owner B's approved pending action, and B's action stays approved", async () => {
+      const now = Date.now();
+      await env.DB.prepare(
+        `INSERT INTO pending_actions (id,user_id,account_id,action,modifiers,summary,payload_json,payload_hash,state,created_at,expires_at)
+         VALUES ('pa_claimTargetBBBBBBBB',?,'acc-b','send.message','[]','s','{}','h','approved',?,?)`,
+      )
+        .bind(B, now, now + 600_000)
+        .run();
+      const before = await counts();
+      expect(await code(() => claimPending(env.DB, { id: "pa_claimTargetBBBBBBBB", userId: A }))).toBe(
+        "pending_not_approved",
+      );
+      expect(await counts()).toEqual(before);
+      const row = await env.DB.prepare("SELECT state FROM pending_actions WHERE id=?")
+        .bind("pa_claimTargetBBBBBBBB")
+        .first<{ state: string }>();
+      expect(row?.state).toBe("approved");
+    });
+
+    it("owner A cannot list owner B's upload handle, and nothing is reserved or consumed", async () => {
+      await seedStaged("sh_" + "B".repeat(43), B, "acc-b", "upload");
+      const before = await counts();
+      expect(
+        await code(() =>
+          listUploadHandles(env.DB, { handles: ["sh_" + "B".repeat(43)], userId: A, accountId: "acc-a" }),
+        ),
+      ).toBe("handle_invalid");
+      expect(await counts()).toEqual(before);
+    });
+
+    it("owner A cannot extend the expiry of owner B's handle", async () => {
+      const handle = "sh_" + "C".repeat(43);
+      await seedStaged(handle, B, "acc-b", "upload");
+      const original = (await env.DB.prepare("SELECT expires_at AS e FROM staging_objects WHERE handle=?")
+        .bind(handle)
+        .first<{ e: number }>())!.e;
+      await extendExpiry(env.DB, [handle], A, "acc-a", original + 86_400_000);
+      const after = (await env.DB.prepare("SELECT expires_at AS e FROM staging_objects WHERE handle=?")
+        .bind(handle)
+        .first<{ e: number }>())!.e;
+      expect(after).toBe(original);
+    });
+
+    it("owner A cannot lease owner B's download, and no admission row is created", async () => {
+      const handle = "sh_" + "D".repeat(43);
+      await seedStaged(handle, B, "acc-b", "download");
+      const before = await counts();
+      expect(await code(() => leasedDownload(env, A, handle))).toBe("handle_invalid");
+      expect(await counts()).toEqual(before);
+      const forA = await env.DB.prepare(
+        "SELECT (SELECT count(*) FROM download_admissions WHERE user_id=?) AS adm, (SELECT count(*) FROM download_streams WHERE user_id=?) AS str",
+      )
+        .bind(A, A)
+        .first<{ adm: number; str: number }>();
+      expect(forA).toEqual({ adm: 0, str: 0 });
+    });
+
+    it("owner A cannot acknowledge owner B's download, and the object stays unconsumed", async () => {
+      const handle = "sh_" + "E".repeat(43);
+      await seedStaged(handle, B, "acc-b", "download");
+      const before = await counts();
+      expect(await ack(env, { handle, userId: A })).toBe(false);
+      expect(await counts()).toEqual(before);
+      const row = await env.DB.prepare("SELECT consumed_at FROM staging_objects WHERE handle=?")
+        .bind(handle)
+        .first<{ consumed_at: number | null }>();
+      expect(row?.consumed_at).toBeNull();
+    });
   });
 });
