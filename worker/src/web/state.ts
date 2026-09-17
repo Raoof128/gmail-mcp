@@ -1,5 +1,20 @@
 export type StateKind = "login" | "reauth" | "connect" | "authreq";
 
+/** Dead rows stay this long past expiry before they may be collected. */
+const GRACE_MS = 3_600_000;
+/**
+ * Rows one insert may collect. Creating state is unauthenticated (GET /login, and /authorize for any
+ * registered client), so a caller that only ever inserts would grow this table without bound: the
+ * cron drains at most `limit` rows every five minutes. Collecting on the write path makes the fill
+ * pay for the drain, so the table converges instead of growing with request volume.
+ */
+const COLLECT_PER_INSERT = 4;
+
+const collectStatement = (db: D1Database, now: number, limit: number) =>
+  db
+    .prepare("DELETE FROM oauth_states WHERE id IN (SELECT id FROM oauth_states WHERE expires_at <= ? LIMIT ?)")
+    .bind(now - GRACE_MS, limit);
+
 export async function putState(
   db: D1Database,
   kind: StateKind,
@@ -8,10 +23,13 @@ export async function putState(
   ttlMs: number,
 ): Promise<void> {
   const now = Date.now();
-  await db
-    .prepare("INSERT INTO oauth_states (id, kind, payload, created_at, expires_at) VALUES (?, ?, ?, ?, ?)")
-    .bind(id, kind, JSON.stringify(payload), now, now + ttlMs)
-    .run();
+  // One batch: a duplicate id still fails the whole write, exactly as the single insert did.
+  await db.batch([
+    db
+      .prepare("INSERT INTO oauth_states (id, kind, payload, created_at, expires_at) VALUES (?, ?, ?, ?, ?)")
+      .bind(id, kind, JSON.stringify(payload), now, now + ttlMs),
+    collectStatement(db, now, COLLECT_PER_INSERT),
+  ]);
 }
 
 /**
@@ -31,9 +49,6 @@ export async function consumeState<T>(db: D1Database, kind: StateKind, id: strin
 }
 
 export async function purgeStates(db: D1Database, now: number, limit = 200): Promise<number> {
-  const res = await db
-    .prepare("DELETE FROM oauth_states WHERE id IN (SELECT id FROM oauth_states WHERE expires_at <= ? LIMIT ?)")
-    .bind(now - 3_600_000, limit)
-    .run();
+  const res = await collectStatement(db, now, limit).run();
   return res.meta.changes ?? 0;
 }
