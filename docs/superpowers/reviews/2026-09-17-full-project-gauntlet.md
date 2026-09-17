@@ -126,7 +126,6 @@ the owner-wide row, else the default; `decide` then raises once if any modifier 
 - The four spam and four trash tools declare `journal: false`, which is the family where Plan 3 found
   executors that never opened the operation a claim had created. Section 12 re-tests that.
 
-
 ## Invariant matrix
 
 Proof type is the strongest evidence found this pass, not the strongest that exists. `read` means I read
@@ -137,44 +136,44 @@ be a finding; there are none yet.
 One vocabulary addition: `scope-enforced`, for a guarantee that holds because Google was never asked for
 the capability. That is stronger than any local test, since it survives a bug in our own code.
 
-| # | Invariant | Implementation | Proof type | Historical source |
-| --- | --- | --- | --- | --- |
-| 1 | Attachments come from the approved payload; `claimPending` takes no handles argument | `approval/claim.ts` | DB-enforced + unit-tested (`claim.test.ts`, read) | Plan 1 review, handle-cleanup blocker |
-| 2 | A pending action is claimable once | `approval/claim.ts` `_assert` batch | DB-enforced + unit-tested (`claim.test.ts`, located) | Plan 1 idempotency race |
-| 3 | Idempotency binds to `(action, payload_hash)` | `tools/idempotency.ts` | unit-tested, 4 files incl. `gate.test.ts` (located) | Plan 1 blocker, revision 3 |
-| 4 | Modifiers only raise | `shared/actions.ts` `raise`, `policy/engine.ts` `decide` | type-enforced + unit-tested (`engine.test.ts`, read) | Spec 2.2 |
-| 5 | Ownership is a database constraint, not a `WHERE` you remembered | composite FKs; `resolveAccount`, `accountById`, `downloads.ts` JOIN | DB-enforced (read) | Plan 1 |
-| 6 | `user_id` never comes from a tool argument | `auth/principal.ts` -> `props.sub`; every tool reads `principal.userId` | type-enforced + DB-enforced (read) | Spec 3.1 |
-| 7 | No permanent delete | only `DELETE` is `delete_label`; scope is `gmail.modify`, and `connect.ts` refuses a grant without it | **scope-enforced** + read | Spec 3.2 |
-| 8 | Audit rows carry counts and ids, never content | `audit/log.ts` renders its own summary | read; assertions in `cron.test.ts` located | Plan 1 |
-| 9 | Scope and audience checked per route | `auth/principal.ts`, `auth/scopes.ts` | read + integration-tested (`oauth.test.ts`, located) | Plan 2 |
-| 10 | `user_id` comes from the verified token's props | `requireScope` checks `props.sub === token.userId` | read | Plan 2 |
-| 11 | OAuth state is used once | `web/state.ts` single `UPDATE ... RETURNING` | DB-enforced (read) + tested (13 files, located) | Plan 2, the KV one-use trap |
-| 12 | Remembered consent is bound to an owner | `auth/approved.ts`, sub inside the signed payload | read + located (`oauth.test.ts`) | Plan 2 consent-binding blocker |
-| 13 | Credential writes are version-guarded | `google/tokens.ts` `status='active' AND credential_version = ?` | DB-enforced (read) + 10 files (located) | Plan 2 refresh/revoke race |
-| 14 | A policy edit is one transaction | `policy/engine.ts` `applyPolicyEdit` batch | DB-enforced (read) | Plan 2 policy-atomicity blocker |
-| 15 | Recent authentication means a fresh login | `web/router.ts` `requireRecent`, `authenticatedAt` separate from `lastSeenAt` | read + located (3 files) | Spec 4.6 |
-| 16 | The approval page never renders a payload it does not understand | `approval/view.ts` | located (`approve.test.ts`) | Plan 2 approval-rendering blocker |
-| 17 | Executors keyed by tool name and version, both in the payload | `tools/define.ts` | located (`payload_mismatch`, 4 files) | Plan 3 |
-| 18 | The intent hash covers the client's arguments and nothing the server generated | `tools/define.ts`, `tools/idempotency.ts` | located (7 files) | Plan 3 defect 6, replay timing |
-| 19 | Nothing writes before the decision; nothing settles outside one batch | `tools/gate.ts` | read (order confirmed) + located | Plan 3 |
-| 20 | A new client identity needs an owner-opened window | `auth/registration.ts`, `index.ts` | DB-enforced + integration-tested (`registration-window.test.ts`, written this pass) | 2026-09-17 security review |
-| 21 | A redirect target is an internal path with no control characters | `web/html.ts` `isInternalPath` | unit-tested (`html.test.ts`, written this pass) | 2026-09-17 security review |
+| #   | Invariant                                                                            | Implementation                                                                                        | Proof type                                                                          | Historical source                     |
+| --- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------- |
+| 1   | Attachments come from the approved payload; `claimPending` takes no handles argument | `approval/claim.ts`                                                                                   | DB-enforced + unit-tested (`claim.test.ts`, read)                                   | Plan 1 review, handle-cleanup blocker |
+| 2   | A pending action is claimable once                                                   | `approval/claim.ts` `_assert` batch                                                                   | DB-enforced + unit-tested (`claim.test.ts`, located)                                | Plan 1 idempotency race               |
+| 3   | Idempotency binds to `(action, payload_hash)`                                        | `tools/idempotency.ts`                                                                                | unit-tested, 4 files incl. `gate.test.ts` (located)                                 | Plan 1 blocker, revision 3            |
+| 4   | Modifiers only raise                                                                 | `shared/actions.ts` `raise`, `policy/engine.ts` `decide`                                              | type-enforced + unit-tested (`engine.test.ts`, read)                                | Spec 2.2                              |
+| 5   | Ownership is a database constraint, not a `WHERE` you remembered                     | composite FKs; `resolveAccount`, `accountById`, `downloads.ts` JOIN                                   | DB-enforced (read)                                                                  | Plan 1                                |
+| 6   | `user_id` never comes from a tool argument                                           | `auth/principal.ts` -> `props.sub`; every tool reads `principal.userId`                               | type-enforced + DB-enforced (read)                                                  | Spec 3.1                              |
+| 7   | No permanent delete                                                                  | only `DELETE` is `delete_label`; scope is `gmail.modify`, and `connect.ts` refuses a grant without it | **scope-enforced** + read                                                           | Spec 3.2                              |
+| 8   | Audit rows carry counts and ids, never content                                       | `audit/log.ts` renders its own summary                                                                | read; assertions in `cron.test.ts` located                                          | Plan 1                                |
+| 9   | Scope and audience checked per route                                                 | `auth/principal.ts`, `auth/scopes.ts`                                                                 | read + integration-tested (`oauth.test.ts`, located)                                | Plan 2                                |
+| 10  | `user_id` comes from the verified token's props                                      | `requireScope` checks `props.sub === token.userId`                                                    | read                                                                                | Plan 2                                |
+| 11  | OAuth state is used once                                                             | `web/state.ts` single `UPDATE ... RETURNING`                                                          | DB-enforced (read) + tested (13 files, located)                                     | Plan 2, the KV one-use trap           |
+| 12  | Remembered consent is bound to an owner                                              | `auth/approved.ts`, sub inside the signed payload                                                     | read + located (`oauth.test.ts`)                                                    | Plan 2 consent-binding blocker        |
+| 13  | Credential writes are version-guarded                                                | `google/tokens.ts` `status='active' AND credential_version = ?`                                       | DB-enforced (read) + 10 files (located)                                             | Plan 2 refresh/revoke race            |
+| 14  | A policy edit is one transaction                                                     | `policy/engine.ts` `applyPolicyEdit` batch                                                            | DB-enforced (read)                                                                  | Plan 2 policy-atomicity blocker       |
+| 15  | Recent authentication means a fresh login                                            | `web/router.ts` `requireRecent`, `authenticatedAt` separate from `lastSeenAt`                         | read + located (3 files)                                                            | Spec 4.6                              |
+| 16  | The approval page never renders a payload it does not understand                     | `approval/view.ts`                                                                                    | located (`approve.test.ts`)                                                         | Plan 2 approval-rendering blocker     |
+| 17  | Executors keyed by tool name and version, both in the payload                        | `tools/define.ts`                                                                                     | located (`payload_mismatch`, 4 files)                                               | Plan 3                                |
+| 18  | The intent hash covers the client's arguments and nothing the server generated       | `tools/define.ts`, `tools/idempotency.ts`                                                             | located (7 files)                                                                   | Plan 3 defect 6, replay timing        |
+| 19  | Nothing writes before the decision; nothing settles outside one batch                | `tools/gate.ts`                                                                                       | read (order confirmed) + located                                                    | Plan 3                                |
+| 20  | A new client identity needs an owner-opened window                                   | `auth/registration.ts`, `index.ts`                                                                    | DB-enforced + integration-tested (`registration-window.test.ts`, written this pass) | 2026-09-17 security review            |
+| 21  | A redirect target is an internal path with no control characters                     | `web/html.ts` `isInternalPath`                                                                        | unit-tested (`html.test.ts`, written this pass)                                     | 2026-09-17 security review            |
 
 ### Control tool authority
 
 Not policy-gated must not mean less authorized. Each of the seven either reads only owner-scoped rows,
 or grants nothing itself and defers to a browser flow that needs a session, CSRF and recent login.
 
-| Tool | Authority path | Proof type |
-| --- | --- | --- |
-| `list_accounts` | `WHERE user_id = ?` bound to `principal.userId`; takes no account argument; returns no tokens | DB-enforced (read) |
-| `get_policy` | `resolveAccount` then `effectiveLevel`, both owner-bound; read-only | DB-enforced (read) |
-| `list_pending` | `WHERE p.user_id = ?` with the accounts join carrying `a.user_id = p.user_id` | DB-enforced, composite (read) |
-| `execute_pending` | the approval already happened in the browser; the claim is once-only | DB-enforced + browser-enforced (read) |
-| `cancel_pending` | `cancelPending(db, { id, userId: principal.userId })` | DB-enforced (read) |
-| `connect_account` | grants nothing; writes a `browser` decision and returns a URL that needs the owner's session | browser-enforced (read) |
-| `open_policy_editor` | `policy.edit` is `browser`, so `effectiveLevel` throws rather than resolving a level | type-enforced (read) |
+| Tool                 | Authority path                                                                                | Proof type                            |
+| -------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `list_accounts`      | `WHERE user_id = ?` bound to `principal.userId`; takes no account argument; returns no tokens | DB-enforced (read)                    |
+| `get_policy`         | `resolveAccount` then `effectiveLevel`, both owner-bound; read-only                           | DB-enforced (read)                    |
+| `list_pending`       | `WHERE p.user_id = ?` with the accounts join carrying `a.user_id = p.user_id`                 | DB-enforced, composite (read)         |
+| `execute_pending`    | the approval already happened in the browser; the claim is once-only                          | DB-enforced + browser-enforced (read) |
+| `cancel_pending`     | `cancelPending(db, { id, userId: principal.userId })`                                         | DB-enforced (read)                    |
+| `connect_account`    | grants nothing; writes a `browser` decision and returns a URL that needs the owner's session  | browser-enforced (read)               |
+| `open_policy_editor` | `policy.edit` is `browser`, so `effectiveLevel` throws rather than resolving a level          | type-enforced (read)                  |
 
 ## Defects
 
@@ -184,6 +183,31 @@ or grants nothing itself and defers to a browser flow that needs a session, CSRF
 | G-004 | INFO     | worker/src/crypto         | `frameAad` joins its three parts with NUL while `hmac.ts` length-prefixes its fields and documents why. None of `userId`, `accountId` or `field` is caller-controlled, so no boundary can be shifted today, but the codebase disagrees with itself about framing.                                                                                                                   | open   |
 | G-002 | INFO     | shared/staging, companion | `TransferResult.state` is `string` rather than an enum, and the companion revalidates it as `z.string()` before comparing against `awaiting_approval`, `prepared` and `ready`. Comparisons are exact so nothing is exploitable, but a renamed state fails silently instead of at the type level. `TransferIntent` alongside it is a proper discriminated union.                     | open   |
 | G-001 | LOW      | shared/schemas, mcp       | `inline_attachments` admits 50 items of 1,400,000 base64 characters, about 70 MB, while `decodeInline` caps the aggregate at 1 MiB. The schema therefore describes input that can never validate, and `/mcp` has no body ceiling before `JSON.parse`, unlike the 64 KiB caps on web forms and the staging intent body. Authenticated only, so the caller is the owner's own client. | open   |
+
+## Section 7: owner and account isolation
+
+Fourteen adversarial cases in `worker/test/owner-isolation.test.ts`, run against real D1 in workerd.
+All hold. Proof type is DB-enforced throughout: each refusal comes from the query or a constraint.
+
+| Attack | Result |
+| --- | --- |
+| owner A reads owner B's account by id | `account_not_found` |
+| owner A reads owner B's account by alias, where both own the alias `personal` | each owner resolves to their own row |
+| `assertAccount` with a foreign account id | `account_not_found` |
+| default-account read for each owner | never crosses owners |
+| revoked account through explicit alias, and through id | `account_needs_reconnect` on both paths |
+| per-account policy read from the owner's other account | does not leak; falls back to the default |
+| owner-wide policy read by another owner | does not leak |
+| account row versus owner-wide row for one action | account row wins, other accounts keep the owner-wide row |
+| `setPolicy` writing a per-account row for a foreign account | `account_not_found` |
+| modifier applied to an `allow` account policy | raises to `ask`, base stays `allow`; nothing lowers |
+| `cancel_pending` against another owner's pending action | returns false, row stays `pending`, real owner can still cancel |
+| trust context for one account | carries only its own allowlist |
+| allowlist row inserted for a foreign account | FOREIGN KEY constraint |
+| pending action inserted for a foreign account | FOREIGN KEY constraint |
+
+Still to attack in this section: owner A against owner B's operation, staging handle, attachment
+download id and qualification evidence; and the stale grant epoch case, which belongs with section 27.
 
 ## Coverage ledger
 
