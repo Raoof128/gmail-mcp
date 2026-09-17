@@ -50,10 +50,14 @@ describe("audit page", () => {
     const b = new Browser(worker, testEnv());
     await b.login(g, { sub: "owner-sub", email: "owner@example.test" });
     const all = await (await b.get("/audit")).text();
+    // Scope the leak check to the rendered table. Searching the whole document matches the random
+    // base64url of a CSRF token that happens to contain the account id as a substring, which made
+    // this assertion fail roughly once in a few thousand runs for no real reason.
+    const table = all.slice(all.indexOf("<table"), all.indexOf("</table>"));
     expect(all).toContain("send_message");
     expect(all).toContain("trash_message");
     expect(all).toContain("recipients=2");
-    expect(all).not.toContain("au3");
+    expect(table).not.toContain("au3");
     expect(all).not.toContain("<script>");
     const filtered = await (await b.get("/audit?action=trash.move&account=work")).text();
     expect(filtered).toContain("trash_message");
