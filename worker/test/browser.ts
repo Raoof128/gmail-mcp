@@ -1,4 +1,5 @@
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
+import { openRegistration } from "../src/auth/registration";
 import type { Env } from "../src/env";
 import type { WorkerHandler } from "../src/index";
 import type { FakeGoogle } from "./fake-google";
@@ -72,6 +73,9 @@ async function pkce(): Promise<{ verifier: string; challenge: string }> {
 }
 
 export async function registerClient(worker: Worker, env: Env, redirectUri: string): Promise<string> {
+  // Registration is closed unless the owner opened a window, so a client enrolling in a test has to
+  // go through the same gate a real one does.
+  await openRegistration(env.DB, Date.now());
   const b = new Browser(worker, env);
   const res = await b.fetch("/register", {
     method: "POST",

@@ -7,6 +7,7 @@ import type { Env } from "./env";
 import { runCron } from "./cron";
 import { defaultDeps, type Deps } from "./deps";
 import { isCompanionName } from "./auth/companion";
+import { isRegistrationOpen } from "./auth/registration";
 import { authorizeRoutes } from "./auth/authorize";
 import { connectRoutes } from "./google/connect";
 import { accountsRoutes } from "./web/pages/accounts";
@@ -47,10 +48,21 @@ function oauthOptions(env: Env, deps: Deps): OAuthProviderOptions<Env> {
     authorizeEndpoint: "/authorize",
     tokenEndpoint: "/token",
     clientRegistrationEndpoint: "/register",
-    clientRegistrationCallback: ({ clientMetadata }) =>
-      isCompanionName(clientMetadata.client_name) ? { description: "reserved companion client name" } : undefined,
+    // Closed by default: see auth/registration.ts. The check reads the database, so nothing a
+    // registration request carries can open it.
+    clientRegistrationCallback: async ({ clientMetadata }) => {
+      if (isCompanionName(clientMetadata.client_name)) return { description: "reserved companion client name" };
+      if (!(await isRegistrationOpen(env.DB, Date.now())))
+        return { description: "client registration is closed; the owner must open a registration window" };
+      return undefined;
+    },
     scopesSupported: ["mcp", "staging"],
-    clientIdMetadataDocumentEnabled: true,
+    // Off deliberately. A CIMD client identifies by URL and never registers, so leaving this on is a
+    // second door around the registration window above: any HTTPS host becomes a client id. MCP's
+    // 2026 security guidance reserves "accept any HTTPS client_id" for open servers, and this
+    // deployment has exactly one owner. It also stops the authorization server fetching a URL an
+    // unauthenticated caller chose.
+    clientIdMetadataDocumentEnabled: false,
     allowPlainPKCE: false,
     // No `resource` here on purpose: one configured resource would bind every token to /mcp and the
     // provider would then refuse the same token at /staging. The authorize handler pins the resource

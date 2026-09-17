@@ -1,6 +1,12 @@
 import type { Env } from "../../env";
 import { auditOutcome } from "../../audit/log";
 import { getCompanionClientId, registerCompanionClient } from "../../auth/companion";
+import {
+  REGISTRATION_WINDOW_MS,
+  closeRegistration,
+  isRegistrationOpen,
+  openRegistration,
+} from "../../auth/registration";
 import { auditIntent } from "../../audit/log";
 import { revokeAccount } from "../../google/tokens";
 import { parseAddress, toAsciiDomain } from "../../policy/recipients";
@@ -64,6 +70,8 @@ async function render(env: Env, s: Session, notice?: string): Promise<Response> 
 </section>`);
   }
   const companionCsrf = await csrfToken(env, s, "POST", "/accounts", "companion");
+  const registrationCsrf = await csrfToken(env, s, "POST", "/accounts", "registration");
+  const registrationOpen = await isRegistrationOpen(env.DB, Date.now());
   const body = `${notice ? `<p><strong>${escapeHtml(notice)}</strong></p>` : ""}
 <form method="get" action="/connect"><label>Connect a Google account as <input name="alias" pattern="[a-z0-9_-]{1,32}" required placeholder="personal"></label> <button>Connect</button></form>
 ${rows.join("\n")}
@@ -74,6 +82,16 @@ ${
     ? `<p>Client id for <code>gmail-mcp-companion login</code>:</p><pre>${escapeHtml(companion)}</pre>`
     : `<form method="post" action="/accounts"><input type="hidden" name="csrf" value="${escapeHtml(companionCsrf)}"><input type="hidden" name="account" value="companion"><button name="op" value="register_companion">Register the companion client</button></form>`
 }
+</section>
+<section data-account="registration">
+<h2>Client registration</h2>
+<p>A Claude client enrols itself through this deployment's registration endpoint. It stays closed, so
+nobody else can create a client that asks you to approve it. Open it only while you are adding a client.</p>
+<form method="post" action="/accounts"><input type="hidden" name="csrf" value="${escapeHtml(registrationCsrf)}"><input type="hidden" name="account" value="registration">${
+    registrationOpen
+      ? `<p>Open for the next ${Math.ceil(REGISTRATION_WINDOW_MS / 60_000)} minutes or less.</p><button name="op" value="close_registration">Close it now</button>`
+      : `<button name="op" value="open_registration">Open for ${Math.ceil(REGISTRATION_WINDOW_MS / 60_000)} minutes</button>`
+  }</form>
 </section>`;
   return page(env, s, "Accounts", body);
 }
@@ -110,6 +128,17 @@ export const accountsRoutes: Route[] = [
           decision: "edited",
           facts: { ids: [op] },
         });
+
+      if (op === "open_registration" || op === "close_registration") {
+        if (objectId !== "registration") return bad("wrong object");
+        // Same bar as a policy edit: opening registration widens who may ask the owner to approve.
+        const recent = await requireRecent(env, s, request);
+        if (recent) return recent;
+        if (op === "open_registration") await openRegistration(env.DB, Date.now());
+        else await closeRegistration(env.DB);
+        await auditTrust(null);
+        return redirect("/accounts");
+      }
 
       if (op === "register_companion") {
         if (objectId !== "companion") return bad("wrong object");

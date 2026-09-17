@@ -23,7 +23,8 @@ describe("discovery", () => {
     const b = new Browser(worker, testEnv());
     const as = (await (await b.get("/.well-known/oauth-authorization-server")).json()) as any;
     expect(as.code_challenge_methods_supported).toEqual(["S256"]);
-    expect(as.client_id_metadata_document_supported).toBe(true);
+    // CIMD is off on purpose; registration-window.test.ts owns that property.
+    expect(as.client_id_metadata_document_supported ?? false).toBe(false);
     expect(as.registration_endpoint).toBe(`${HOST}/register`);
     const prm = (await (await b.get("/.well-known/oauth-protected-resource/mcp")).json()) as any;
     expect(prm.resource).toBe(`${HOST}/mcp`);
