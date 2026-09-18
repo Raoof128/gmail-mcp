@@ -109,6 +109,14 @@ no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Security
 
+- Native publication is restarted from each surviving combination of temporary file, published file and
+  receipt. A file at the destination proves nothing on its own: recovery is decided by the receipt and
+  the verified identity behind it, and an established publication whose destination stopped matching
+  becomes `publication_unknown` rather than permission to write there again. The receipt is recorded as
+  verified before the rename and published only after it, so a failure in between stays retryable
+  instead of losing the transfer. Mutation testing also corrected an assumption: the state check in
+  recovery is redundant with the temporary-discard check rather than load-bearing, which is why it is
+  not listed among the load-bearing predicates.
 - The companion is killed at every edge of the authority handoff and never produces two authoritative
   local publications. A crash after fsync but before the reply is read leaves a durable receipt, so the
   retry skips the download and the publication entirely; a crash before the bytes land legitimately

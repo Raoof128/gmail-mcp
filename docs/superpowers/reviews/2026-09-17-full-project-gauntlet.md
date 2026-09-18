@@ -644,12 +644,59 @@ row behind. Liveness holds too: the body runs inside a `try` whose `finally` del
 that throws returns the slot immediately, and the admission predicate is `lease_until > now`, so a holder
 that stalls past its lease stops excluding anyone even if its `finally` never runs.
 
-That second mechanism is worth stating plainly rather than presenting as free. Exclusivity is
-time-bounded, not absolute: a holder stalled beyond `leaseMs` no longer excludes a new claimant, so two
+That second mechanism is worth naming rather than presenting as free. The property is **lease-bounded
+exclusivity**: at most one materializer is admitted while a valid lease exists, and exclusivity expires on
+purpose to preserve liveness. Reading "global slot" as process-lifetime mutual exclusion would be wrong: a holder stalled beyond `leaseMs` no longer excludes a new claimant, so two
 materializers can overlap in exactly that window. That is the price paid for not letting one dead process
 wedge every later job, and the cron then deletes the abandoned row. Three mutations confirm which
 mechanism does what. Removing exclusivity breaks five cases, removing the release breaks five, and
 ignoring the expiry breaks only the liveness case, which is the one that names it.
+
+## Native publication, restarted from each surviving state
+
+Where filesystem truth, process death and receipt truth meet. The existing suite already covered the
+exclusive rename, symlink and traversal refusals, root replacement, temporary replacement and a crash
+after the rename. Four cases in `companion/native/Tests/NativeCoreTests/RestartTests.swift` add the
+restart combinations that were missing, each one starting from a different set of survivors.
+
+| Survivors                                 | Recovery answer       | Destination     |
+| ----------------------------------------- | --------------------- | --------------- |
+| temporary only, rename refused            | `prepared`, retryable | untouched       |
+| published file and a matching receipt     | `published`           | kept            |
+| published receipt, destination replaced   | `publication_unknown` | left as found   |
+| acknowledged receipt, destination removed | `publication_unknown` | not recreated   |
+| destination file with no receipt at all   | `nil`, then refused   | not overwritten |
+
+The last row is the one that keeps recovery honest: a file at the destination proves nothing on its own.
+Recovery is decided by the receipt and the verified identity behind it, never by bare existence, and the
+exclusive rename is what stops the transfer from overwriting a file it cannot account for.
+
+Producing the pre-rename failure needed no test-only hook. An occupied destination makes
+`renameatx_np` with `RENAME_EXCL` refuse while the temporary file is still intact, which is exactly the
+state a crash at that point would leave behind.
+
+### What the mutations actually showed
+
+Four mutations, and the interesting result is the one that did not fail.
+
+| Mutation                                                          | Failures | Reading                                        |
+| ----------------------------------------------------------------- | -------- | ---------------------------------------------- |
+| `RENAME_EXCL` dropped from `gm_publish`                           | 2        | the no-overwrite primitive was already covered |
+| receipt says `published` before the rename rather than `verified` | 1        | the ordering is load-bearing and now covered   |
+| the `receipt.state == published` check in `recover` removed       | 0        | redundant, see below                           |
+| the `receipt.file != nil && !discarded` check removed             | 1        | carries the property on its own                |
+| both of those removed together                                    | 4        | the property is genuinely guarded, twice       |
+
+The state check is not a single point of failure. For a published receipt the temporary file has already
+been renamed away, so `discardTemporary` returns false and the second check produces
+`publication_unknown` by itself. Removing either one alone leaves the property intact and removing both
+breaks four cases, which is defence in depth rather than a load-bearing predicate. Recording it in the
+load-bearing table would have been wrong, and only the mutation showed which it was.
+
+The ordering is a different matter. The receipt is written as `verified` before the rename and only
+becomes `published` after it, so a failure in between recovers as retryable. Claiming `published` early
+turns that into a permanent `publication_unknown`, which loses the transfer rather than endangering it: a
+liveness failure rather than a safety one, and worth keeping separate from the safety guards around it.
 
 ## Coverage ledger
 
@@ -667,7 +714,8 @@ ignoring the expiry breaks only the liveness case, which is the one that names i
 | Download races               | 3     | `staging/downloads.ts`, `staging/settlement.ts`, `staging/store.ts`: seven cases, three isolated predicates                       |
 | Companion save crashes       | 2     | `companion/src/transfers.ts`, `http.ts`: thirteen cases, the receipt guard reached at last                                        |
 | Materialization slot         | 2     | `staging/materialization.ts`, `staging/recovery.ts`: six cases, safety and liveness separated                                     |
-| Gates                        | n/a   | verify 791, verify:native 18 + release build, sql_conformance 18, `git diff --check` clean                                        |
+| Native restarts              | 3     | `native/SaveReceipts.swift`, `SafeFiles.swift`, `CNative.c`: four restart cases, ordering proved, one guard shown redundant       |
+| Gates                        | n/a   | verify 791, verify:native 22 + release build, sql_conformance 18, `git diff --check` clean                                        |
 
 ## Checked and held
 

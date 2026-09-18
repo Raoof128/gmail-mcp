@@ -38,7 +38,7 @@ The dependent-intent path resolves only declared fields from earlier slots in th
 - Planning contract checker: 28 passed with strict TypeScript validation.
 - SQLite conformance: 18 passed.
 - Legacy writer corpus regeneration check: passed; all 136 captured sites are accounted for.
-- Native evidence from the preceding checkpoint: 18 tests and release build passed. Native code did not change in the latest checkpoint.
+- Native: 22 XCTest tests and the release build pass. Four restart cases were added; native sources are unchanged.
 - `git diff --check`: passed.
 
 ## Open Plan 6 work
