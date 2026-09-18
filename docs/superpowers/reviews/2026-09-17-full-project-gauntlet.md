@@ -440,6 +440,92 @@ of these cases, and removing the installation assertion from the per-object batc
 both are load-bearing rather than decorative. The foreign-target rows also confirm the scope refusal
 happens before any select or delete, so a mistyped manifest cannot reach another owner's storage.
 
+## Load-bearing predicates
+
+A predicate is load-bearing when removing it alone produces a wrong outcome, as opposed to being caught by
+a second guard. Every row here was established by neutralising the clause and watching a specific test
+turn red, and each is the only thing standing between the system and the failure named beside it. They
+are listed together because they deserve the same care as a migration: never edited casually, never
+refactored without re-running the test that names them.
+
+| Predicate                                          | Where                                | Removing it alone                                        |
+| -------------------------------------------------- | ------------------------------------ | -------------------------------------------------------- |
+| `a.credential_version=r.credential_version`        | `recoveryFences`                     | a recovery settles against a grant the owner replaced    |
+| `c.epoch=?`                                        | `qualificationFence`                 | a lease survives the epoch replacement that revoked it   |
+| `beginSend` before the byte-moving request         | `operations/send.ts`                 | a transport reset reports `failed_safe` after streaming  |
+| `writerStopped = !putStarted \|\| putReturned`     | `staging/upload.ts` `failUpload`     | an object with an unknown writer is deleted and released |
+| unconditional `STAGING.delete` in the debt sweep   | `staging/recovery.ts`                | a late write survives every later sweep                  |
+| object deleted before its row                      | `scripts/qualification/storage.ts`   | an orphan object nothing will ever collect               |
+| `RestoreTarget` generation and database refinement | `scripts/qualification/contracts.ts` | the restore generation becomes a second source of truth  |
+
+Defence in depth exists elsewhere and is worth knowing about separately: the refresh leg of a recovery is
+three deep, and the disable arm of administration is two deep. Those are noted in their own sections.
+
+## Upload races across D1, R2 and the response
+
+Seven cases in `worker/test/upload-race-matrix.test.ts`, each carrying the upload tuple: whether the R2
+object exists and its size, the transfer row, every generation row with its cleanup state and
+`writer_stopped` flag, the `staging_objects` rows keyed by `r2_key`, the audit count, and what the caller
+received.
+
+| Case                                          | R2 object   | Generation                     | Handle |
+| --------------------------------------------- | ----------- | ------------------------------ | ------ |
+| nothing races                                 | one, kept   | `completed` / `published`      | one    |
+| publication transaction fails after the bytes | deleted     | `failed` / `released`          | none   |
+| put entered, outcome never returned           | debt, swept | `abandoned` / `debt`, writer 0 | none   |
+| a late write lands after abandonment          | swept again | `abandoned` / `debt`, writer 0 | none   |
+| retry after an abandoned generation           | new key     | old stays abandoned            | one    |
+| superseded ticket presented after a retry     | none        | refused as stale               | none   |
+| two writers on one ticket                     | one         | one generation                 | one    |
+| body longer than the declared length          | none        | `failed`                       | none   |
+
+The invariant is that no retry can create two authoritative objects or make an abandoned object reusable,
+and the second half of that is the interesting one. An abandoned generation whose put never answered keeps
+`writer_stopped = 0`, so nothing is allowed to declare the writer dead. The sweep deletes the bytes on
+every pass and leaves the debt charged, which means a delayed write that lands later is removed again on
+the next pass, for as long as the writer might be alive.
+
+Resurrection of the bytes is not itself the danger. A reference to resurrected bytes would be, and there
+is never one: no `staging_objects` row is written for an abandoned generation, and a retry is issued its
+own `r2_key`, so the authoritative object can never be the abandoned one. Both halves are asserted.
+
+Two predicates carry this and neither has a partner. Treating an unknown put outcome as a stopped writer
+deletes the object and releases the debt, after which a late write persists forever. Making the debt
+sweep's delete conditional on a known-stopped writer has the same effect by a different route.
+
+## Restore: what is reachable and what is not
+
+Restore has no implementation, on purpose. `prepareRestore` takes a private sink and no platform port,
+`QuiescenceVerifier` always refuses, and the controller behind it refuses again. Most of the restore
+matrix is therefore not reachable from here, and is recorded as `not_run` rather than passing.
+
+| Case                                            | State     | Missing prerequisite              |
+| ----------------------------------------------- | --------- | --------------------------------- |
+| preflight passes, no request is sent            | pass      | none                              |
+| restore request sent, response lost             | `not_run` | no restore request can be issued  |
+| restore succeeds, acknowledgement lost          | `not_run` | same                              |
+| delayed writer resumes after restore            | `not_run` | `quiescence_unavailable`          |
+| migration reapplication fails after restore     | `not_run` | no restore request can be issued  |
+| verification receipt write fails after restore  | `not_run` | same                              |
+| restore generation changes unexpectedly         | pass      | none                              |
+| quiescence record expires between the two steps | pass      | none, via `intent_expired`        |
+| routed deployment or version changes            | pass      | none, via the snapshot comparison |
+
+The rule that an uncertain restore POST is not a retryable restore POST is not tested, because no POST
+exists to be uncertain about. Recording that as a pass would be inventing evidence.
+
+Five cases in `scripts/qualification/test/restore-identity.test.ts` cover the reachable half. The identity
+condition the reviewer asked to be made explicit is already a schema refinement rather than a call-site
+check: `RestoreTarget` refuses any value whose `generation` differs from `snapshot.restoreGeneration`, or
+whose `databaseId` differs from the snapshot's, in either direction. The duplicate is therefore not a
+second source of truth and no call site can forget to compare them, which the first case asserts both ways.
+
+One line had no coverage at all and now has some. The controller ends with
+`throw new Error("restore_controller_unavailable")`, guarding against a future working verifier silently
+activating an unreviewed restore. While the real verifier always refuses, that line is unreachable, so the
+guarantee was only a comment. Replacing the verifier module in the test reaches it without changing
+production code, and mutating the throw into a success turns the case red.
+
 ## Coverage ledger
 
 | Area                         | Files | State                                                                                                                             |
@@ -451,7 +537,9 @@ happens before any select or delete, so a mistyped manifest cannot reach another
 | Failure ladder (section 12)  | 3     | `operations/send.ts`, `tools/gate.ts`, `tools/settle.ts`: six rungs, one evidence tuple, ordering mutation-tested                 |
 | Administration (mid-flight)  | 2     | `operations/recovery-admission.ts`, `operations/recovery-cron.ts`: five cases, each clause isolated                               |
 | Administration (interrupted) | 2     | `scripts/qualification/storage.ts`, `admin.ts`: six cases against real SQLite                                                     |
-| Gates                        | n/a   | verify 753, verify:native 18 + release build, sql_conformance 18, `git diff --check` clean                                        |
+| Upload races                 | 3     | `staging/upload.ts`, `staging/recovery.ts`, `staging/transfers.ts`: seven cases, two load-bearing predicates                      |
+| Restore identity             | 3     | `scripts/qualification/contracts.ts`, `controllers/restore.ts`: five reachable cases, six recorded not_run                        |
+| Gates                        | n/a   | verify 765, verify:native 18 + release build, sql_conformance 18, `git diff --check` clean                                        |
 
 ## Checked and held
 

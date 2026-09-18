@@ -8,7 +8,7 @@ release.
 
 The project is pre-release. Nothing here has sent an email.
 
-The suite is 753 tests, 620 of them inside the real Workers runtime against D1, R2 and KV emulation with
+The suite is 765 tests, 627 of them inside the real Workers runtime against D1, R2 and KV emulation with
 no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Added
@@ -109,6 +109,19 @@ no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Security
 
+- An abandoned upload can never become the authoritative one, and an interrupted one is never declared
+  safe on a guess. A put that was entered but never answered leaves its writer unknown, so its debt stays
+  charged: the sweep deletes the bytes on every pass, and a delayed write landing later is removed again
+  on the next. Resurrected bytes are harmless because nothing can reference them, since no handle row is
+  ever written for an abandoned generation and a retry is issued its own key. Two predicates carry that
+  and neither has a partner, so both are now named in the ledger alongside the other load-bearing ones.
+- The restore identity condition is a schema refinement rather than a call-site check. `RestoreTarget`
+  refuses any value whose generation differs from its snapshot's restore generation, or whose database
+  differs from the snapshot's, in either direction, so the duplicated field is not a second source of
+  truth. Restore itself remains unimplemented and its live matrix is recorded as `not_run` with the
+  prerequisite named, because no restore request can be issued and inventing evidence for one would be
+  worse than the gap. The controller's last refusal, which stops a future working quiescence verifier
+  from silently activating an unreviewed restore, had no test at all and now has one.
 - Every failure point between the first mutating request and the client's reply is measured against one
   evidence tuple, and none of them can report `failed_safe`. That code is a promise that Gmail did
   nothing, and once bytes have been handed to the transport nobody can honestly make it. What enforces

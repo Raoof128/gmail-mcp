@@ -20,7 +20,7 @@ The dependent-intent path resolves only declared fields from earlier slots in th
 
 ## Verification evidence
 
-- `npm run verify`: passed 753 tests (shared 11, Worker 620, companion 9, qualification 113).
+- `npm run verify`: passed 765 tests (shared 11, Worker 627, companion 9, qualification 118).
 - Planning contract checker: 28 passed with strict TypeScript validation.
 - SQLite conformance: 18 passed.
 - Legacy writer corpus regeneration check: passed; all 136 captured sites are accounted for.
@@ -127,8 +127,15 @@ was safe. The qualification epoch clause is a single point of failure the way th
 clause is. And storage cleanup deletes the object before its row on purpose, because a row without an
 object is debt a retry settles while an object without a row is an orphan nothing collects.
 
-Remaining sections are listed at the end of the ledger. Next are upload transaction and race acceptance,
-and restore integration.
+Upload race acceptance and restore integration are done. Seven upload cases carry the R2 object, both
+database sides and the caller's result; five restore cases cover the reachable half, and the live half is
+recorded as `not_run` with its prerequisite rather than passed.
+
+The ledger now has a Load-bearing predicates section: seven clauses whose removal alone produces a wrong
+outcome, each established by neutralising it and watching a named test turn red. That list is the thing to
+re-read before refactoring anything in recovery, staging cleanup or the restore contracts.
+
+Remaining sections are listed at the end of the ledger.
 
 ## Safe next actions
 
