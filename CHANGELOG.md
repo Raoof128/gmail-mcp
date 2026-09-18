@@ -8,7 +8,7 @@ release.
 
 The project is pre-release. Nothing here has sent an email.
 
-The suite is 736 tests, 609 of them inside the real Workers runtime against D1, R2 and KV emulation with
+The suite is 753 tests, 620 of them inside the real Workers runtime against D1, R2 and KV emulation with
 no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Added
@@ -109,6 +109,25 @@ no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Security
 
+- Every failure point between the first mutating request and the client's reply is measured against one
+  evidence tuple, and none of them can report `failed_safe`. That code is a promise that Gmail did
+  nothing, and once bytes have been handed to the transport nobody can honestly make it. What enforces
+  this is an ordering rather than a check: `beginSend` runs strictly before the byte-moving request, so
+  the condition `recordFailure` tests is already false downstream. Moving the request ahead of it makes a
+  transport reset report `failed_safe` with the bytes already streamed, which is how the ordering was
+  confirmed to be load-bearing. The two rungs after Gmail has committed report `executed` with
+  `local_settlement_failed`, because reporting a failure there would invite a retry of a delivered send.
+- Administration that lands mid-recovery stops the run in progress, not merely the next one. The lease
+  names the qualification epoch it was admitted under and every request re-reads the control row, so
+  disabling the mode or replacing the epoch refuses the second leg of an observation already underway.
+  Disabling is refused independently by the control state and by the recovery row suspension; the epoch
+  is one clause on its own. Replacing an epoch parks the recovery at `manual` rather than retrying it, so
+  re-arming is an operator act, and the operation's delivery truth is untouched throughout.
+- Interrupted storage cleanup leaves recoverable debt rather than orphans. `abandonStorage` deletes the
+  object before the row that names it, so a crash between the two leaves a row a retry can settle instead
+  of an object nothing will ever collect. Reversing those two statements breaks three of the six cases.
+  A restore landing mid-cleanup is stopped by the installation fence on each per-object batch, and a
+  manifest naming another owner, account or operation is refused before anything is selected or removed.
 - The grant a recovery was admitted under is now proven, not assumed. A reconnect or a revoke that lands
   while a protocol-2 recovery is mid-flight moves the account's `credential_version`, and the recovery
   must stop rather than finish its work against the replacement grant. Six cases drive the real cron path

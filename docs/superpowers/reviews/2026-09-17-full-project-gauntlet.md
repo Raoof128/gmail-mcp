@@ -350,6 +350,96 @@ Every case also snapshots the operation state, both audit counts, the settlement
 recovery state before the attack and requires them unchanged afterwards, so a refusal that still wrote
 something adjacent would fail.
 
+## The failure ladder, first mutating request to client reply
+
+Section 12's remaining barrier points, run as one ladder with a single evidence tuple at every rung:
+provider mutation count, requests made, body bytes admitted, operation state, `byte_admitted`,
+idempotency row, total and executed audit counts, settlement permit rows, recovery row, pending row and
+error, staged object reservation and consumption, and the result the client actually receives.
+
+Six rungs in `worker/test/recovery-barrier-ladder.test.ts`. The first five run over the resumable
+transport, which is the only one that streams the body and therefore the only one where "partially
+admitted" is a real state rather than a hypothetical.
+
+| Rung                 | Gmail has it | Operation state    | Client is told                        |
+| -------------------- | ------------ | ------------------ | ------------------------------------- |
+| headers              | no           | `delivery_unknown` | `delivery_unknown`                    |
+| partial body         | no           | `delivery_unknown` | `delivery_unknown`                    |
+| provider commit      | yes          | `delivery_unknown` | `delivery_unknown`                    |
+| response             | yes          | `executing`        | `executed`, `local_settlement_failed` |
+| settlement statement | yes          | `executing`        | `executed`, `local_settlement_failed` |
+| settlement commit    | yes          | `executed`         | `executed`                            |
+
+The first two rows are the honest ones. The fixture knows Gmail received nothing, because it owns the
+fake; the Worker cannot know, so it says unknown. The fourth and fifth are the ones that would be easy to
+get wrong in the other direction: Gmail has the message, so reporting a failure there would invite a
+retry of a delivered send. The client is told `executed` with `local_settlement_failed`, and the cron
+picks the operation up.
+
+The settlement-statement rung is a sweep, not a single case: it splices one guaranteed failure into the
+real settlement transaction at every statement boundary in turn and re-runs a fresh send for each, then
+finishes with the same transaction unspliced to prove it settles exactly once. Driving it through the
+gate rather than through `settleDirect` is what puts the client-observable result into the tuple;
+`worker/test/recovery-faults.test.ts` covers the same boundaries from below.
+
+### The one that matters
+
+No rung at or after byte admission may report `failed_safe`, because `failed_safe` is a promise that
+Gmail did nothing. Every rung asserts it, on the operation and on the pending row's error code, and the
+pending row's state is deliberately not asserted: `failed` is a legitimate state there, and the error
+code is what carries the claim.
+
+What enforces it is not a check but an ordering. `beginSend` runs strictly before the byte-moving
+request and sets `byte_admitted=1` and `state='executing'` together, so `recordFailure`'s condition,
+`state='claimed' AND byte_admitted=0`, is already false by the time any of these rungs can be reached.
+Measured, not argued: skipping `beginRecoverableOperation` makes the headers rung report `failed_safe`
+with the bytes already streamed. Two conditions guard it and either alone suffices, so the ordering is
+the thing to protect.
+
+## Administration arriving mid-recovery
+
+Five cases in `worker/test/recovery-administration.test.ts`, applying what the disable and
+epoch-replacement arms of `changeQualification` write, while a recovery holds a live lease.
+
+| Case                                        | Refused by                        | Recovery row after |
+| ------------------------------------------- | --------------------------------- | ------------------ |
+| control, no administration                  | nothing                           | `completed`        |
+| operator disables the mode                  | control state, and row suspension | `suspended`        |
+| control row disabled, row not yet suspended | control state alone               | `manual`           |
+| qualification epoch replaced                | `c.epoch=?` alone                 | `manual`           |
+| control row disabled between cron passes    | `cleanupRecovery`                 | `suspended`        |
+
+Two results. The disable path is two deep: the control state clause and the recovery row suspension
+refuse independently, which the third case proves by separating them. The epoch clause is not: removing
+`c.epoch=?` from `qualificationFence` lets a lease minted under the replaced epoch carry on to its second
+request. It is the same shape as the credential-version clause in section 27 and deserves the same care.
+
+One behaviour worth naming because it is easy to describe wrongly. Replacing the epoch under a running
+recovery does not merely pause it: the observation is `suspended`, so the cron parks the row at `manual`
+and `dueRecoveries` stops returning it. Re-arming is an operator act. The operation's delivery truth is
+untouched throughout, and once re-armed the same evidence settles under the new epoch.
+
+## Administration interrupted partway
+
+Six cases in `scripts/qualification/test/storage-interruption.test.ts`, against real SQLite rather than a
+mock port, covering `abandonStorage` where it is most exposed: between marking a row and deleting the
+object it names.
+
+| Interruption                            | Object     | Row              | Retry     |
+| --------------------------------------- | ---------- | ---------------- | --------- |
+| none                                    | deleted    | deleted          | n/a       |
+| before the object delete                | intact     | `deleting`       | completes |
+| after the object delete                 | gone       | `deleting`, debt | completes |
+| installation record replaced mid-action | first gone | `deleting`, debt | refused   |
+| foreign user, account or operation      | untouched  | `retained`       | refused   |
+| operation no longer `delivery_unknown`  | untouched  | `retained`       | refused   |
+
+The ordering is the whole design. A row without its object is recoverable debt that a retry settles; an
+object without its row is an orphan nothing will ever collect. Reversing the two statements breaks three
+of these cases, and removing the installation assertion from the per-object batch breaks the fourth, so
+both are load-bearing rather than decorative. The foreign-target rows also confirm the scope refusal
+happens before any select or delete, so a mistyped manifest cannot reach another owner's storage.
+
 ## Coverage ledger
 
 | Area                         | Files | State                                                                                                                             |
@@ -358,7 +448,10 @@ something adjacent would fail.
 | `worker/src` static sweep    | 73    | reviewed for section 35 signals: no `any`, no `@ts-ignore`, no TODO/FIXME, three deliberate `console.error` calls, no dynamic SQL |
 | `companion/src` static sweep | 9     | same sweep, clean                                                                                                                 |
 | Grant epoch (section 27)     | 3     | `google/tokens.ts`, `operations/recovery-admission.ts`, `operations/reconcile.ts`: six cases, each fence mutation-tested          |
-| Gates                        | n/a   | verify 736, verify:native 18 + release build, sql_conformance 18, `git diff --check` clean                                        |
+| Failure ladder (section 12)  | 3     | `operations/send.ts`, `tools/gate.ts`, `tools/settle.ts`: six rungs, one evidence tuple, ordering mutation-tested                 |
+| Administration (mid-flight)  | 2     | `operations/recovery-admission.ts`, `operations/recovery-cron.ts`: five cases, each clause isolated                               |
+| Administration (interrupted) | 2     | `scripts/qualification/storage.ts`, `admin.ts`: six cases against real SQLite                                                     |
+| Gates                        | n/a   | verify 753, verify:native 18 + release build, sql_conformance 18, `git diff --check` clean                                        |
 
 ## Checked and held
 

@@ -20,7 +20,7 @@ The dependent-intent path resolves only declared fields from earlier slots in th
 
 ## Verification evidence
 
-- `npm run verify`: passed 736 tests (shared 11, Worker 609, companion 9, qualification 107).
+- `npm run verify`: passed 753 tests (shared 11, Worker 620, companion 9, qualification 113).
 - Planning contract checker: 28 passed with strict TypeScript validation.
 - SQLite conformance: 18 passed.
 - Legacy writer corpus regeneration check: passed; all 136 captured sites are accounted for.
@@ -116,8 +116,19 @@ one of them turned out to be the single point of failure in that path: removing
 `a.credential_version=r.credential_version` from `recoveryFences` settles the operation against the
 replacement grant. No defect, but that clause now has a named invariant.
 
-Remaining sections are listed at the end of the ledger. Next are the barrier points beyond headers and
-provider commit, and the administration interruption matrix.
+The barrier ladder and the administration interruption matrix are done too. Six rungs from the first
+mutating request to the client's reply, five administration cases arriving while a recovery holds a live
+lease, and six storage-cleanup interruptions against real SQLite. Each rung carries the same evidence
+tuple, and every clause believed to be enforcing something was mutation-tested rather than trusted.
+
+Three results carry forward. `failed_safe` is enforced by an ordering, not a check: `beginSend` runs
+before the byte-moving request, and moving the request ahead of it makes a transport reset claim the send
+was safe. The qualification epoch clause is a single point of failure the way the credential-version
+clause is. And storage cleanup deletes the object before its row on purpose, because a row without an
+object is debt a retry settles while an object without a row is an orphan nothing collects.
+
+Remaining sections are listed at the end of the ledger. Next are upload transaction and race acceptance,
+and restore integration.
 
 ## Safe next actions
 
