@@ -952,11 +952,11 @@ the current reference without replacing it.
 
 | Anchor   | Value                                                                                       |
 | -------- | ------------------------------------------------------------------------------------------- |
-| Commit   | `f69eb333d1107abd261bbeac8883e51c49e70e70`                                                  |
+| Commit   | `d9c2b8c39e828fc4909b505a31dba7310d20f099`                                                  |
 | Tag      | `post-gauntlet-2026-09-18`                                                                  |
 | Gate     | `npm run verify` exit 0, 840 tests (shared 11, worker 642, companion 22, qualification 165) |
 | Native   | `npm run verify:native` 22 XCTest tests and a release build                                 |
-| CI       | run 35344086281 on `main`, conclusion success                                               |
+| CI       | run 35344610205 on `main`, conclusion success                                               |
 | Worktree | clean, `main` in sync with `origin/main`                                                    |
 
 ### What future work owes this baseline
