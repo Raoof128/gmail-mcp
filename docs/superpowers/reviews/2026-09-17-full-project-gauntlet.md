@@ -202,6 +202,7 @@ not watching at all.
 | G-004 | INFO     | worker/src/crypto         | `frameAad` joins its three parts with NUL while `hmac.ts` length-prefixes its fields and documents why. None of `userId`, `accountId` or `field` is caller-controlled, so no boundary can be shifted today, but the codebase disagrees with itself about framing.                                                                                                                   | open   |
 | G-002 | INFO     | shared/staging, companion | `TransferResult.state` is `string` rather than an enum, and the companion revalidates it as `z.string()` before comparing against `awaiting_approval`, `prepared` and `ready`. Comparisons are exact so nothing is exploitable, but a renamed state fails silently instead of at the type level. `TransferIntent` alongside it is a proper discriminated union.                     | open   |
 | G-001 | LOW      | shared/schemas, mcp       | `inline_attachments` admits 50 items of 1,400,000 base64 characters, about 70 MB, while `decodeInline` caps the aggregate at 1 MiB. The schema therefore describes input that can never validate, and `/mcp` has no body ceiling before `JSON.parse`, unlike the 64 KiB caps on web forms and the staging intent body. Authenticated only, so the caller is the owner's own client. | open   |
+| G-006 | INFO     | scripts/qualification     | `measurement_unavailable` is declared in two reason enums and returned by nothing, so the peak isolate memory gate is enforced by the absence of any measurement rather than by a refusal anyone can test. Nothing claims the measurement exists, so nothing is overclaimed, but a reader of the enum could reasonably think the refusal is implemented.                            | open   |
 
 ## Section 7: owner and account isolation
 
@@ -693,10 +694,80 @@ been renamed away, so `discardTemporary` returns false and the second check prod
 breaks four cases, which is defence in depth rather than a load-bearing predicate. Recording it in the
 load-bearing table would have been wrong, and only the mutation showed which it was.
 
-The ordering is a different matter. The receipt is written as `verified` before the rename and only
+The ordering is a different matter, and belongs to liveness rather than the no-overwrite safety family. The receipt is written as `verified` before the rename and only
 becomes `published` after it, so a failure in between recovers as retryable. Claiming `published` early
 turns that into a permanent `publication_unknown`, which loses the transfer rather than endangering it: a
 liveness failure rather than a safety one, and worth keeping separate from the safety guards around it.
+
+## Restore refusal predicates, one case apiece
+
+The question this section answers is narrow on purpose: after an ambiguous restore, what authoritative
+read-only fact says whether it happened? The answer here is that the question cannot arise, because no
+restore request can be issued, and the honest half of the matrix is therefore the refusal that comes
+first.
+
+Seven cases in `scripts/qualification/test/restore-predicates.test.ts`, one per refusal predicate in
+`prepareRestore`, plus a control that reaches the quiescence gate and stops there. Every predicate was
+neutralised on its own, and in every instance exactly one case turned red, the one named after it.
+
+| Predicate neutralised                                               | Case that failed                            |
+| ------------------------------------------------------------------- | ------------------------------------------- |
+| `canonicalize(target.snapshot) !== canonicalize(snapshotOf(...))`   | snapshot is not the target's own            |
+| `auth.targetHash !== identityHash("target", ...)`                   | authorization issued for a different target |
+| `target.authorizationSha256 !== identityHash("authorization", ...)` | target names a different authorization      |
+| `target.authorizationExpiresAt > auth.expiresAt`                    | intent outlives the authorization           |
+| `!auth.capabilities.includes("restore")`                            | authorization lacks the restore capability  |
+| `recordedAt >= target.authorizationExpiresAt`                       | intent has expired                          |
+
+Six for six, with no predicate covered only by a case that also trips a neighbour. That is the outcome
+the companion work made me check for rather than assume.
+
+### The reconciliation half is not_run, and why
+
+There is no reconciliation implementation. Nothing consumes `RestoreTarget.bookmark`, and
+`prepareRestore` exposes no platform port, so the following are recorded as `not_run` with the missing
+prerequisite rather than passed.
+
+| Case                                               | State     | Missing prerequisite                      |
+| -------------------------------------------------- | --------- | ----------------------------------------- |
+| POST sent, transport fails before a result         | `not_run` | no restore request can be issued          |
+| restore succeeds, response lost                    | `not_run` | same                                      |
+| response arrives, local receipt write fails        | `not_run` | same                                      |
+| generation changes between preflight and reconcile | `not_run` | no reconciliation step exists             |
+| reconciliation sees the expected bookmark          | `not_run` | nothing reads a post-restore bookmark     |
+| reconciliation sees neither old nor expected state | `not_run` | same                                      |
+| migration reapplication fails after a restore      | `not_run` | no restore request can be issued          |
+| operator retries an uncertain restore command      | `not_run` | there is no uncertain state to retry from |
+
+The rule that an uncertain restore must not produce a blind second POST is currently enforced by
+construction rather than by a check: there is no POST. That is a stronger guarantee than a guard while it
+lasts, and a weaker one the moment a controller appears, so it should be re-tested as a rule the day one
+does.
+
+## The three feasibility gates
+
+Each stays open. What can pass is the refusal, and for two of the three it now does.
+
+| Gate                 | Refusal path                       | Tested                |
+| -------------------- | ---------------------------------- | --------------------- |
+| writer quiescence    | `quiescence_unavailable`           | yes, four cases       |
+| cross-host exclusion | `deployment_exclusion_unavailable` | yes, three cases, new |
+| peak isolate memory  | none exists                        | no, and see below     |
+
+Three cases in `scripts/qualification/test/exclusion-refusal.test.ts` cover the exclusion gate, which was
+emitted at two sites in `cli.ts` and tested at neither: no mechanism at all, and a mechanism whose check
+fails. Both write a `not_run` record and neither reaches dispatch, the private failure text never reaches
+the record, and `CommandStatus` pins `result` to the literal `not_run` so a passing verdict cannot be
+written there by mistake. Both sites were mutation-confirmed.
+
+### Finding: the peak memory gate has no refusal path
+
+`measurement_unavailable` appears in two reason enums and is returned by nothing. The gate is therefore
+open not because a refusal path reports it, but because no code measures, refuses or records anything
+about peak isolate memory at all. That is the same shape as `+overwrite` in section 7: declared and
+emitted nowhere. It is recorded here because a reviewer reading the enum could reasonably conclude the
+refusal is implemented, and it is not. Severity INFO: nothing claims the measurement exists, so nothing
+is overclaimed, but the gate is enforced by absence rather than by a refusal anyone can test.
 
 ## Coverage ledger
 
@@ -715,7 +786,9 @@ liveness failure rather than a safety one, and worth keeping separate from the s
 | Companion save crashes       | 2     | `companion/src/transfers.ts`, `http.ts`: thirteen cases, the receipt guard reached at last                                        |
 | Materialization slot         | 2     | `staging/materialization.ts`, `staging/recovery.ts`: six cases, safety and liveness separated                                     |
 | Native restarts              | 3     | `native/SaveReceipts.swift`, `SafeFiles.swift`, `CNative.c`: four restart cases, ordering proved, one guard shown redundant       |
-| Gates                        | n/a   | verify 791, verify:native 22 + release build, sql_conformance 18, `git diff --check` clean                                        |
+| Restore predicates           | 2     | `controllers/restore.ts`, `contracts.ts`: six predicates, each neutralised alone, one case red apiece                             |
+| Exclusion refusal            | 1     | `cli.ts`: both emission sites, previously untested                                                                                |
+| Gates                        | n/a   | verify 801, verify:native 22 + release build, sql_conformance 18, `git diff --check` clean                                        |
 
 ## Checked and held
 

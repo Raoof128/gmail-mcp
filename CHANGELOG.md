@@ -8,7 +8,7 @@ release.
 
 The project is pre-release. Nothing here has sent an email.
 
-The suite is 791 tests, 640 of them inside the real Workers runtime against D1, R2 and KV emulation with
+The suite is 801 tests, 640 of them inside the real Workers runtime against D1, R2 and KV emulation with
 no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Added
@@ -109,6 +109,17 @@ no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Security
 
+- Every refusal predicate guarding a restore is now covered by a case of its own, and each was
+  neutralised alone to confirm the case named after it is the one that fails. The half of the restore
+  matrix that would need a restore request is recorded as `not_run` with its prerequisite, because there
+  is no request to make ambiguous and no reconciliation step to read a post-restore fact from. The rule
+  that an uncertain restore must not produce a blind second request is currently enforced by
+  construction rather than by a check, which is stronger while it lasts and needs re-testing as a rule
+  the day a controller appears.
+- The cross-host exclusion gate refuses at both of its emission sites, neither of which was tested
+  before. A missing mechanism and a failing check both write a `not_run` record, neither reaches
+  dispatch, and the private failure text stays out of the record. The gate itself remains open: what
+  passes is the refusal, not the guarantee.
 - Native publication is restarted from each surviving combination of temporary file, published file and
   receipt. A file at the destination proves nothing on its own: recovery is decided by the receipt and
   the verified identity behind it, and an established publication whose destination stopped matching
