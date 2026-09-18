@@ -8,7 +8,7 @@ release.
 
 The project is pre-release. Nothing here has sent an email.
 
-The suite is 730 tests, 603 of them inside the real Workers runtime against D1, R2 and KV emulation with
+The suite is 736 tests, 609 of them inside the real Workers runtime against D1, R2 and KV emulation with
 no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Added
@@ -109,6 +109,15 @@ no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Security
 
+- The grant a recovery was admitted under is now proven, not assumed. A reconnect or a revoke that lands
+  while a protocol-2 recovery is mid-flight moves the account's `credential_version`, and the recovery
+  must stop rather than finish its work against the replacement grant. Six cases drive the real cron path
+  and mutation-testing names which guard does the work at each point: the token pin, the durable admission
+  gate, and one clause in `recoveryFences`. That clause, `a.credential_version=r.credential_version`, is
+  the only guard in the path that is a single point of failure, and removing it settles the operation
+  against the new grant. The inverse is asserted too, because it is what a careless fix would break: an
+  ordinary access token refresh is not a new grant and leaves both the epoch and the recovery intact. No
+  defect was found; the fences held.
 - Canonicalisation refuses a hole in an array. `canonicalize` mapped over arrays, and `map` skips a hole
   while `join` renders it as nothing, so a sparse array produced `[1,,3]`, which no JSON parser accepts.
   This is the primitive `payload_hash` and the intent hash are computed over. Nothing schema-validated

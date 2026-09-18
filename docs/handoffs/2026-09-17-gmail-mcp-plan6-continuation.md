@@ -20,7 +20,7 @@ The dependent-intent path resolves only declared fields from earlier slots in th
 
 ## Verification evidence
 
-- `npm run verify`: passed 730 tests (shared 11, Worker 603, companion 9, qualification 107).
+- `npm run verify`: passed 736 tests (shared 11, Worker 609, companion 9, qualification 107).
 - Planning contract checker: 28 passed with strict TypeScript validation.
 - SQLite conformance: 18 passed.
 - Legacy writer corpus regeneration check: passed; all 136 captured sites are accounted for.
@@ -109,9 +109,15 @@ Three results are worth carrying into any later review. No modifier combination 
 `failed_safe` is structurally unreachable unless the bytes were provably never admitted, so an ambiguous
 provider outcome cannot be downgraded to "Gmail did nothing".
 
-Remaining sections are listed at the end of the ledger. The next one is the grant epoch race: a recovery
-that binds epoch N, pauses, and resumes after a reconnect has produced N+1 must fail at the identity
-fence, while an ordinary access-token refresh under the same grant must not invalidate it.
+The grant epoch race is now closed. A recovery that binds epoch N and resumes after a reconnect or revoke
+has produced N+1 stops at the token pin, the admission gate or the settlement fence, and cannot be
+resumed afterwards; an ordinary access token refresh leaves it intact. Each fence was mutation-tested, and
+one of them turned out to be the single point of failure in that path: removing
+`a.credential_version=r.credential_version` from `recoveryFences` settles the operation against the
+replacement grant. No defect, but that clause now has a named invariant.
+
+Remaining sections are listed at the end of the ledger. Next are the barrier points beyond headers and
+provider commit, and the administration interruption matrix.
 
 ## Safe next actions
 

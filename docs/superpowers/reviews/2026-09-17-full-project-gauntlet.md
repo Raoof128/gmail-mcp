@@ -291,6 +291,65 @@ companion proof is in `operation-state-machine.test.ts`: at the first mutating r
 Still open in section 12: the remaining barrier points from `recovery-barriers.ts` beyond headers and
 provider commit, and settlement-statement level faults.
 
+## Section 27: the grant epoch
+
+A recovery binds one grant for its whole life. `operation_recovery.credential_version` records the epoch
+it was admitted under, and every later step requires the account still to be on that same epoch. The
+question this section answers is what happens when the owner moves the epoch underneath a recovery that
+is already in flight, and the matching question nobody asks: whether an ordinary token refresh, which is
+not a new grant, is mistaken for one.
+
+Six cases in `worker/test/recovery-grant-epoch.test.ts`, driving the real cron path per operation:
+`claimRecovery`, then `observeDelivery`, then `settleRecovered`. The reconnect is the real
+`upsertAccount` and the revoke is the real `revokeAccount`, not an `UPDATE` on the version column.
+
+| Case                                        | Epoch moves              | Where it stops                | Result                                     |
+| ------------------------------------------- | ------------------------ | ----------------------------- | ------------------------------------------ |
+| control, epoch left alone                   | no                       | nowhere                       | `settled`, one executed audit row          |
+| reconnect between the two observation legs  | 0 to 1                   | `getAccessTokenPinned`        | `account_changed`, second leg never issued |
+| reconnect after the evidence was read       | 0 to 1                   | settlement identity fence     | `fenced`, delivery was confirmed           |
+| revoke after the evidence was read          | 0 to 1, status `revoked` | settlement identity fence     | `fenced`                                   |
+| reconnect while the token call is in flight | 0 to 1                   | `guardedWrite` zero-row check | `account_changed`, no Gmail request        |
+| ordinary access token refresh               | no                       | nowhere                       | `settled`, epoch still 0                   |
+
+The control row is load-bearing. Every other row asserts an absence, and an absence proves nothing in a
+harness that could never produce the presence. The last row is the inverse the user asked for and the one
+a careless fix to the rows above would break: refreshing an access token must not advance the epoch or
+invalidate the recovery. Both the account epoch and the bound epoch are read back as 0 after it.
+
+### Which fence actually does the work
+
+Each case was mutation-tested, because "it refused" is a weaker claim than "this specific guard refused".
+
+| Guard removed                                                   | Consequence                                                  |
+| --------------------------------------------------------------- | ------------------------------------------------------------ |
+| `a.credential_version=r.credential_version` in `recoveryFences` | the reconnect case **settles** against the replacement grant |
+| the `expectedVersion` refusal in `getAccessToken`               | the mid-observation case proceeds to the second leg          |
+| `guardedWrite`'s zero-row check alone                           | still refused, by the trailing `checkPinned` re-read         |
+| that check and `checkPinned` together                           | still refused, by the durable admission fence, as `disabled` |
+
+Two results worth carrying forward. The refresh leg is covered three deep: the zero-row credential write
+guard, the trailing re-read, and the admission fence, and no single one of them is a single point of
+failure. The settlement fence is not: one clause, `a.credential_version=r.credential_version`, is the
+only thing standing between a replaced grant and a recovery settling on it. Removing it does not merely
+weaken a check, it produces a wrong settle. That clause deserves the same treatment as a migration.
+
+The revoke case is protected twice over, by the epoch and by `a.status='active'`, which is why it survived
+the first mutation while the reconnect case did not. A reconnect leaves the account active and moves only
+the version, so it is the sharper of the two tests and the one to keep.
+
+### Resumption is also closed
+
+Refusing the settle is not enough on its own: a fenced recovery must not come back for another attempt
+against the grant it was never admitted under. After the epoch moves, `dueRecoveries` no longer returns
+the row, `claimRecovery` returns null for it, and `cleanupRecovery` moves it to `suspended` while leaving
+the operation at `executing`. The operation's truth is untouched throughout; only the recovery attempt
+ends.
+
+Every case also snapshots the operation state, both audit counts, the settlement permit table and the
+recovery state before the attack and requires them unchanged afterwards, so a refusal that still wrote
+something adjacent would fail.
+
 ## Coverage ledger
 
 | Area                         | Files | State                                                                                                                             |
@@ -298,7 +357,8 @@ provider commit, and settlement-statement level faults.
 | `shared/src`                 | 4     | reviewed: actions, errors, schemas, staging                                                                                       |
 | `worker/src` static sweep    | 73    | reviewed for section 35 signals: no `any`, no `@ts-ignore`, no TODO/FIXME, three deliberate `console.error` calls, no dynamic SQL |
 | `companion/src` static sweep | 9     | same sweep, clean                                                                                                                 |
-| Gates                        | n/a   | verify 700, verify:native 18 + release build, sql_conformance 18, `git diff --check` clean                                        |
+| Grant epoch (section 27)     | 3     | `google/tokens.ts`, `operations/recovery-admission.ts`, `operations/reconcile.ts`: six cases, each fence mutation-tested          |
+| Gates                        | n/a   | verify 736, verify:native 18 + release build, sql_conformance 18, `git diff --check` clean                                        |
 
 ## Checked and held
 
