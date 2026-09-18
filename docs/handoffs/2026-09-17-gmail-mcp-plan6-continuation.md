@@ -30,6 +30,11 @@ The dependent-intent path resolves only declared fields from earlier slots in th
 ## Verification evidence
 
 - `npm run verify`: passed 765 tests (shared 11, Worker 627, companion 9, qualification 118).
+- CI on `main`: green (run 35329917945). Worth knowing that the workflow triggers on pushes to `main`,
+  on pull requests and on manual dispatch, so a push to a feature branch produces no CI evidence at all.
+  The first push of this work to `main` went red on a test whose cost scaled with a loop: 1.5s locally
+  and 9.7s on the runner, past the 5s per-test default. Assume the runner is six to nine times slower
+  per test than a developer machine, and treat anything above roughly 600ms locally as worth a look.
 - Planning contract checker: 28 passed with strict TypeScript validation.
 - SQLite conformance: 18 passed.
 - Legacy writer corpus regeneration check: passed; all 136 captured sites are accounted for.
