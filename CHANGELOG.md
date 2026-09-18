@@ -8,7 +8,7 @@ release.
 
 The project is pre-release. Nothing here has sent an email.
 
-The suite is 814 tests, 640 of them inside the real Workers runtime against D1, R2 and KV emulation with
+The suite is 838 tests, 640 of them inside the real Workers runtime against D1, R2 and KV emulation with
 no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Added
@@ -109,6 +109,12 @@ no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Security
 
+- Qualification evidence cannot be re-pointed at another identity. Twelve axes, from owner and account
+  through grant epoch, deployment, build and profile to run id, manifest and start time, are each moved
+  in the report and the expectation together so the top-level equality check is satisfied and only a
+  deeper binding can refuse. All twelve are refused, along with eight single-edge graph corruptions. The
+  binding that carries it is the run identity hash inside every observation, which is the sole guard for
+  the three axes that are not part of the target, and it joins the load-bearing list.
 - Deployment identity is proved against the code actually receiving the traffic, not against a
   deployment object that once existed. Six authoritative comparisons each turn exactly one case red when
   neutralised alone, and the two that carry the invariant are the served build and version headers: every

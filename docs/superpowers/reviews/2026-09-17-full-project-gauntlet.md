@@ -194,6 +194,22 @@ is true for every input, and a `for` loop over an empty `seen` array passes with
 assertion. Both were replaced, and the second exposed a table, `download_streams`, that the snapshot was
 not watching at all.
 
+**QA-002. A surviving mutation is evidence only after the changed region has been read.** Before a null
+result is recorded as "this guard is redundant", the exact source region changed must be printed, the
+changed code inspected, and the intended predicate or ordering confirmed to be what was modified. A
+successful string replacement is not proof that the mutation landed where it was aimed.
+
+This exists because it happened twice in one pass. `replace(old, new, 1)` takes the first occurrence in
+the file, and `!response.ok` appears both in the API helper and in the health read, while the
+`"resources", "rollback"` tail appears in two separate case lists. Both times the neutralisation landed
+on unrelated code and the suite passed for the wrong reason, which is worse than running no mutation at
+all: it downgrades a real guard to redundant on false evidence. The line-targeted versions then failed
+exactly as expected.
+
+The one genuine redundancy finding in this audit, the `receipt.state` check in native recovery, predates
+this rule but survives it: it was established by removing each guard alone and then both together, with
+0, 1 and 4 failures respectively. A pattern of three only makes sense if the guards really are redundant.
+
 ## Defects
 
 | ID    | Severity | Area                      | Summary                                                                                                                                                                                                                                                                                                                                                                             | Status |
@@ -473,15 +489,16 @@ turn red, and each is the only thing standing between the system and the failure
 are listed together because they deserve the same care as a migration: never edited casually, never
 refactored without re-running the test that names them.
 
-| Predicate                                          | Where                                | Removing it alone                                        |
-| -------------------------------------------------- | ------------------------------------ | -------------------------------------------------------- |
-| `a.credential_version=r.credential_version`        | `recoveryFences`                     | a recovery settles against a grant the owner replaced    |
-| `c.epoch=?`                                        | `qualificationFence`                 | a lease survives the epoch replacement that revoked it   |
-| `beginSend` before the byte-moving request         | `operations/send.ts`                 | a transport reset reports `failed_safe` after streaming  |
-| `writerStopped = !putStarted \|\| putReturned`     | `staging/upload.ts` `failUpload`     | an object with an unknown writer is deleted and released |
-| unconditional `STAGING.delete` in the debt sweep   | `staging/recovery.ts`                | a late write survives every later sweep                  |
-| object deleted before its row                      | `scripts/qualification/storage.ts`   | an orphan object nothing will ever collect               |
-| `RestoreTarget` generation and database refinement | `scripts/qualification/contracts.ts` | the restore generation becomes a second source of truth  |
+| Predicate                                          | Where                                           | Removing it alone                                         |
+| -------------------------------------------------- | ----------------------------------------------- | --------------------------------------------------------- |
+| `a.credential_version=r.credential_version`        | `recoveryFences`                                | a recovery settles against a grant the owner replaced     |
+| `c.epoch=?`                                        | `qualificationFence`                            | a lease survives the epoch replacement that revoked it    |
+| `beginSend` before the byte-moving request         | `operations/send.ts`                            | a transport reset reports `failed_safe` after streaming   |
+| `writerStopped = !putStarted \|\| putReturned`     | `staging/upload.ts` `failUpload`                | an object with an unknown writer is deleted and released  |
+| unconditional `STAGING.delete` in the debt sweep   | `staging/recovery.ts`                           | a late write survives every later sweep                   |
+| object deleted before its row                      | `scripts/qualification/storage.ts`              | an orphan object nothing will ever collect                |
+| `RestoreTarget` generation and database refinement | `scripts/qualification/contracts.ts`            | the restore generation becomes a second source of truth   |
+| `row.identitySha256` against the run identity hash | `scripts/qualification/contracts-validation.ts` | evidence re-points at another run, manifest or start time |
 
 Defence in depth exists elsewhere and is worth knowing about separately: the refresh leg of a recovery is
 three deep, and the disable arm of administration is two deep. Those are noted in their own sections.
@@ -827,6 +844,59 @@ restore situation and should be re-tested as a rule if either ever becomes reach
 G-006 stays INFO on that basis: the vocabulary exists, nothing emits it, and nothing downstream can
 mistake its absence for satisfaction.
 
+## Qualification evidence isolation and graph integrity
+
+Twenty-four cases in `scripts/qualification/test/evidence-isolation.test.ts`. The identity half changes
+the run identity in the report **and** in the expectation together, so `assertEqual(report.identity,
+identity)` is satisfied and only a deeper binding can refuse. Moving one side alone would prove nothing
+beyond that the equality check exists.
+
+Twelve axes, all refused: owner, account, grant epoch, deployment, deployed version, build, origin,
+profile, schema digest, run id, manifest digest and start time. Alongside them, a report whose identity
+disagrees with the expectation, a component claiming a case its preparation did not allocate, and a
+report that did not pass.
+
+The graph half corrupts one edge at a time: a reference whose digest does not match the stored bytes,
+observation bytes changed after they were referenced, a duplicated sample in place of a distinct one, a
+swapped authorization, a preparation root that does not hash its own preparation, an attempt count that
+disagrees with the allocations, a version-1 shaped artifact handed to the v2 verifier, and a source whose
+recorded observation digest was recomputed over different bytes. Every one is refused.
+
+### Which binding carries which axis
+
+| Binding removed                                        | Axes no longer refused                  |
+| ------------------------------------------------------ | --------------------------------------- |
+| `row.identitySha256 !== identityHash("run", identity)` | run id, manifest digest, start time     |
+| `assertEqual(prep.target, identity.target)`            | none                                    |
+| `assertEqual(report.identity, identity)`               | report disagreeing with the expectation |
+
+The observation identity binding is the load-bearing one and joins the table above. Every observation
+carries a hash of the whole run identity, so the nine target axes are refused twice, by that hash and by
+the preparation target equality, while the three non-target axes have only the hash. Remove it and a
+component's evidence can be re-pointed at a different run, a different manifest or a different start time
+while still verifying.
+
+The preparation target equality is redundant: removing it alone changes nothing, because the target is
+inside the identity the observations already hash. That is worth recording rather than quietly listing it
+as a guard, and it is the second such case this audit has found.
+
+### A case that named a guard it did not reach
+
+The failing-report case first asserted `case_failed` while flipping `result` alone. `CaseReport` refines
+that a non-passing report must carry a limitation, so a bare flip is refused by the schema and the
+verifier's own check is never reached. Supplying the limitation makes the case test what it claims. Same
+shape as the companion acknowledgement guard, caught this time because the assertion named the reason
+rather than accepting any rejection.
+
+### Sacrificial account, as a distinction rather than a weakening
+
+The reply and revoke component needs a sacrificial grant, and the graph keeps the two separate rather
+than loosening mode identity to accommodate it. The mode's `RunIdentity.target` stays the qualification
+target and is hashed into every observation, while the authorization is what carries the capability set
+for that component, checked per case against `capabilities[report.caseId]`. A component may therefore hold
+`send` and `revoke` without any part of the mode identity moving, which is the property to preserve if a
+sacrificial account is ever wired in.
+
 ## Coverage ledger
 
 | Area                         | Files | State                                                                                                                             |
@@ -848,7 +918,8 @@ mistake its absence for satisfaction.
 | Exclusion refusal            | 1     | `cli.ts`: both emission sites, previously untested                                                                                |
 | Deployment identity          | 2     | `platform.ts`, `platform-v2.ts`: nine cases, six authoritative comparisons mapped one to one                                      |
 | Resource gate aggregation    | 2     | `assess-release.ts`, `contracts.ts`: the missing measurement cannot leave the aggregate                                           |
-| Gates                        | n/a   | verify 814, verify:native 22 + release build, sql_conformance 18, `git diff --check` clean                                        |
+| Evidence isolation and graph | 2     | `contracts-validation.ts`, `contracts.ts`: twelve identity axes and eight graph corruptions                                       |
+| Gates                        | n/a   | verify 838, verify:native 22 + release build, sql_conformance 18, `git diff --check` clean                                        |
 
 ## Checked and held
 
