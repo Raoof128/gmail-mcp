@@ -4,10 +4,11 @@ Updated 2026-09-17. This file contains implementation history and safe continuat
 
 ## Repository state
 
-- Branch: `plan5-recovery`, pushed, and fast-forward merged into `main`, so both point at the same
-  commit. `plan-3-gmail-tools` and `plan4-companion` were ancestors of it and have been deleted locally
-  and on the remote. The five dependabot branches are left alone: each carries a unique commit behind an
-  open pull request.
+- Branch: `main`. Everything through Plan 6 was fast-forward merged into it, and the three feature
+  branches that carried the work (`plan-3-gmail-tools` at `c9dac8c`, `plan4-companion` at `6e78bc5`,
+  `plan5-recovery` at `d499522`) were all ancestors of it and have been deleted locally and on the
+  remote. The five dependabot branches are left alone: each carries a unique commit behind an open pull
+  request, which is a dependency decision rather than branch cleanup.
 - Worktree at handoff: clean
 - Latest commit: `83bb4ea docs: name the load-bearing predicates and record upload and restore`
 - Gauntlet commits, newest first: `83bb4ea`, `2488bdc`, `00493d7`, `138a827`, `9982f5b`, `da6e378`,
