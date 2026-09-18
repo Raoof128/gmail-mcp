@@ -43,7 +43,12 @@ type Evidence = {
   staged: { reserved: string | null; consumed: number | null } | null;
 };
 
-type Options = { attachmentBytes?: number; injectAt?: number | null };
+type Options = {
+  attachmentBytes?: number;
+  injectAt?: number | null;
+  /** Minting an mcp token runs a full OAuth flow. The statement sweep does that once and reuses it. */
+  token?: string;
+};
 
 async function harness(e: Env, name: string, position: Position, options: Options = {}) {
   const g = await FakeGoogle.create();
@@ -118,7 +123,7 @@ async function harness(e: Env, name: string, position: Position, options: Option
   const env = testEnv({ DB: db });
   await seedUserAndAccount(e.DB, { userId: "owner-sub", accountId: name, alias: name });
   await seedAccessToken(e, { userId: "owner-sub", accountId: name });
-  const token = (await mintToken(worker, env, g, { scope: "mcp" })).accessToken;
+  const token = options.token ?? (await mintToken(worker, env, g, { scope: "mcp" })).accessToken;
 
   // Above five megabytes the send is resumable, which is the only transport that streams the body and
   // therefore the only one where "partially admitted" is a real state rather than a hypothetical.
@@ -148,7 +153,7 @@ async function harness(e: Env, name: string, position: Position, options: Option
   const pendingId: string = pending.result.action_id;
   await approvePending(e.DB, { id: pendingId, userId: "owner-sub", via: "browser" });
   armed = true;
-  return { call, args, pendingId, handle, counters, g, name, settlementLength: () => settlementLength };
+  return { call, args, pendingId, handle, counters, g, name, token, settlementLength: () => settlementLength };
 }
 
 async function evidence(e: Env, o: { pendingId: string; handle: string; name: string; counters: Evidence }) {
@@ -269,48 +274,63 @@ describe("the failure ladder from first mutating request to client reply", () =>
     });
 });
 
+const SWEEP_TIMEOUT_MS = 30_000;
 /**
  * Every statement boundary inside the settlement transaction, driven through the gate rather than by
  * calling settleDirect, so the client-observable result is part of the evidence. A small attachment
  * keeps this on the single-request transport: the rung being tested is local, not the upload.
+ *
+ * The explicit timeout is the exception the notes allow rather than the contention mask they forbid.
+ * This case runs one complete end-to-end send per statement boundary, so its true cost scales with the
+ * number of boundaries while the five second default is a single-unit-test budget. CI measured nine
+ * seconds at the default before mintToken was hoisted out of the loop; the ceiling is headroom over
+ * the measured cost of the sweep.
  */
-it("rolls the settlement back at every statement boundary while Gmail keeps the message", async () => {
-  const e = testEnv();
-  const probe = await harness(e, "ld-stmt-0", "settlement-statement", { attachmentBytes: 2048, injectAt: 0 });
-  await probe.call("execute_pending", { action_id: probe.pendingId });
-  const length = probe.settlementLength();
-  expect(length).toBeGreaterThan(5);
+it(
+  "rolls the settlement back at every statement boundary while Gmail keeps the message",
+  async () => {
+    const e = testEnv();
+    const probe = await harness(e, "ld-stmt-0", "settlement-statement", { attachmentBytes: 2048, injectAt: 0 });
+    await probe.call("execute_pending", { action_id: probe.pendingId });
+    const length = probe.settlementLength();
+    expect(length).toBeGreaterThan(5);
 
-  for (let at = 0; at <= length; at++) {
-    const h = await harness(e, `ld-stmt-${at + 1}`, "settlement-statement", { attachmentBytes: 2048, injectAt: at });
-    const result = await h.call("execute_pending", { action_id: h.pendingId });
-    const ev = await evidence(e, { ...h, counters: h.counters as unknown as Evidence });
+    for (let at = 0; at <= length; at++) {
+      const h = await harness(e, `ld-stmt-${at + 1}`, "settlement-statement", {
+        attachmentBytes: 2048,
+        injectAt: at,
+        token: probe.token,
+      });
+      const result = await h.call("execute_pending", { action_id: h.pendingId });
+      const ev = await evidence(e, { ...h, counters: h.counters as unknown as Evidence });
 
-    expect(h.g.gmail.sent.length).toBe(1);
-    expect(ev.requestsMade).toBe(1);
-    expect(ev.byteAdmitted).toBe(1);
+      expect(h.g.gmail.sent.length).toBe(1);
+      expect(ev.requestsMade).toBe(1);
+      expect(ev.byteAdmitted).toBe(1);
 
-    // Nothing local landed, and nothing claims the send was safe.
-    expect(ev.operation).toBe("executing");
-    expect(ev.auditExecuted).toBe(0);
+      // Nothing local landed, and nothing claims the send was safe.
+      expect(ev.operation).toBe("executing");
+      expect(ev.auditExecuted).toBe(0);
+      expect(ev.permits).toBe(0);
+      expect(ev.pending).toBe("executing");
+      expect(ev.pendingError).toBeNull();
+      expect(ev.staged).toMatchObject({ consumed: null });
+
+      // The client is told the send happened, because it did.
+      expect(result.result.status).toBe("executed");
+      expect(result.result.local_settlement_failed).toBe(true);
+    }
+
+    // The same transaction with nothing spliced in settles exactly once.
+    const clean = await harness(e, "ld-stmt-clean", "none", { attachmentBytes: 2048, token: probe.token });
+    const ok = await clean.call("execute_pending", { action_id: clean.pendingId });
+    expect(ok.result.status).toBe("executed");
+    const ev = await evidence(e, { ...clean, counters: clean.counters as unknown as Evidence });
+    expect(ev.operation).toBe("executed");
+    expect(ev.auditExecuted).toBe(1);
     expect(ev.permits).toBe(0);
-    expect(ev.pending).toBe("executing");
-    expect(ev.pendingError).toBeNull();
-    expect(ev.staged).toMatchObject({ consumed: null });
-
-    // The client is told the send happened, because it did.
-    expect(result.result.status).toBe("executed");
-    expect(result.result.local_settlement_failed).toBe(true);
-  }
-
-  // The same transaction with nothing spliced in settles exactly once.
-  const clean = await harness(e, "ld-stmt-clean", "none", { attachmentBytes: 2048 });
-  const ok = await clean.call("execute_pending", { action_id: clean.pendingId });
-  expect(ok.result.status).toBe("executed");
-  const ev = await evidence(e, { ...clean, counters: clean.counters as unknown as Evidence });
-  expect(ev.operation).toBe("executed");
-  expect(ev.auditExecuted).toBe(1);
-  expect(ev.permits).toBe(0);
-  expect(ev.staged).toMatchObject({ reserved: null });
-  expect(ev.staged?.consumed).not.toBeNull();
-});
+    expect(ev.staged).toMatchObject({ reserved: null });
+    expect(ev.staged?.consumed).not.toBeNull();
+  },
+  SWEEP_TIMEOUT_MS,
+);
