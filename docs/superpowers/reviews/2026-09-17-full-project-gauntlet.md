@@ -526,6 +526,49 @@ activating an unreviewed restore. While the real verifier always refuses, that l
 guarantee was only a comment. Replacing the verifier module in the test reaches it without changing
 production code, and mutating the throw into a success turns the case red.
 
+## Download races between the stream, the acknowledgement and the lease
+
+The download side has the same shape as the upload side, R2 bytes on one hand and D1 rows on the other,
+but the failure modes are mirrored: the danger is not an orphaned object, it is a leaked slot or bytes
+released while something else still has a claim on them. Seven cases in
+`worker/test/download-race-matrix.test.ts`, each carrying the download tuple: whether the object exists,
+the `staging_objects` row with its consumption, cleanup state, lease column and reservation, the live
+`download_streams` and `download_admissions` rows, the acknowledgement row, the settlement permit count,
+and what the caller received.
+
+| Case                                          | Slot     | Consumed | Handle after        |
+| --------------------------------------------- | -------- | -------- | ------------------- |
+| read completes, acknowledged                  | released | yes      | closed              |
+| stream dies mid-body                          | released | no       | still readable      |
+| two readers, the first finishes               | one left | no       | second lease live   |
+| acknowledgement lands during an open stream   | released | yes      | closed to new reads |
+| reservation exists before the acknowledgement | none     | no       | reserved            |
+| reservation lands after the read was admitted | released | no       | reserved            |
+| foreign owner                                 | none     | no       | untouched           |
+
+Three predicates carry these and each was isolated by mutation.
+
+The survivor's lease is recomputed rather than cleared. `release` sets `download_lease_until` from
+`MAX(lease_until)` over the streams that remain, so one reader finishing does not strip the lease from
+another that is still reading. Replacing that subquery with a constant breaks only the concurrent case,
+which is what makes it the right test for it.
+
+The reservation outranks the reader. The consuming update carries
+`reserved_by_operation_id IS NULL`, so an acknowledgement cannot release bytes an operation has claimed.
+The simple version of this case cannot reach the predicate, because the lookup turns a reserved handle
+away before the update runs; the ordering that does reach it is read first, so an admission row exists,
+then reserve, then acknowledge. There the caller is told the acknowledgement was recorded, which is true
+since the reader did receive the bytes, and the object stays unconsumed. Telling the reader otherwise
+would be harmless; releasing the bytes would not.
+
+The slot is returned on cancel. `finish` runs in a `finally` inside the stream's `cancel`, so a client
+that vanishes mid-body gives its slot back rather than holding one of the two per-owner downloads until
+the lease expires. Dropping that `finally` leaks the slot, and the mid-body case is what notices.
+
+One invariant is asserted in every case rather than its own: the settlement permit count is zero
+throughout, including while a stream is open. `storageBatch` takes a permit and clears it inside the same
+transaction, so no permit ever spans R2 I/O, which is what keeps a slow reader from blocking settlement.
+
 ## Coverage ledger
 
 | Area                         | Files | State                                                                                                                             |
@@ -539,7 +582,8 @@ production code, and mutating the throw into a success turns the case red.
 | Administration (interrupted) | 2     | `scripts/qualification/storage.ts`, `admin.ts`: six cases against real SQLite                                                     |
 | Upload races                 | 3     | `staging/upload.ts`, `staging/recovery.ts`, `staging/transfers.ts`: seven cases, two load-bearing predicates                      |
 | Restore identity             | 3     | `scripts/qualification/contracts.ts`, `controllers/restore.ts`: five reachable cases, six recorded not_run                        |
-| Gates                        | n/a   | verify 765, verify:native 18 + release build, sql_conformance 18, `git diff --check` clean                                        |
+| Download races               | 3     | `staging/downloads.ts`, `staging/settlement.ts`, `staging/store.ts`: seven cases, three isolated predicates                       |
+| Gates                        | n/a   | verify 772, verify:native 18 + release build, sql_conformance 18, `git diff --check` clean                                        |
 
 ## Checked and held
 

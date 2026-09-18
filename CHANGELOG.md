@@ -8,7 +8,7 @@ release.
 
 The project is pre-release. Nothing here has sent an email.
 
-The suite is 765 tests, 627 of them inside the real Workers runtime against D1, R2 and KV emulation with
+The suite is 772 tests, 634 of them inside the real Workers runtime against D1, R2 and KV emulation with
 no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Added
@@ -109,6 +109,13 @@ no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Security
 
+- A download acknowledgement can no longer release bytes another claim still covers, and a reader that
+  vanishes gives its slot back. The consuming update carries `reserved_by_operation_id IS NULL`, so an
+  operation that has reserved an attachment keeps it even though the reader is told its acknowledgement
+  was recorded, which is true and harmless. Releasing a lease recomputes it from the streams that remain
+  rather than clearing the column, so one reader finishing does not strip the lease from another still
+  reading, and the slot is returned in a `finally` inside the stream's cancel. No settlement permit ever
+  spans R2 I/O, which every case asserts rather than one.
 - An abandoned upload can never become the authoritative one, and an interrupted one is never declared
   safe on a guess. A put that was entered but never answered leaves its writer unknown, so its debt stays
   charged: the sweep deletes the bytes on every pass, and a delayed write landing later is removed again
