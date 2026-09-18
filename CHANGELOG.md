@@ -8,7 +8,7 @@ release.
 
 The project is pre-release. Nothing here has sent an email.
 
-The suite is 772 tests, 634 of them inside the real Workers runtime against D1, R2 and KV emulation with
+The suite is 791 tests, 640 of them inside the real Workers runtime against D1, R2 and KV emulation with
 no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Added
@@ -109,6 +109,18 @@ no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Security
 
+- The companion is killed at every edge of the authority handoff and never produces two authoritative
+  local publications. A crash after fsync but before the reply is read leaves a durable receipt, so the
+  retry skips the download and the publication entirely; a crash before the bytes land legitimately
+  redoes the work. Measuring that needed two counters rather than one, since a counter incremented on
+  entry reads a correct retry as a duplicate. The companion also refuses to report a file as
+  acknowledged when the helper has not recorded the acknowledgement, which was true before and is now
+  tested: the guard was unreachable from every case in the suite, so deleting it kept everything green.
+- The global materialization slot is proved on both halves. Safety: one holder at a time, the same owner
+  refused a second job, a live upload blocking it, and no slot left behind by a refused reservation.
+  Liveness: the slot returns when the body throws, and a holder stalled past its lease stops excluding
+  anyone. Exclusivity is therefore time-bounded rather than absolute, which is the deliberate price of
+  not letting one dead process wedge every later job, and it is now written down as such.
 - A download acknowledgement can no longer release bytes another claim still covers, and a reader that
   vanishes gives its slot back. The consuming update carries `reserved_by_operation_id IS NULL`, so an
   operation that has reserved an attachment keeps it even though the reader is told its acknowledgement

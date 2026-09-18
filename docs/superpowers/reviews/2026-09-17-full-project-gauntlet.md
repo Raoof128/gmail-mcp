@@ -440,6 +440,30 @@ of these cases, and removing the installation assertion from the per-object batc
 both are load-bearing rather than decorative. The foreign-target rows also confirm the scope refusal
 happens before any select or delete, so a mistyped manifest cannot reach another owner's storage.
 
+## Known-good baseline
+
+Pinned before the companion and native work begins, because that phase crosses into filesystem and
+process lifecycle where a clean rollback anchor is worth more than it is in pure worker code.
+
+| Anchor   | Value                                                                                           |
+| -------- | ----------------------------------------------------------------------------------------------- |
+| Commit   | `2f92e2edb206342ab715306e31ca98129fc562cb`                                                      |
+| Branch   | `main`, in sync with `origin/main`                                                              |
+| Gate     | `npm run verify` exit 0, 772 tests (shared 11, worker 634, companion 9, qualification 118)      |
+| CI       | run 35331147488, conclusion success                                                             |
+| Native   | 18 XCTest tests and a release build, from the preceding checkpoint; native code unchanged since |
+| Worktree | clean                                                                                           |
+
+Everything below this line in the ledger was proved at or before that commit. Anything after it that
+touches the companion, the native helper or the materialization slot should be compared against it.
+
+## Standard of proof for a security-sensitive guard
+
+Three things are required, and a case that supplies only the first two is not evidence. Prove the code
+path reaches the guard. Mutate only that guard, leaving bind counts and statement structure intact.
+Observe the one intended test turn red. A case that passes without reaching the clause it names is a
+distinct failure from a vacuous assertion, and it is the one that hid longest here.
+
 ## Load-bearing predicates
 
 A predicate is load-bearing when removing it alone produces a wrong outcome, as opposed to being caught by
@@ -569,6 +593,64 @@ One invariant is asserted in every case rather than its own: the settlement perm
 throughout, including while a stream is open. `storageBatch` takes a permit and clears it inside the same
 transaction, so no permit ever spans R2 I/O, which is what keeps a slow reader from blocking settlement.
 
+## Companion save, crashed at every edge of the handoff
+
+The authority handoff runs worker intent, companion accepts, transfer, durable local receipt,
+publication, acknowledgement, worker closure. Thirteen cases in
+`companion/test/save-crash-matrix.test.ts` kill the companion at each edge and then resume from whatever
+actually survived, which is the only way to tell a durable receipt from an in-memory one. The stand-in
+for the native helper keeps what the helper keeps: whether a temporary file exists, whether a published
+file exists, and the receipt.
+
+| Crash point                         | Durable file | Receipt after | Retry redownloads |
+| ----------------------------------- | ------------ | ------------- | ----------------- |
+| none                                | one          | acknowledged  | n/a               |
+| before the temporary file           | none         | prepared      | yes               |
+| after the temporary file            | none         | prepared      | yes               |
+| before the bytes were made durable  | none         | prepared      | yes               |
+| after fsync, reply lost             | one          | published     | no                |
+| acknowledgement transport lost      | one          | published     | no                |
+| acknowledged remotely, receipt lost | one          | published     | no                |
+| digest mismatch                     | none         | prepared      | n/a, refused      |
+| authority 401 or 404                | none         | prepared      | n/a, refused      |
+
+The invariant is that no retry produces two authoritative local publications and no acknowledgement
+claims durability without a matching durable receipt. The first half needs care in the measurement: a
+crash before the bytes land legitimately causes a second publish attempt, so the fixture counts attempts
+and durable publications separately and the invariant is asserted on the second number. Counting attempts
+would read a correct retry as a duplicate.
+
+### The guard that three passing cases failed to reach
+
+`save` ends with `if (receipt.state !== "acknowledged") throw new Error("publication_unknown")`. Removing
+that throw left the entire suite green. Every case either reached `acknowledged` or returned early
+through the acknowledgement catch, so none of them ever ran the line. It is reachable only when the
+helper reports success while leaving the receipt short of it, and two cases now do that: an
+acknowledgement the helper does not record, and a receipt state the protocol does not recognise. With
+those present the mutation turns exactly those two red.
+
+This is the failure mode the standard of proof above exists for. The suite was not vacuous, its
+assertions were real, and it still proved nothing about the guard it was written around.
+
+## The global materialization slot
+
+`withMaterialization` allows one holder at a time across the whole deployment, which makes it both a
+correctness boundary and the most obvious place to wedge the system. Six cases in
+`worker/test/materialization-slot.test.ts` probe the two halves against each other.
+
+Safety holds: a second claimant is refused while a lease is live, the same owner is refused a second
+concurrent job, a live upload generation blocks materialization, and a refused reservation leaves no slot
+row behind. Liveness holds too: the body runs inside a `try` whose `finally` deletes the row, so a job
+that throws returns the slot immediately, and the admission predicate is `lease_until > now`, so a holder
+that stalls past its lease stops excluding anyone even if its `finally` never runs.
+
+That second mechanism is worth stating plainly rather than presenting as free. Exclusivity is
+time-bounded, not absolute: a holder stalled beyond `leaseMs` no longer excludes a new claimant, so two
+materializers can overlap in exactly that window. That is the price paid for not letting one dead process
+wedge every later job, and the cron then deletes the abandoned row. Three mutations confirm which
+mechanism does what. Removing exclusivity breaks five cases, removing the release breaks five, and
+ignoring the expiry breaks only the liveness case, which is the one that names it.
+
 ## Coverage ledger
 
 | Area                         | Files | State                                                                                                                             |
@@ -583,7 +665,9 @@ transaction, so no permit ever spans R2 I/O, which is what keeps a slow reader f
 | Upload races                 | 3     | `staging/upload.ts`, `staging/recovery.ts`, `staging/transfers.ts`: seven cases, two load-bearing predicates                      |
 | Restore identity             | 3     | `scripts/qualification/contracts.ts`, `controllers/restore.ts`: five reachable cases, six recorded not_run                        |
 | Download races               | 3     | `staging/downloads.ts`, `staging/settlement.ts`, `staging/store.ts`: seven cases, three isolated predicates                       |
-| Gates                        | n/a   | verify 772, verify:native 18 + release build, sql_conformance 18, `git diff --check` clean                                        |
+| Companion save crashes       | 2     | `companion/src/transfers.ts`, `http.ts`: thirteen cases, the receipt guard reached at last                                        |
+| Materialization slot         | 2     | `staging/materialization.ts`, `staging/recovery.ts`: six cases, safety and liveness separated                                     |
+| Gates                        | n/a   | verify 791, verify:native 18 + release build, sql_conformance 18, `git diff --check` clean                                        |
 
 ## Checked and held
 

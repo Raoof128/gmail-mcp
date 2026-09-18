@@ -29,7 +29,7 @@ The dependent-intent path resolves only declared fields from earlier slots in th
 
 ## Verification evidence
 
-- `npm run verify`: passed 772 tests (shared 11, Worker 634, companion 9, qualification 118).
+- `npm run verify`: passed 791 tests (shared 11, Worker 640, companion 22, qualification 118).
 - CI on `main`: green (run 35329917945). Worth knowing that the workflow triggers on pushes to `main`,
   on pull requests and on manual dispatch, so a push to a feature branch produces no CI evidence at all.
   The first push of this work to `main` went red on a test whose cost scaled with a loop: 1.5s locally
