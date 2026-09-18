@@ -107,6 +107,15 @@ no mocked storage. `npm run verify` is the gate, and CI runs the same command.
   does not include `node`, and the only `node:` import sits outside the tsconfig `include`. It also
   shadowed the Workers `Crypto` interface, which is where `DigestStream` is declared.
 
+### Changed
+
+- Dependencies moved to wrangler 4.131.1, agents 0.23.0, zod 4.6.5 across all four packages, and
+  `@cloudflare/vitest-plugin` 1.1.8. Each was merged and gated on its own rather than together, so a
+  failure would name its own cause. TypeScript stays at 5.9.3: `typescript-eslint` peers on
+  `>=4.8.4 <6.1.0`, so the 7.0.2 bump fails to install and leaves the old compiler in place, where a
+  typecheck passes while proving nothing. Moving past 5.x is a lint toolchain upgrade rather than a
+  dependency bump.
+
 ### Security
 
 - The retired decision not to put an internal correlation identifier into outgoing mail now has a test.

@@ -1026,6 +1026,32 @@ authority is unreachable because `release` is only ever `fail` or `not_run`. Bot
 rules on the day a controller or a release path appears, and neither should inherit a safety claim it has
 not earned.
 
+### What this audit did not cover
+
+The test count is the wrong measure of completeness and would be read as one if this section were absent.
+Four distinct gaps, none of them hidden by the numbers above.
+
+**The live path has never run.** No real message has ever been sent by this system. Login does not work:
+the Google client credentials are placeholders and `OWNER_GOOGLE_SUBS` is empty, which is the documented
+bootstrap state. The deployed Worker has only ever answered `/healthz`. Every send, read, label and draft
+case runs against an in-memory Gmail that mirrors the discovery document, and a fake agreeing with the
+expectations written alongside it is not the provider agreeing with them. This is the authorization
+boundary working as intended rather than an oversight, and it is the single largest untested surface.
+
+**The gauntlet was forty-six sections and this covers a subset.** Sections 7, 12 and 27 by number, plus
+the areas listed in the coverage ledger. The rest were never opened. Nothing here claims otherwise, but
+the ledger reads as a record of what was done, not a statement that what was done was everything.
+
+**Breadth is not depth.** Seventy of seventy-three worker source files are named by some test, which is a
+weak property: named is not adversarially proved. The claim worth defending is narrower. Roughly twenty
+predicates were individually neutralised with the named case watched to fail, and those are listed in the
+load-bearing table and the per-section mappings. Everything else is ordinary coverage.
+
+**Four dependency upgrades post-date the frozen baseline.** wrangler, agents, zod and the vitest plugin
+were merged after the tag, each gate-verified one at a time. The suite passes on them; no invariant was
+re-derived against them. That matters most for zod, which every schema in the project depends on, so the
+obligation the baseline attaches to future work applies to these merges too and has not yet been paid.
+
 ### Open findings
 
 G-001 LOW and G-002 INFO on schema and contract shape, G-004 INFO on framing inconsistency, G-006 INFO on

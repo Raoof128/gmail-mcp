@@ -30,6 +30,11 @@ The dependent-intent path resolves only declared fields from earlier slots in th
 ## Verification evidence
 
 - `npm run verify`: passed 840 tests (shared 11, Worker 642, companion 22, qualification 165).
+- What the count does not cover, stated because it would otherwise be read as completeness: no real
+  message has ever been sent, login does not work while the Google client is a placeholder, and the
+  deployed Worker has only answered `/healthz`. Every provider case runs against an in-memory Gmail. The
+  gauntlet covered a subset of its forty-six sections, and the four dependency upgrades merged after the
+  baseline tag are gate-verified rather than re-audited.
 - CI on `main`: green (run 35329917945). Worth knowing that the workflow triggers on pushes to `main`,
   on pull requests and on manual dispatch, so a push to a feature branch produces no CI evidence at all.
   The first push of this work to `main` went red on a test whose cost scaled with a loop: 1.5s locally
