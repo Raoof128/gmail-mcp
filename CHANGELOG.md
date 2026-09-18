@@ -8,7 +8,7 @@ release.
 
 The project is pre-release. Nothing here has sent an email.
 
-The suite is 838 tests, 640 of them inside the real Workers runtime against D1, R2 and KV emulation with
+The suite is 840 tests, 642 of them inside the real Workers runtime against D1, R2 and KV emulation with
 no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Added
@@ -109,6 +109,12 @@ no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Security
 
+- The retired decision not to put an internal correlation identifier into outgoing mail now has a test.
+  `X-Claude-Audit-Id` was retired in the original design and correctly recorded as retired rather than
+  deferred, but a retired privacy decision with no test is the kind of thing that returns quietly. Two
+  cases assert that a built message carries no `X-` header of any kind and no operation identifier
+  outside the `Message-ID` that legitimately travels, and the check is broader than the header that was
+  named because the decision was about metadata reaching recipients rather than one spelling.
 - Qualification evidence cannot be re-pointed at another identity. Twelve axes, from owner and account
   through grant epoch, deployment, build and profile to run id, manifest and start time, are each moved
   in the report and the expectation together so the top-level equality check is satisfied and only a

@@ -897,6 +897,119 @@ for that component, checked per case against `capabilities[report.caseId]`. A co
 `send` and `revoke` without any part of the mode identity moving, which is the property to preserve if a
 sacrificial account is ever wired in.
 
+## Deferred ledger reconciliation
+
+The register at `docs/superpowers/plans/2026-09-15-gmail-mcp-deferred-feature-register.md` already
+accounts for every historical IOU, including the one previously at risk of vanishing. It is a historical
+document and is not edited here. What follows is the reconciliation: each row's current-behavior claim
+checked against the code as it stands, with the evidence that pins it.
+
+This matters because the register was drafted against `f8a7c86`, before this branch's work, and its
+claims had not been re-verified since.
+
+| ID                     | Disposition                  | Current behavior verified at                                       | Pinned by                                              |
+| ---------------------- | ---------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------ |
+| P6-AUDIT-HEADER        | Retired                      | no `X-` header emitted, design section 6                           | `worker/test/retired-audit-header.test.ts`, new        |
+| P6-PHASE-B             | Deferred, provider proof     | `google/recovery-http.ts:42,54` refuse any request carrying a body | recovery transport suites, section 12                  |
+| P4-OVERWRITE           | Deferred                     | `CNative.c` `gm_publish` uses `RENAME_EXCL`                        | native `FileTests` and `RestartTests`, mutation-proved |
+| P6-BATCH               | Deferred                     | `shared/src/schemas.ts:63,64` take one id each                     | the 38-tool matrix, section 3                          |
+| P6-ALL-ACCOUNTS        | Deferred                     | `SearchThreadsInput.account` resolves one account                  | owner isolation suite, section 7                       |
+| P6-LOCAL-PROXY         | Deferred                     | `companion/src/server.ts` registers exactly three tools            | companion suites                                       |
+| P6-MULTI-USER          | Deferred                     | `worker/src/env.ts:16` owner allowlist gates login                 | login and owner isolation suites                       |
+| P6-GOOGLE-VERIFICATION | Applicability assessment due | external, no code path                                             | none, and none possible locally                        |
+| P6-LARGE-DOWNLOAD      | Deferred                     | `shared/src/staging.ts:5` caps at 26,214,400 bytes                 | `shared/test/staging.test.ts:8`                        |
+
+Eight of nine claims hold exactly as written. Every disposition is one of retired, deferred or
+assessment-due; nothing is implemented-but-unrecorded, and nothing has disappeared.
+
+### One stale citation
+
+P6-PHASE-B's current-behavior cell cites `phase_b_verified=false`. No such field exists anywhere in the
+codebase; the string appears only in the register itself. The substantive claim is correct and stronger
+than the citation suggests: `allowed()` in `google/recovery-http.ts` refuses any recovery request whose
+`init.body` is not null, at both the session-status and the search branches, so recovery cannot send MIME
+rather than merely recording that it did not. The citation is stale, not the behaviour. Recorded here
+rather than corrected in place, because the register is historical.
+
+### The retired item now has a test
+
+P6-AUDIT-HEADER is retired rather than deferred, which is the right disposition: the original design
+refused to put an internal correlation identifier into mail leaving for recipients' servers, and
+reopening it needs a privacy review rather than a schedule slot. A retired privacy decision with no test
+is exactly the kind of thing that returns quietly, so two cases now assert that a built message carries
+no `X-` header of any kind, with and without attachments, and that no operation identifier appears
+anywhere outside the `Message-ID` that legitimately travels.
+
+The check is deliberately broader than the item named, because the decision was about internal metadata
+reaching recipients rather than about one spelling. Mutation-confirmed by emitting the header next to
+`Message-ID` and watching the case fail, with the mutated region printed first per QA-002.
+
+## Final report
+
+Two summaries, kept apart on purpose. A single headline count would let the second list disappear inside
+the first.
+
+### Locally proved
+
+Each of these is demonstrated by tests in this repository, and for every security-sensitive guard the
+predicate behind it was neutralised on its own and the named case watched to fail.
+
+| Area                                         | Where                                                     |
+| -------------------------------------------- | --------------------------------------------------------- |
+| owner and account isolation                  | section 7, 19 attacks against real D1                     |
+| policy authority and the modifier lattice    | section 3, the 38-tool matrix; no modifier lowers a level |
+| journalling and state transitions            | section 12, no external mutation from `claimed`           |
+| ambiguous send handling                      | section 12, `failed_safe` unreachable after admission     |
+| grant epoch fencing                          | section 27, six cases, token pin and settlement fence     |
+| recovery barriers                            | the six-rung failure ladder with one evidence tuple       |
+| administration mid-recovery                  | disable two deep, epoch replacement single-point          |
+| administration interrupted partway           | six `abandonStorage` cases on real SQLite                 |
+| upload races                                 | seven cases; an abandoned object can never be referenced  |
+| download races                               | seven cases; a reservation outranks a reader              |
+| companion transfer semantics                 | thirteen crash edges; durable receipts, not attempts      |
+| lease-bounded materialization exclusivity    | six cases, safety and liveness separated                  |
+| native no-overwrite and publication recovery | four restart states; `RENAME_EXCL` plus verified identity |
+| restore refusal predicates                   | six predicates, each mapped to one case                   |
+| cross-host exclusion refusal                 | both emission sites, previously untested                  |
+| deployment identity                          | six authoritative comparisons, served headers included    |
+| qualification evidence graph integrity       | twelve identity axes and eight graph corruptions          |
+| resource absence blocking release            | a missing measurement cannot leave the aggregate          |
+
+### Still external, recorded as not_run
+
+None of these can be established from this machine. The refusal path passes in every case where one
+exists; the guarantee behind it does not.
+
+| Item                                           | Refusal path | Guarantee | Missing prerequisite                      |
+| ---------------------------------------------- | ------------ | --------- | ----------------------------------------- |
+| restore execution and reconciliation           | pass         | `not_run` | no restore request can be issued          |
+| writer quiescence                              | pass         | `not_run` | `quiescence_unavailable`, no mechanism    |
+| cross-host deployment exclusion                | pass         | `not_run` | `deployment_exclusion_unavailable`        |
+| peak isolate memory                            | none exists  | `not_run` | no measurement, no refusal, finding G-006 |
+| live provider, client and device qualification | n/a          | `not_run` | authorization and real targets            |
+
+The distinction that keeps this honest: **a passing refusal path is not a satisfied gate.** Three of the
+five above have a refusal that is tested and works. That says the system declines to proceed without the
+evidence, not that the evidence exists.
+
+Two guarantees currently hold by construction rather than by a check, which is stronger while it lasts
+and weaker the moment the code arrives. There is no restore request to be uncertain about, and release
+authority is unreachable because `release` is only ever `fail` or `not_run`. Both must be re-tested as
+rules on the day a controller or a release path appears, and neither should inherit a safety claim it has
+not earned.
+
+### Open findings
+
+G-001 LOW and G-002 INFO on schema and contract shape, G-004 INFO on framing inconsistency, G-006 INFO on
+the absent memory refusal. None is exploitable; all are recorded in the defects table with severity and
+reasoning. Three findings were fixed during the audit, and one predicate claim was corrected after
+mutation contradicted it.
+
+### Verified at
+
+`b25246b8d563f55017328c193af085f8277a6ff8`, `npm run verify` exit 0 with 840 tests, `npm run verify:native` 22 tests and a release build,
+CI green on `main`.
+
 ## Coverage ledger
 
 | Area                         | Files | State                                                                                                                             |
@@ -919,7 +1032,7 @@ sacrificial account is ever wired in.
 | Deployment identity          | 2     | `platform.ts`, `platform-v2.ts`: nine cases, six authoritative comparisons mapped one to one                                      |
 | Resource gate aggregation    | 2     | `assess-release.ts`, `contracts.ts`: the missing measurement cannot leave the aggregate                                           |
 | Evidence isolation and graph | 2     | `contracts-validation.ts`, `contracts.ts`: twelve identity axes and eight graph corruptions                                       |
-| Gates                        | n/a   | verify 838, verify:native 22 + release build, sql_conformance 18, `git diff --check` clean                                        |
+| Gates                        | n/a   | verify 840, verify:native 22 + release build, sql_conformance 18, `git diff --check` clean                                        |
 
 ## Checked and held
 
