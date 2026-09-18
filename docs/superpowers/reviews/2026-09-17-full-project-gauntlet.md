@@ -769,6 +769,64 @@ emitted nowhere. It is recorded here because a reviewer reading the enum could r
 refusal is implemented, and it is not. Severity INFO: nothing claims the measurement exists, so nothing
 is overclaimed, but the gate is enforced by absence rather than by a refusal anyone can test.
 
+## Deployment identity: the code actually receiving the traffic
+
+Nine cases in `scripts/qualification/test/deployment-identity.test.ts`, walking the chain from a local
+production input through `BUILD_ID`, the deployed version, the routing and receipt, to the qualification
+target. The invariant is that qualification evidence must describe the code serving now, not a deployment
+object that once existed, so the decisive checks are the ones the running Worker answers for itself.
+
+Six authoritative comparisons, each neutralised on its own, each turning exactly the case named after it
+red.
+
+| Comparison neutralised                                    | Case that failed                              |
+| --------------------------------------------------------- | --------------------------------------------- |
+| served `x-recovery-build` against `workerBuildId`         | serving Worker reports a different build      |
+| served `x-recovery-version` against `deploymentVersionId` | serving Worker reports a different version    |
+| `active.id` against the target's deployment               | deployment object is no longer the active one |
+| `active.versions[0].version_id` against the target        | active deployment routes a different version  |
+| `version.resources.script.etag` against the receipt       | stale receipt whose etag no longer matches    |
+| `!response.ok` on the health read                         | unhealthy Worker with matching identifiers    |
+
+The first two are the ones that carry the invariant. Every platform-side identifier can line up while the
+code answering `/healthz` is something else, and those two headers are the only place the running Worker
+speaks for itself. Two further cases cover a changed configuration binding and a missing protocol-2
+schema marker, both refused through the fingerprint and digest comparisons rather than by inspection.
+
+### A process correction worth more than the cases
+
+Two mutations in this pass reported a clean survival that was not one. `replace(old, new, 1)` takes the
+first occurrence in the file, and `!response.ok` exists in both the API helper and the health read, while
+the `"resources", "rollback"` tail appears in two separate case lists. Both times the neutralisation
+landed on unrelated code and the suite passed for the wrong reason. The corrected, line-targeted mutations
+then failed exactly as expected. A null mutation result is only evidence once the mutated region has been
+printed and read.
+
+## The resource gate cannot vanish from the aggregate
+
+Finding G-006 says the peak memory gate has no refusal path of its own. What has to hold instead is one
+step further out: the absence of resource evidence must not be able to disappear from the release
+aggregate. It cannot, and four cases in
+`scripts/qualification/test/resource-gate-aggregation.test.ts` now hold that shut.
+
+`resources` is a member of `CommonCases`, `assessRelease` iterates that list rather than the supplied
+components, and a case with no component adds a `missing_component` blocker without incrementing
+`verifiedComponents`. Qualification reads `pass` only when `verifiedComponents === CommonCases.length`
+and both modes verified, so a missing resource record makes a pass arithmetically unreachable.
+
+The decisive case supplies every other component and nothing else, and asserts the missing list is
+exactly `["missing_component:resources"]`, so the refusal is attributable to that one gap rather than to a
+partial aggregate. Two mutations confirm it: treating a missing component as verified, and dropping
+`resources` from `CommonCases`, each turn the relevant cases red.
+
+Two structural facts alongside it. `release` is never reported as passing at all, only `fail` or
+`not_run`, and `implementation` is fixed at `not_run` with `implementation_incomplete` always among the
+blockers. Release authority is therefore unreachable by construction today, which is the same shape as the
+restore situation and should be re-tested as a rule if either ever becomes reachable.
+
+G-006 stays INFO on that basis: the vocabulary exists, nothing emits it, and nothing downstream can
+mistake its absence for satisfaction.
+
 ## Coverage ledger
 
 | Area                         | Files | State                                                                                                                             |
@@ -788,7 +846,9 @@ is overclaimed, but the gate is enforced by absence rather than by a refusal any
 | Native restarts              | 3     | `native/SaveReceipts.swift`, `SafeFiles.swift`, `CNative.c`: four restart cases, ordering proved, one guard shown redundant       |
 | Restore predicates           | 2     | `controllers/restore.ts`, `contracts.ts`: six predicates, each neutralised alone, one case red apiece                             |
 | Exclusion refusal            | 1     | `cli.ts`: both emission sites, previously untested                                                                                |
-| Gates                        | n/a   | verify 801, verify:native 22 + release build, sql_conformance 18, `git diff --check` clean                                        |
+| Deployment identity          | 2     | `platform.ts`, `platform-v2.ts`: nine cases, six authoritative comparisons mapped one to one                                      |
+| Resource gate aggregation    | 2     | `assess-release.ts`, `contracts.ts`: the missing measurement cannot leave the aggregate                                           |
+| Gates                        | n/a   | verify 814, verify:native 22 + release build, sql_conformance 18, `git diff --check` clean                                        |
 
 ## Checked and held
 

@@ -8,7 +8,7 @@ release.
 
 The project is pre-release. Nothing here has sent an email.
 
-The suite is 801 tests, 640 of them inside the real Workers runtime against D1, R2 and KV emulation with
+The suite is 814 tests, 640 of them inside the real Workers runtime against D1, R2 and KV emulation with
 no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Added
@@ -109,6 +109,15 @@ no mocked storage. `npm run verify` is the gate, and CI runs the same command.
 
 ### Security
 
+- Deployment identity is proved against the code actually receiving the traffic, not against a
+  deployment object that once existed. Six authoritative comparisons each turn exactly one case red when
+  neutralised alone, and the two that carry the invariant are the served build and version headers: every
+  platform-side identifier can line up while the Worker answering `/healthz` is something else.
+- The absence of peak memory evidence cannot leave the release aggregate. `resources` is one of the
+  components `assessRelease` requires, a missing component blocks without incrementing the verified
+  count, and a pass needs every component plus both modes, so an unmeasured gate stays blocking. Release
+  authority is additionally unreachable today by construction: `release` is only ever `fail` or
+  `not_run`, and `implementation_incomplete` is always among the blockers.
 - Every refusal predicate guarding a restore is now covered by a case of its own, and each was
   neutralised alone to confirm the case named after it is the one that fails. The half of the restore
   matrix that would need a restore request is recorded as `not_run` with its prerequisite, because there
