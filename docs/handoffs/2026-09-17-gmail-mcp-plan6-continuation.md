@@ -4,11 +4,17 @@ Updated 2026-09-17. This file contains implementation history and safe continuat
 
 ## Repository state
 
-- Repository: `/Users/raoof.r12/Desktop/Raouf/gmail`
-- Branch: `plan5-recovery`
+- Branch: `plan5-recovery`, pushed to `origin/plan5-recovery`. `main` still ends at the Plan 3 merge and
+  this branch is unmerged.
 - Worktree at handoff: clean
-- Latest commit: `310964f test(audit): scope the owner-leak assertion to the rendered table`
-- Preceding security commits: `eaf55cd`, `1c97467`, `ba56f9b`, `c252ae8`
+- Latest commit: `83bb4ea docs: name the load-bearing predicates and record upload and restore`
+- Gauntlet commits, newest first: `83bb4ea`, `2488bdc`, `00493d7`, `138a827`, `9982f5b`, `da6e378`,
+  `5dba336`, `85db8f2`, `73c65bf`, `f2e4f8a`, `6b077f2`, `f37a1b8`, `7bb7f66`, `86a13fe`, `f09001c`,
+  `324370a`, `d70397b`, `5ea1c6b`, `3fca933`
+- Security commits: `310964f`, `eaf55cd`, `1c97467`, `ba56f9b`, `c252ae8`
+- Not in the repository by design: `CLAUDE.md`, `.remember/`, `worker/wrangler.prod.jsonc` and the
+  private qualification directory are all gitignored, so no credentials or deployment topology are
+  published with this branch.
 
 ## Implemented work
 
