@@ -130,6 +130,16 @@ one of them turned out to be the single point of failure in that path: removing
 `a.credential_version=r.credential_version` from `recoveryFences` settles the operation against the
 replacement grant. No defect, but that clause now has a named invariant.
 
+The gauntlet is closed, and the closing anchor is tagged `post-gauntlet-2026-09-18` at commit
+`f69eb333d1107abd261bbeac8883e51c49e70e70`: 840 tests and exit 0, 22 native tests and a release build, CI
+run 35344086281 green. The ledger's final report is split in two, locally proved and still external, and
+that split is the thing to preserve. A passing refusal path is not a satisfied gate.
+
+Work touching recovery, restore, release authority, qualification evidence, staging, native publication
+or deployment identity should keep the invariant table true, rerun the mutation-confirmed regression for
+any predicate it changes, and re-qualify anything the ledger records as holding by construction rather
+than by a check.
+
 The barrier ladder and the administration interruption matrix are done too. Six rungs from the first
 mutating request to the client's reply, five administration cases arriving while a recovery holds a live
 lease, and six storage-cleanup interruptions against real SQLite. Each rung carries the same evidence

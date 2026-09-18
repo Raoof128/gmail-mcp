@@ -944,6 +944,34 @@ The check is deliberately broader than the item named, because the decision was 
 reaching recipients rather than about one spelling. Mutation-confirmed by emitting the header next to
 `Message-ID` and watching the case fail, with the mutated region printed first per QA-002.
 
+## Post-gauntlet baseline
+
+The audit is closed at this point and this is the anchor to compare against. The earlier baseline above
+was pinned before the companion and native work began and stays where it is; this one supersedes it as
+the current reference without replacing it.
+
+| Anchor   | Value                                                                                       |
+| -------- | ------------------------------------------------------------------------------------------- |
+| Commit   | `f69eb333d1107abd261bbeac8883e51c49e70e70`                                                  |
+| Tag      | `post-gauntlet-2026-09-18`                                                                  |
+| Gate     | `npm run verify` exit 0, 840 tests (shared 11, worker 642, companion 22, qualification 165) |
+| Native   | `npm run verify:native` 22 XCTest tests and a release build                                 |
+| CI       | run 35344086281 on `main`, conclusion success                                               |
+| Worktree | clean, `main` in sync with `origin/main`                                                    |
+
+### What future work owes this baseline
+
+Any change touching recovery, restore, release authority, qualification evidence, staging, native
+publication or deployment identity carries three obligations. Keep the invariant table in the working
+notes true, or amend it deliberately and say why. Rerun the mutation-confirmed regressions for the
+predicates that change, not only the test suite. And re-qualify anything recorded here as holding by
+construction rather than by a check, because construction guarantees do not survive the arrival of the
+code they were the absence of.
+
+The three layers of proof discipline this audit converged on apply to new work as well: the assertion is
+not vacuous, the named guard is actually reached, and the exact intended source region is what the
+mutation changed.
+
 ## Final report
 
 Two summaries, kept apart on purpose. A single headline count would let the second list disappear inside
