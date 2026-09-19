@@ -431,7 +431,7 @@ print a row.
 
 The scope is not `"default"`. `Companion` computes it as
 `hash([api.origin, owner.client_id, owner.user_id])`, a hex digest; the live machine's is
-`09073736bf…`. Revision 1 hardcoded `"default"` in the release path, which would have failed against
+`<scope digest>`. Revision 1 hardcoded `"default"` in the release path, which would have failed against
 every real reservation while reporting nothing wrong. `--scope` is required, and the listing prints
 the whole command including it.
 
@@ -628,18 +628,25 @@ irreversible act against live data.
 The state below was read from the live journal on 2026-09-19 and is the preflight: if what the
 command prints disagrees with it, stop and report rather than releasing anything.
 
+The digests and the destination appear here as placeholders. This repository is public, and the
+scope is `sha256(origin + NUL + client_id + NUL + user_id)`, a stable identifier derived from the
+owner's Google `sub`, while the destination is a filename out of their mailbox. Neither grants
+access, and publishing them would still be publishing personal data for no gain. The executor reads
+the real values out of `debt` and compares them against what the owner confirms, which is what the
+preflight is for; the shapes below are what makes the comparison checkable.
+
 | Field       | Value                                                                         |
 | ----------- | ----------------------------------------------------------------------------- |
-| reservation | `save:dfbf797b5fb1ce98630b409df9817790415c5cfbef7d1a2449f7d0de78fb042e`       |
+| reservation | `save:<reservation digest>`                                                   |
 | bytes       | 26,214,400                                                                    |
-| scope       | `09073736bfb2586fd378d4dfcf53838a65642c4145448847a3f48018b149074d`            |
-| handle      | `sh_LE-JU3GsJxbOKsMw4x6q80Z2kawvCJusvPZQWqSWsqs`                              |
+| scope       | `<scope digest>`                                                              |
+| handle      | `<handle>`                                                                    |
 | state       | `publication_unknown`                                                         |
 | temporary   | `.gmail-mcp-8198FF28-3AFB-4F65-9781-AF6151DA3028`, absent from the write root |
-| destination | `attachments/internship-info.pdf`                                             |
+| destination | `attachments/<owner attachment>.pdf`                                          |
 
-Two other save records exist and neither holds a reservation: `sh_Xq4T…` is `prepared` and
-`sh_2FPY…` is `acknowledged`. Exactly one row should appear.
+Two other save records exist and neither holds a reservation: `<handle A>` is `prepared` and
+`<handle B>` is `acknowledged`. Exactly one row should appear.
 
 **Files:** none. This task changes owner data and the plan's execution record, not the repository.
 
@@ -656,7 +663,7 @@ rather than fail. Quit the MCP client's companion connection first.
 
 Run: `node companion/src/cli.ts debt`
 Expected: exactly one row, matching every field of the table above, whose remedy line reads
-`run: gmail-mcp-companion debt --scope 09073736bf… --release sh_LE-JU3Gs…`.
+`run: gmail-mcp-companion debt --scope <scope digest> --release <handle>`.
 
 Stop if more than one row appears, if the byte count differs, if the state is not
 `publication_unknown`, or if the temporary is anything but absent. Any of those means the machine
@@ -665,7 +672,7 @@ moved since the preflight was taken, and the preflight is what authorizes the re
 - [x] **Step 3: Release, using the scope and handle the listing printed**
 
 Copy them from the output; do not retype them from this document, and do not pass
-`dfbf797b…`, which is the reservation id rather than the handle.
+`<reservation digest>`, which is the reservation id rather than the handle.
 
 Run: `node companion/src/cli.ts debt --scope <scope> --release <handle>`
 Expected: `Released.`
@@ -1052,7 +1059,7 @@ reviewer was wrong, because the rates are the useful part.
 decodes from; `reservation(scope, handle)` is reachable inside `SaveReceipts`. Five were wrong:
 `item.record.bytes` does not exist and the charge lives in the `reservations` table;
 `(error as? NativeError)?.reason` does not exist because `NativeError` is an enum with no properties;
-`dfbf797b…` is the reservation id and is not invertible to a handle; `runCli` and `fakeNative` do not
+`<reservation digest>` is the reservation id and is not invertible to a handle; `runCli` and `fakeNative` do not
 exist in `test/cli.test.ts`; and the helper answers with `reply(try json(value))` rather than a
 `Response` type. Five of nine inferred APIs wrong.
 
@@ -1080,8 +1087,8 @@ overlap. That is now written down in Task 2 rather than built.
 | A `releaseDebt` refusal would have surfaced to the owner as "Companion command failed. Check configuration, permissions, login and the native build."                                                                   | reading `main().catch` in `cli.ts`            |
 
 And the numbers that turned two guesses into measurements: the live reservation belongs to handle
-`sh_LE-JU3Gs…` under scope `09073736bf…`, confirmed by recomputing
-`sha256(scope + NUL + handle)` for all three save records and matching `dfbf797b…`; and the CLI
+`<handle>` under scope `<scope digest>`, confirmed by recomputing
+`sha256(scope + NUL + handle)` for all three save records and matching `<reservation digest>`; and the CLI
 spawn-to-`initialize` boundary sits at a 694ms loaded p95 against a 1000ms budget.
 
 **Self-review of Revision 2.** Spec coverage: Tasks 4, 5 and 6 close the three documentation items;
@@ -1150,8 +1157,8 @@ exit=0
 And the live listing, before any repair, matched the Task 3 preflight in every field:
 
 ```
-sh_LE-JU3GsJxbOKsMw4x6q80Z2kawvCJusvPZQWqSWsqs  publication_unknown  26214400 bytes  attachments/internship-info.pdf
-  run: gmail-mcp-companion debt --scope 09073736bf… --release sh_LE-JU3Gs…
+<handle>  publication_unknown  26214400 bytes  attachments/<owner attachment>.pdf
+  run: gmail-mcp-companion debt --scope <scope digest> --release <handle>
 ```
 
 ### Task 3: the live repair
@@ -1160,7 +1167,7 @@ Authorized by the owner on 2026-09-19 after the preflight was shown. The preflig
 immediately before the release and still matched, so the release went ahead.
 
 ```
-$ node companion/src/cli.ts debt --scope 09073736bf… --release sh_LE-JU3Gs…
+$ node companion/src/cli.ts debt --scope <scope digest> --release <handle>
 Released.
 $ node companion/src/cli.ts debt
 No charged save debt.
@@ -1400,7 +1407,7 @@ is a finding rather than an emergency.
 ### What the run touched
 
 Two files were created under `~/Downloads/Gmail MCP` and both were removed; the owner's
-`internship-info.pdf` is the only file left there. The journal records the run created under the
+`<owner attachment>.pdf` is the only file left there. The journal records the run created under the
 scopes `plan7e2e` and `plan7probe` were deleted afterwards, which is the one hand-edit of owner
 data in this plan and is recorded because the rule against hand-editing that journal is what caused
 the original defect. No reservation was deleted by hand; every charge the run created was cleared
