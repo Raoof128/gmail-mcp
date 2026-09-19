@@ -1,4 +1,5 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { it, expect } from "vitest";
 
 it("launches the CLI directly in Node and lists tools without accessing credentials", async () => {
@@ -40,4 +41,29 @@ it("launches the CLI directly in Node and lists tools without accessing credenti
   } finally {
     child.kill();
   }
+});
+
+const nativeBinary = new URL("../native/.build/release/gmail-mcp-native", import.meta.url).pathname;
+
+// Integration, not hermetic: this drives the real helper against this machine's own journal. The
+// helper resolves its state directory from $HOME as a security boundary and deliberately offers no
+// override, so making this isolated would mean weakening that. npm run verify does not build Swift,
+// so the case skips rather than making the TypeScript gate depend on a release build; the native
+// suite is the authority for the behaviour and this only proves the wiring.
+it.skipIf(!existsSync(nativeBinary))("debt lists charged debt and refuses a handle that is not there", () => {
+  const cli = new URL("../src/cli.ts", import.meta.url).pathname;
+  // The helper takes an exclusive lock and its waiter blocks, so a save in flight makes this wait.
+  // Never spawn it without a timeout.
+  const list = spawnSync(process.execPath, [cli, "debt"], { encoding: "utf8", timeout: 60_000 });
+  expect(list.error).toBeUndefined();
+  expect(list.status).toBe(0);
+  // Either nothing is charged, or every row prints the exact command that clears it.
+  expect(list.stdout).toMatch(/^No charged save debt\.\n$|--scope \S+ --release \S+/);
+
+  const bogus = spawnSync(process.execPath, [cli, "debt", "--scope", "nosuchscope", "--release", "nosuchhandle"], {
+    encoding: "utf8",
+    timeout: 60_000,
+  });
+  expect(bogus.error).toBeUndefined();
+  expect(bogus.stdout).toBe("No such receipt.\n");
 });

@@ -271,6 +271,16 @@ func run() throws {
             saves.acknowledge(
               scope: required(command.scope), handle: required(command.handle),
               root: required(command.root), relative: required(command.path))))
+      case "debt.list":
+        struct DebtReply: Encodable { let rows: [DebtRow] }
+        try reply(try json(DebtReply(rows: try saves.unresolvedDebt())))
+      case "debt.release":
+        struct ReleaseReply: Encodable { let outcome: String }
+        try reply(
+          try json(
+            ReleaseReply(
+              outcome: try saves.releaseDebt(
+                scope: required(command.scope), handle: required(command.handle)).rawValue)))
       default: throw NativeError.refused("unknown_command")
       }
     } catch {
