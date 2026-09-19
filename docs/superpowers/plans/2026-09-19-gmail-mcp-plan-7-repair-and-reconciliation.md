@@ -4,229 +4,413 @@
 
 **Goal:** Give the owner a way to repair charged save debt, finish the three documentation items the spec reconciliation left open, and either explain or quarantine the two intermittent test failures observed on 2026-09-19.
 
-**Architecture:** Three independent strands. The repair strand adds a native journal-inspection and release path and the CLI command that drives it, because the code comments promise "owner repair" and no repair exists. The documentation strand finishes what the reconciliation of `8bfdd01` deliberately stopped short of. The flake strand treats two intermittent failures as findings rather than noise. Each strand is independently shippable; none depends on another.
+**Architecture:** Three strands. The repair strand adds a native journal-inspection and release path, the CLI that drives it, and one owner-authorized run against the live machine, because the code comments promise "owner repair" and no repair exists. The documentation strand finishes what the reconciliation of `8bfdd01` deliberately stopped short of. The flake strand treats two intermittent failures as findings rather than noise.
 
 **Tech Stack:** Swift 6.4 with the Darwin C shim and SQLite for the native helper, TypeScript on Node >= 22.18.0 for the companion CLI, Vitest 4.x for the TypeScript suites, `swift test` for the native suite. No new production dependency.
 
 **Spec:** `docs/superpowers/specs/2026-09-09-gmail-mcp-design.md` (current architecture revision 2026-09-19). The gauntlet record `docs/superpowers/reviews/2026-09-17-full-project-gauntlet.md` is canonical for external gate classification.
 
+**Revision 2, 2026-09-19.** Revision 1 was gauntleted twice: once by the author before anyone read it, and once by an external reviewer who found nine stop-ships in it. The defect ledger at the end of this document records both passes, including the two reviewer remedies that source proved wrong and the four defects neither pass found until the live journal was read.
+
 ## Global constraints
 
-- Baseline `8bfdd018fcfa4efe127bc86dd2cd1577a2f7b60e`. Branch from `main`; commit in small steps; do not push or deploy unless the owner asks.
-- `npm run verify` must exit 0 before any commit, and `swift build --package-path native -c release` plus `swift test --package-path native` must pass for any native change. Exit code 0 is the claim.
+- Baseline `f212652`. Branch from `main`; commit in small steps; do not push or deploy unless the owner asks.
+- Two gates, and they are not the same gate. `npm run verify` runs format, lint, typecheck and the TypeScript suites across every workspace; it does **not** compile or test Swift. `npm run verify:native` runs `swift test --package-path companion/native` followed by `swift build --package-path companion/native -c release`. Any task touching Swift owes both. Each task below names the ones it owes immediately before its commit, because a constraint fifty minutes up the page is a constraint nobody re-reads.
+- Exit code 0 is the claim. Read the output.
 - Write the failing test first and watch it fail. A test that passes the moment it is written has proven nothing.
-- Migrations are append-only. The native journal schema is owner data on a live machine: never drop or rewrite a table, and never delete a reservation whose receipt is not accounted for.
-- Task 1 touches the crash-recovery state machine that invariants 27, 33, 35 and 36 rest on. Any predicate it changes owes a mutation-confirmed regression, not only a green suite. Neutralise the clause with `(x OR 1=1)` rather than deleting a bound parameter, and print the mutated region to confirm the edit landed where intended.
+- Migrations are append-only. The native journal is owner data on a live machine: never drop or rewrite a table, and never delete a reservation whose receipt is not accounted for.
+- Tasks 1 to 3 touch the crash-recovery state machine that invariants 27, 33, 35 and 36 rest on. Any predicate they change owes a mutation-confirmed regression, not only a green suite. Neutralise the clause with `(x OR 1=1)` rather than deleting a bound parameter, and print the mutated region to confirm the edit landed where intended.
 - Missing proof is `not_run`. A tested refusal path is not a satisfied external gate. Nothing in this plan closes any of the five gates in spec 4.8.
 - Run the `stop-slop` skill over any prose this plan produces, before committing it.
 
 ## Sequence
 
-Tasks 1 and 2 are the repair strand and must run in order. Tasks 3, 4 and 5 are documentation and can run at any time. Tasks 6 and 7 are the flake strand and are independent. Nothing here blocks anything else.
+```
+Task 1 -> Task 2 -> Task 3        repair; Task 3 needs separate owner authorization
+Task 4 -> Task 5 -> Task 6        documentation; 4 and 5 edit the same file, so they serialise
+Task 7                            independent
+Task 8                            independent
+```
+
+Revision 1 claimed the documentation tasks could run in any order and then said in Task 6 that it runs after the other two. Tasks 4 and 5 edit neighbouring sections of one file, so a subagent fan-out across them collides. Run them in order.
 
 ---
 
 ## File structure
 
-| File                                                                  | Responsibility                                                                                                        |
-| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `companion/native/Sources/NativeCore/SaveReceipts.swift`              | gains `unresolvedDebt()` and `releaseDebt(scope:handle:)`; owns the decision about which receipts a human may release |
-| `companion/native/Sources/NativeHelper/main.swift`                    | routes two new operations, `debt.list` and `debt.release`, to the above                                               |
-| `companion/native/Tests/NativeCoreTests/ReceiptTests.swift`           | tests for both, including the case that must refuse                                                                   |
-| `companion/src/cli.ts`                                                | the `debt` and `debt --release <handle>` commands                                                                     |
-| `companion/test/cli.test.ts`                                          | asserts the CLI prints debt and refuses an unknown handle                                                             |
-| `docs/superpowers/specs/2026-09-09-gmail-mcp-design.md`               | sections 4.7 and 4.9, and the qualification detail in 4.8                                                             |
-| `docs/superpowers/reviews/2026-09-19-spec-reconciliation-gauntlet.md` | the second gauntlet's record, appended to, never rewritten                                                            |
+| File                                                                  | Responsibility                                                                                                               |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `companion/native/Sources/NativeCore/SafeFiles.swift`                 | gains `TemporaryPresence` and `temporaryPresence(root:path:)`, the probe that only ENOENT may answer `absent`                |
+| `companion/native/Sources/NativeCore/Journal.swift`                   | gains `reservedBytes(id:)`, because `entries(prefix:)` carries no byte count                                                 |
+| `companion/native/Sources/NativeCore/SaveReceipts.swift`              | gains `DebtRow`, `DebtRelease`, `unresolvedDebt()` and `releaseDebt(scope:handle:)`; owns which receipts a human may release |
+| `companion/native/Sources/NativeHelper/main.swift`                    | routes `debt.list` and `debt.release`                                                                                        |
+| `companion/native/Tests/NativeCoreTests/ReceiptTests.swift`           | the listing, the release, and the three refusals                                                                             |
+| `companion/src/cli.ts`                                                | `debt` and `debt --scope <scope> --release <handle>`                                                                         |
+| `companion/test/cli.test.ts`                                          | the CLI integration check, and the poll budgets in Task 7                                                                    |
+| `docs/superpowers/specs/2026-09-09-gmail-mcp-design.md`               | sections 4.7 and the qualification detail in 4.8                                                                             |
+| `docs/superpowers/reviews/2026-09-19-spec-reconciliation-gauntlet.md` | the second gauntlet's record, appended to, never rewritten                                                                   |
 
 ---
 
 ### Task 1: The native helper can report and release charged save debt
 
-A failed save keeps its 25 MiB reservation until `recoverStartup` collects the temporary. When the
-temporary is gone, `discardTemporary` returns false, `recover` marks the receipt
-`publication_unknown`, and the reservation stays charged for ever. On 2026-09-19 one hand-deleted
-temporary left `save:dfbf797b…` holding 26,214,400 bytes and every later save answered
-`spool_budget`. The comments in `SafeFiles.swift` call the remedy "owner repair"; no repair exists.
+A save that loses the exclusive rename keeps its 25 MiB reservation until `recoverStartup` collects
+the temporary. Delete that temporary by hand and the collector can no longer check the device and
+inode it recorded, so `discardTemporary` returns false, `recover` marks the receipt
+`publication_unknown`, and the charge stays for ever. Every later save then answers `spool_budget`.
+The comments in `SafeFiles.swift` call the remedy "owner repair"; no repair exists.
 
 **Files:**
 
+- Modify: `companion/native/Sources/NativeCore/SafeFiles.swift`
+- Modify: `companion/native/Sources/NativeCore/Journal.swift`
 - Modify: `companion/native/Sources/NativeCore/SaveReceipts.swift`
 - Test: `companion/native/Tests/NativeCoreTests/ReceiptTests.swift`
 
 **Interfaces:**
 
-- Consumes: `Journal.entries(prefix:)`, `Journal.release(id:)`, `SaveReceipt`, `NativeError.refused`
-- Produces:
-  - `public struct DebtRow: Codable { public let scope: String; public let handle: String; public let state: String; public let root: String; public let relative: String; public let bytes: Int; public let temporaryPresent: Bool }`
+- Consumes: `Journal.entries(prefix:)`, `Journal.get(scope:key:)`, `Journal.release(id:)`,
+  `SaveReceipt`, `NativeError.refused`, `SafeFiles.maximum`, and the private `reservation(_:_:)`
+  and `validated(_:)` helpers, both reachable from their own file.
+- Produces, all at file scope beside `SaveReceipt` rather than nested in a type:
+  - `public enum TemporaryPresence: String, Codable, Sendable { case present, absent, unknown }`
+  - `public func temporaryPresence(root id: String, path: String) -> TemporaryPresence` on `SafeFiles`
+  - `public func reservedBytes(id: String) throws -> Int?` on `Journal`
+  - `public struct DebtRow: Codable, Sendable` with `scope, handle, state, root, relative: String`,
+    `bytes: Int`, `temporary: String`, `releasable: Bool`
+  - `public enum DebtRelease: String, Codable, Sendable { case released, noSuchReceipt, notCharged }`
   - `public func unresolvedDebt() throws -> [DebtRow]`
-  - `public func releaseDebt(scope: String, handle: String) throws -> Bool`
-  - in `Journal.swift`: `public func reservedBytes(id: String) throws -> Int?`, because
-    `entries(prefix:)` selects only `scope, key, request_hash, payload` and carries no byte count;
-    the charge lives in the separate `reservations` table keyed by `reservation(scope, handle)`,
-    which is `"save:" + digest(scope + NUL + handle)` and is not invertible
+  - `public func releaseDebt(scope: String, handle: String) throws -> DebtRelease`
 
-- [ ] **Step 1: Write the failing test for listing debt**
+**Two definitions this task turns on.** _Charged debt_ is a save receipt short of `acknowledged`
+that still holds bytes in the `reservations` table. A receipt with no charge is history, not debt,
+and `unresolvedDebt` does not list it. _Releasable_ is narrower still: state exactly
+`publication_unknown`, and the temporary provably gone. Nothing else. Revision 1 conflated the two
+and could not satisfy its own test, because releasing a charge leaves the receipt exactly where it
+was and the listing kept returning it.
+
+**And the release repairs accounting only.** The receipt goes on saying `publication_unknown`
+afterwards, because nothing in this path learned what happened at the destination. Rewriting the
+state would convert an honest unknown into a claim, which is the failure invariant 35 exists to
+prevent.
+
+- [ ] **Step 1: Write the failing test for listing charged debt**
+
+Revision 1 assumed a `harness()` with `markPublicationUnknown` and `createTemporary`, and admitted
+in its own self-review that neither exists. They are not needed. `FileTests().fixture` is the
+existing pattern, and the production route to a charged `publication_unknown` receipt is
+reproducible with nothing but an occupied destination and one `removeItem`. Reproduce the defect;
+do not simulate it.
 
 ```swift
-func testUnresolvedDebtListsAChargedPublicationUnknownReceipt() throws {
-  let h = harness()                                   // existing helper in ReceiptTests
-  try h.saves.prepare(scope: "s", handle: "hA", root: "attachments", relative: "a.pdf")
-  try h.markPublicationUnknown(scope: "s", handle: "hA")   // see Step 3 for why this exists
-  let debt = try h.saves.unresolvedDebt()
-  XCTAssertEqual(debt.count, 1)
-  XCTAssertEqual(debt[0].handle, "hA")
-  XCTAssertEqual(debt[0].state, "publication_unknown")
-  XCTAssertFalse(debt[0].temporaryPresent)
+func testUnresolvedDebtListsTheChargeAHandDeletedTemporaryLeaves() throws {
+  try FileTests().fixture { files, root, priv in
+    let journal = try Journal(path: priv.appendingPathComponent("debt.db").path)
+    let saves = SaveReceipts(files: files, journal: journal)
+    let bytes = Data("payload".utf8)
+
+    // An occupied destination refuses the exclusive rename and leaves the temporary behind.
+    try Data("occupied".utf8).write(to: root.appendingPathComponent("a.txt"))
+    XCTAssertThrowsError(
+      try saves.publish(
+        scope: "s", handle: "h", root: "attachments", relative: "a.txt", bytes: bytes,
+        sha256: SafeFiles.digest(bytes)))
+
+    // The act that makes the debt permanent: tidying the temporary away by hand.
+    let temp = try XCTUnwrap(
+      FileManager.default.contentsOfDirectory(atPath: root.path).first {
+        $0.hasPrefix(".gmail-mcp-")
+      })
+    try FileManager.default.removeItem(at: root.appendingPathComponent(temp))
+    XCTAssertThrowsError(
+      try saves.recover(scope: "s", handle: "h", root: "attachments", relative: "a.txt"))
+
+    let debt = try saves.unresolvedDebt()
+    XCTAssertEqual(debt.count, 1)
+    XCTAssertEqual(debt[0].scope, "s")
+    XCTAssertEqual(debt[0].handle, "h")
+    XCTAssertEqual(debt[0].state, "publication_unknown")
+    XCTAssertEqual(debt[0].bytes, SafeFiles.maximum)
+    XCTAssertEqual(debt[0].temporary, "absent")
+    XCTAssertTrue(debt[0].releasable)
+  }
 }
 ```
 
 - [ ] **Step 2: Run it and watch it fail**
 
-Run: `swift test --package-path companion/native --filter ReceiptTests/testUnresolvedDebtLists`
+Run: `swift test --package-path companion/native --filter ReceiptTests/testUnresolvedDebt`
 Expected: FAIL, `value of type 'SaveReceipts' has no member 'unresolvedDebt'`
 
-- [ ] **Step 3: Implement `unresolvedDebt`**
+- [ ] **Step 3: Add the presence probe to `SafeFiles.swift`**
 
-Read every `save:` journal entry, decode its `SaveReceipt`, and report the ones a human might need
-to act on. `temporaryPresent` is what tells the owner whether the safe collector can still do the
-job: when it is true the fix is to start the helper, and when it is false only a release can clear
-the charge.
+`discardTemporary` already separates ENOENT from every other open failure, and this probe reuses
+that shape rather than approximating it. Do not require `path == leaf`: `prepare` builds temporaries
+inside the destination's parent directory, so a temporary legitimately carries a path. Validate the
+parent with `validated`, exactly as `discardTemporary` does.
 
 ```swift
-public struct DebtRow: Codable {
-  public let scope: String, handle: String, state: String, root: String, relative: String
-  public let bytes: Int, temporaryPresent: Bool
+public enum TemporaryPresence: String, Codable, Sendable {
+  case present, absent, unknown
 }
+```
 
+```swift
+/// Only ENOENT establishes absence. A permission error, a lost root, an I/O error and an
+/// unparseable path are all `unknown`, because releaseDebt reads `absent` as permission to drop a
+/// charge and must never be handed a guess. Failing open here would make every unreadable
+/// temporary look collected.
+public func temporaryPresence(root id: String, path: String) -> TemporaryPresence {
+  guard let r = try? root(id, write: true) else { return .unknown }
+  let leaf = (path as NSString).lastPathComponent
+  let parent = (path as NSString).deletingLastPathComponent
+  guard leaf.range(of: "^\\.gmail-mcp-[A-Fa-f0-9-]{36}$", options: .regularExpression) != nil
+  else { return .unknown }
+  if !parent.isEmpty, (try? validated(parent)) == nil { return .unknown }
+  let fd = gm_open(r.fd, path, O_RDONLY | O_NONBLOCK, 0)
+  if fd < 0 { return errno == ENOENT ? .absent : .unknown }
+  close(fd)
+  return .present
+}
+```
+
+- [ ] **Step 4: Add `reservedBytes` to `Journal.swift`**
+
+`entries(prefix:)` selects `scope, key, request_hash, payload` and carries no byte count. The charge
+lives in the `reservations` table under `reservation(scope, handle)`, which is
+`"save:" + digest(scope + NUL + handle)` and cannot be inverted back to a handle.
+
+```swift
+public func reservedBytes(id: String) throws -> Int? {
+  guard let value = try scalar("SELECT bytes FROM reservations WHERE id=?", [id]) else {
+    return nil
+  }
+  guard let bytes = Int(value) else { throw NativeError.refused("journal_read") }
+  return bytes
+}
+```
+
+- [ ] **Step 5: Implement `unresolvedDebt` in `SaveReceipts.swift`**
+
+Declare `DebtRow` and `DebtRelease` at file scope beside `SaveReceipt`, not nested inside
+`SaveReceipts`, so the helper spells the type `DebtRow`.
+
+```swift
+public struct DebtRow: Codable, Sendable {
+  public let scope: String, handle: String, state: String, root: String, relative: String
+  public let bytes: Int
+  public let temporary: String   // TemporaryPresence.rawValue
+  public let releasable: Bool
+}
+public enum DebtRelease: String, Codable, Sendable {
+  case released, noSuchReceipt = "no_such_receipt", notCharged = "not_charged"
+}
+```
+
+```swift
+/// Charged debt: a receipt short of acknowledged that still holds bytes against the 25 MiB save
+/// budget. `releasable` is computed here rather than in the CLI, because which receipts a human
+/// may clear is an authority decision and belongs on this side of the boundary.
 public func unresolvedDebt() throws -> [DebtRow] {
   var rows: [DebtRow] = []
   for item in try journal.entries(prefix: "save:") {
     let receipt = try JSONDecoder().decode(SaveReceipt.self, from: Data(item.record.payload.utf8))
     guard receipt.state != "acknowledged" else { continue }
     let scope = String(item.scope.dropFirst(5))
-    let present = receipt.temporary.map { files.temporaryExists(root: receipt.root, path: $0) } ?? false
-    // entries() carries no byte count; the charge is in the reservations table under the digest id.
-    let bytes = try journal.reservedBytes(id: reservation(scope, item.key)) ?? 0
-    rows.append(DebtRow(
-      scope: scope, handle: item.key, state: receipt.state,
-      root: receipt.root, relative: receipt.relative,
-      bytes: bytes, temporaryPresent: present))
+    guard let bytes = try journal.reservedBytes(id: reservation(scope, item.key)), bytes > 0
+    else { continue }
+    let presence =
+      receipt.temporary.map { files.temporaryPresence(root: receipt.root, path: $0) } ?? .absent
+    rows.append(
+      DebtRow(
+        scope: scope, handle: item.key, state: receipt.state, root: receipt.root,
+        relative: receipt.relative, bytes: bytes, temporary: presence.rawValue,
+        releasable: receipt.state == "publication_unknown" && presence == .absent))
   }
   return rows
 }
 ```
 
-Add the existence probe beside `discardTemporary` in `SafeFiles.swift`, reusing its path validation
-so it cannot be pointed at an arbitrary file:
+- [ ] **Step 6: Run it and watch it pass**
+
+Run: `swift test --package-path companion/native --filter ReceiptTests/testUnresolvedDebt`
+Expected: PASS, with `bytes` equal to 26,214,400. That is the same number the live machine holds,
+which is the point: the fixture reproduces the production charge rather than a stand-in for it.
+
+- [ ] **Step 7: Write the failing tests for the release and its three refusals**
+
+The refusals are the task. Each one names a different reason a human must not clear the charge.
 
 ```swift
-public func temporaryExists(root id: String, path: String) -> Bool {
-  guard let r = try? root(id, write: true) else { return false }
-  let leaf = (path as NSString).lastPathComponent
-  guard leaf.range(of: "^\\.gmail-mcp-[A-Fa-f0-9-]{36}$", options: .regularExpression) != nil
-  else { return false }
-  let fd = gm_open(r.fd, path, O_RDONLY | O_NONBLOCK, 0)
-  if fd < 0 { return false }
-  close(fd)
-  return true
-}
-```
+func testReleaseDebtClearsTheChargeAndLeavesThePublicationTruthAlone() throws {
+  try FileTests().fixture { files, root, priv in
+    let journal = try Journal(path: priv.appendingPathComponent("release.db").path)
+    let saves = SaveReceipts(files: files, journal: journal)
+    let bytes = Data("payload".utf8)
+    try Data("occupied".utf8).write(to: root.appendingPathComponent("a.txt"))
+    XCTAssertThrowsError(
+      try saves.publish(
+        scope: "s", handle: "h", root: "attachments", relative: "a.txt", bytes: bytes,
+        sha256: SafeFiles.digest(bytes)))
+    let temp = try XCTUnwrap(
+      FileManager.default.contentsOfDirectory(atPath: root.path).first {
+        $0.hasPrefix(".gmail-mcp-")
+      })
+    try FileManager.default.removeItem(at: root.appendingPathComponent(temp))
+    XCTAssertThrowsError(
+      try saves.recover(scope: "s", handle: "h", root: "attachments", relative: "a.txt"))
 
-`markPublicationUnknown` in the test harness persists a receipt in that state directly, because the
-production route to it needs a deleted temporary and the test must not delete files on the machine
-running it.
+    XCTAssertEqual(try saves.releaseDebt(scope: "s", handle: "h"), .released)
+    XCTAssertTrue(try saves.unresolvedDebt().isEmpty)
 
-- [ ] **Step 4: Run it and watch it pass**
+    // Accounting was repaired. History was not: the receipt still says what it always said.
+    let row = try XCTUnwrap(journal.get(scope: "save:s", key: "h"))
+    let after = try JSONDecoder().decode(SaveReceipt.self, from: Data(row.payload.utf8))
+    XCTAssertEqual(after.state, "publication_unknown")
 
-Run: `swift test --package-path companion/native --filter ReceiptTests/testUnresolvedDebtLists`
-Expected: PASS
-
-- [ ] **Step 5: Write the failing test for releasing, and for refusing to release**
-
-The refusal is the point of the task. A receipt whose temporary is still on disk must not be
-released by hand, because the safe collector can still check its device and inode; releasing it
-would drop the charge while leaving the file.
-
-```swift
-func testReleaseDebtClearsAChargeThatOnlyAHumanCanClear() throws {
-  let h = harness()
-  try h.saves.prepare(scope: "s", handle: "hB", root: "attachments", relative: "b.pdf")
-  try h.markPublicationUnknown(scope: "s", handle: "hB")
-  XCTAssertTrue(try h.saves.releaseDebt(scope: "s", handle: "hB"))
-  XCTAssertTrue(try h.saves.unresolvedDebt().isEmpty)
+    // A second release is not a second success.
+    XCTAssertEqual(try saves.releaseDebt(scope: "s", handle: "h"), .notCharged)
+    XCTAssertEqual(try saves.releaseDebt(scope: "s", handle: "absent"), .noSuchReceipt)
+  }
 }
 
-func testReleaseDebtRefusesWhileTheTemporaryIsStillCollectable() throws {
-  let h = harness()
-  try h.saves.prepare(scope: "s", handle: "hC", root: "attachments", relative: "c.pdf")
-  try h.createTemporary(scope: "s", handle: "hC")     // leaves the .gmail-mcp- file in place
-  XCTAssertThrowsError(try h.saves.releaseDebt(scope: "s", handle: "hC")) { error in
-    // NativeError is `enum { refused(String), system(String, Int32) }` and has no `.reason`.
-    guard case NativeError.refused(let reason) = error else { return XCTFail("wrong error: \(error)") }
-    XCTAssertEqual(reason, "temporary_still_present")
+func testReleaseDebtRefusesAReceiptTheCollectorCanStillHandle() throws {
+  try FileTests().fixture { files, root, priv in
+    let saves = SaveReceipts(
+      files: files, journal: try Journal(path: priv.appendingPathComponent("collect.db").path))
+    let bytes = Data("payload".utf8)
+    try Data("occupied".utf8).write(to: root.appendingPathComponent("a.txt"))
+    XCTAssertThrowsError(
+      try saves.publish(
+        scope: "s", handle: "h", root: "attachments", relative: "a.txt", bytes: bytes,
+        sha256: SafeFiles.digest(bytes)))
+    // No hand deletion and no recover: the temporary is still there, state is still verified.
+    let debt = try saves.unresolvedDebt()
+    XCTAssertEqual(debt.count, 1)
+    XCTAssertEqual(debt[0].state, "verified")
+    XCTAssertEqual(debt[0].temporary, "present")
+    XCTAssertFalse(debt[0].releasable)
+    XCTAssertThrowsError(try saves.releaseDebt(scope: "s", handle: "h")) { error in
+      guard case NativeError.refused(let reason) = error else { return XCTFail("\(error)") }
+      XCTAssertEqual(reason, "receipt_not_releasable")
+    }
+  }
+}
+
+func testReleaseDebtRefusesWhenSomethingElseNowHoldsTheTemporaryName() throws {
+  try FileTests().fixture { files, root, priv in
+    let saves = SaveReceipts(
+      files: files, journal: try Journal(path: priv.appendingPathComponent("reused.db").path))
+    let bytes = Data("payload".utf8)
+    try Data("occupied".utf8).write(to: root.appendingPathComponent("a.txt"))
+    XCTAssertThrowsError(
+      try saves.publish(
+        scope: "s", handle: "h", root: "attachments", relative: "a.txt", bytes: bytes,
+        sha256: SafeFiles.digest(bytes)))
+    let temp = try XCTUnwrap(
+      FileManager.default.contentsOfDirectory(atPath: root.path).first {
+        $0.hasPrefix(".gmail-mcp-")
+      })
+    try FileManager.default.removeItem(at: root.appendingPathComponent(temp))
+    XCTAssertThrowsError(
+      try saves.recover(scope: "s", handle: "h", root: "attachments", relative: "a.txt"))
+
+    // Something else takes the name. The collector refuses it on device and inode, and so must
+    // a human release: releasing here would drop the charge and leave a file nobody accounts for.
+    try Data("not ours".utf8).write(to: root.appendingPathComponent(temp))
+    XCTAssertThrowsError(try saves.releaseDebt(scope: "s", handle: "h")) { error in
+      guard case NativeError.refused(let reason) = error else { return XCTFail("\(error)") }
+      XCTAssertEqual(reason, "temporary_still_present")
+    }
   }
 }
 ```
 
-- [ ] **Step 6: Run both and watch them fail**
+- [ ] **Step 8: Run all three and watch them fail**
 
 Run: `swift test --package-path companion/native --filter ReceiptTests/testReleaseDebt`
 Expected: FAIL, no member `releaseDebt`
 
-- [ ] **Step 7: Implement `releaseDebt`**
+- [ ] **Step 9: Implement `releaseDebt`**
 
 ```swift
-public func releaseDebt(scope: String, handle: String) throws -> Bool {
-  guard let row = try journal.get(scope: "save:" + scope, key: handle) else { return false }
-  let receipt = try JSONDecoder().decode(SaveReceipt.self, from: Data(row.payload.utf8))
-  if let temp = receipt.temporary, files.temporaryExists(root: receipt.root, path: temp) {
-    // The collector can still verify device and inode. A human release here would drop the
-    // charge and leave the file, which is the one outcome nothing else in this design permits.
-    throw NativeError.refused("temporary_still_present")
+/// The owner may clear a charge in exactly one state: a publication_unknown receipt whose
+/// temporary is provably gone. Everything else belongs to recoverStartup, which can still check
+/// the device and inode it recorded. An unknown probe refuses, because unknown is not absent.
+public func releaseDebt(scope: String, handle: String) throws -> DebtRelease {
+  guard let row = try journal.get(scope: "save:" + scope, key: handle) else {
+    return .noSuchReceipt
   }
+  let receipt = try JSONDecoder().decode(SaveReceipt.self, from: Data(row.payload.utf8))
+  guard receipt.state == "publication_unknown" else {
+    throw NativeError.refused("receipt_not_releasable")
+  }
+  let presence =
+    receipt.temporary.map { files.temporaryPresence(root: receipt.root, path: $0) } ?? .absent
+  switch presence {
+  case .present: throw NativeError.refused("temporary_still_present")
+  case .unknown: throw NativeError.refused("temporary_unknown")
+  case .absent: break
+  }
+  guard let bytes = try journal.reservedBytes(id: reservation(scope, handle)), bytes > 0 else {
+    return .notCharged
+  }
+  // Accounting only. The receipt keeps saying publication_unknown, because this learned nothing
+  // about the destination.
   try journal.release(id: reservation(scope, handle))
-  return true
+  return .released
 }
 ```
 
-- [ ] **Step 8: Run the whole native suite**
+- [ ] **Step 10: Run the whole native suite**
 
 Run: `swift test --package-path companion/native`
-Expected: PASS, including the existing crash, race and restart tests
+Expected: PASS, including the existing crash, race and restart tests.
 
-- [ ] **Step 9: Mutation-confirm the refusal**
+- [ ] **Step 11: Mutation-confirm all three predicates separately**
 
-Change the guard to `if false, let temp = receipt.temporary, ...` and print the mutated lines to
-confirm the edit landed in `releaseDebt` and nowhere else. Re-run
-`swift test --package-path companion/native --filter ReceiptTests/testReleaseDebtRefuses`.
-Expected: that test FAILS. Restore the guard and confirm it passes again. A refusal nothing can
-break is a refusal nothing was testing.
+One mutation at a time. After each edit, print the mutated region with
+`sed -n '/func releaseDebt/,/^  }/p' companion/native/Sources/NativeCore/SaveReceipts.swift` to
+confirm it landed in `releaseDebt` and nowhere else, then restore before the next one.
 
-- [ ] **Step 10: Commit**
+| Mutation                                                      | Test that must go red                                   |
+| ------------------------------------------------------------- | ------------------------------------------------------- |
+| `guard receipt.state == "publication_unknown" \|\| true else` | `testReleaseDebtRefusesAReceiptTheCollectorCanStill`    |
+| `case .present: break` in place of the throw                  | `testReleaseDebtRefusesWhenSomethingElseNowHolds`       |
+| `guard let bytes = ..., bytes >= 0 else` in `unresolvedDebt`  | `testReleaseDebtClearsTheChargeAndLeavesThePublication` |
+
+The third one is the guard Revision 1 lacked. Without it the listing keeps returning a released
+receipt with zero bytes, and `unresolvedDebt().isEmpty` can never be true.
+
+- [ ] **Step 12: Run both gates and commit**
 
 ```bash
+npm run verify
+npm run verify:native
 git add companion/native/Sources companion/native/Tests
 git commit -m "feat(native): let the owner see and release charged save debt
 
-A save that lost the exclusive rename keeps its reservation until
-recoverStartup collects the temporary. When the temporary is gone the
-collector cannot verify what it is removing, the receipt becomes
-publication_unknown, and the charge stays for ever: one hand-deleted file
-left 26,214,400 bytes held and every later save answered spool_budget. The
-comments called the remedy owner repair and there was none.
+A save that loses the exclusive rename keeps its reservation until
+recoverStartup collects the temporary. Delete that temporary by hand and
+the collector can no longer verify what it would remove, so the receipt
+becomes publication_unknown and the charge stays for ever: one file
+removed by hand left 26,214,400 bytes held and every later save answered
+spool_budget. The comments called the remedy owner repair and there was
+none.
 
-releaseDebt refuses while the temporary is still on disk, because the safe
-collector can still check its device and inode there, and a human release
-would drop the charge and leave the file."
+releaseDebt clears accounting in one state only, publication_unknown with
+the temporary provably gone, and refuses an unknown probe as firmly as a
+present file. The receipt still says publication_unknown afterwards,
+because releasing a charge learns nothing about the destination."
 ```
 
 ---
 
 ### Task 2: `gmail-mcp-companion debt` exposes the repair to the owner
 
-The native side is useless to the owner until the CLI drives it. This is also the command a future
-reader will reach for when a save answers `spool_budget`, so its output has to explain the state
-rather than print a row.
+The native side is useless to the owner until the CLI drives it. This is the command a future reader
+reaches for when a save answers `spool_budget`, so its output has to explain the state rather than
+print a row.
 
 **Files:**
 
@@ -236,76 +420,160 @@ rather than print a row.
 
 **Interfaces:**
 
-- Consumes: `unresolvedDebt()` and `releaseDebt(scope:handle:)` from Task 1; `NativeProcess.call`
-- Produces: helper operations `{ op: "debt" }` returning `{ meta: { rows: DebtRow[] } }` and
-  `{ op: "debt.release", scope, handle }` returning `{ meta: { released: Bool } }`
+- Consumes: `unresolvedDebt()` and `releaseDebt(scope:handle:)` from Task 1; `NativeProcess`, whose
+  no-argument constructor spawns `native/.build/release/gmail-mcp-native` with no `--init`.
+- Produces: helper operations `{ op: "debt.list" }` returning `{ rows: DebtRow[] }` and
+  `{ op: "debt.release", scope, handle }` returning `{ outcome: String }`. One naming scheme,
+  noun then action, at every layer. Revision 1 said `debt.list` in its file table and `debt` in its
+  interface block and its code.
 
-- [ ] **Step 1: Write the failing test**
+**Three facts from source that shape this task.**
 
-`test/cli.test.ts` has no `runCli` or `fakeNative`: it spawns the real CLI with `spawn(process.execPath,
-[cli, "serve"])` and speaks frames over stdio. Follow that pattern rather than inventing a harness,
-which means the native binary must be built first (`npm run build:native`). Test the two things that
-do not need real debt to exist: the command runs, and an unknown handle is refused rather than
-reported as released.
+The scope is not `"default"`. `Companion` computes it as
+`hash([api.origin, owner.client_id, owner.user_id])`, a hex digest; the live machine's is
+`09073736bf…`. Revision 1 hardcoded `"default"` in the release path, which would have failed against
+every real reservation while reporting nothing wrong. `--scope` is required, and the listing prints
+the whole command including it.
+
+The helper takes an exclusive process lock. `main.swift` opens
+`ProcessLock(path: stateDir + "/companion.lock")` before anything else, with the default `wait: true`,
+so `flock(LOCK_EX)` **blocks** rather than failing. The companion spawns a fresh helper per tool call
+and closes it in a `finally`, so `debt` normally acquires the lock at once; it waits only while a save
+or stage is mid-flight, bounded by the six-minute call timeout. This is also the answer to whether
+owner repair can race `recoverStartup`: it cannot, because every helper invocation takes the lock
+before it reads a row. No new mechanism is needed, but every spawn in a test needs a timeout.
+
+`npm run verify` does not build Swift. Adding a CLI test that needs the release binary would make the
+TypeScript gate silently depend on a native build. The test therefore skips itself, loudly, when the
+binary is absent, and Task 2 runs it for real with the binary present. The native suite remains the
+authority for the behaviour; this test only proves the wiring.
+
+- [ ] **Step 1: Build the native binary**
+
+Run: `cd companion && npm run build:native`
+Expected: exit 0, and `companion/native/.build/release/gmail-mcp-native` exists.
+
+- [ ] **Step 2: Write the failing test**
+
+`test/cli.test.ts` has no `runCli` and no `fakeNative`; it spawns the real CLI over stdio. Follow
+that. The two assertions below hold whatever the machine's journal contains, which is what makes an
+integration test against real state acceptable here. A hermetic version would need the helper's state
+directory to be overridable, and that directory is resolved from `$HOME` inside `main.swift` as a
+security boundary. Do not add an environment override to make a test easier.
 
 ```ts
-it("debt runs against the real helper and refuses an unknown handle", async () => {
-  const cli = new URL("../src/cli.ts", import.meta.url).pathname;
-  const list = spawnSync(process.execPath, [cli, "debt"], { encoding: "utf8" });
-  expect(list.status).toBe(0);
-  // Either there is no debt on this machine, or every row names its remedy.
-  expect(list.stdout).toMatch(/No charged save debt\.|--release /);
+import { existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 
-  const bogus = spawnSync(process.execPath, [cli, "debt", "--release", "nosuchhandle"], { encoding: "utf8" });
-  expect(bogus.stdout).toContain("No such handle.");
+const nativeBinary = new URL("../native/.build/release/gmail-mcp-native", import.meta.url).pathname;
+
+// Integration, not hermetic: this drives the real helper against the machine's own journal.
+// npm run verify does not build Swift, so it skips rather than making the TS gate depend on it.
+it.skipIf(!existsSync(nativeBinary))("debt lists charged debt and refuses a handle that is not there", () => {
+  const cli = new URL("../src/cli.ts", import.meta.url).pathname;
+  // The helper takes an exclusive lock, so a save in flight makes this wait. Never spawn it
+  // without a timeout.
+  const list = spawnSync(process.execPath, [cli, "debt"], { encoding: "utf8", timeout: 60_000 });
+  expect(list.error).toBeUndefined();
+  expect(list.status).toBe(0);
+  // Either nothing is charged, or every row prints the exact command that clears it.
+  expect(list.stdout).toMatch(/^No charged save debt\.\n$|--scope \S+ --release \S+/);
+
+  const bogus = spawnSync(process.execPath, [cli, "debt", "--scope", "nosuchscope", "--release", "nosuchhandle"], {
+    encoding: "utf8",
+    timeout: 60_000,
+  });
+  expect(bogus.error).toBeUndefined();
+  expect(bogus.stdout).toBe("No such receipt.\n");
 });
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [ ] **Step 3: Run it and watch it fail**
 
-Run: `cd companion && npx vitest run test/cli.test.ts -t "prints charged debt"`
-Expected: FAIL, unknown command `debt`
+Run: `cd companion && npx vitest run test/cli.test.ts -t "debt lists charged debt"`
+Expected: FAIL. The CLI throws `usage` for an unknown command, so stdout is empty and stderr carries
+the usage line. Confirm the filter matched one test rather than zero: vitest prints `1 failed` and
+names it. A run reporting `no tests found` means the `-t` string is wrong, which is how Revision 1
+would have failed here, filtering on a name no test had.
 
-- [ ] **Step 3: Route the two operations in the helper**
+- [ ] **Step 4: Route both operations in the helper**
 
-In `main.swift`, beside the existing `save.*` cases:
-
-The helper answers with `try reply(try json(value))`; there is no `Response` type. `Command`
-already declares optional `scope` and `handle`, so no new fields are needed.
+In `main.swift`, beside the existing `save.*` cases. The helper answers with `try reply(try json(value))`;
+there is no `Response` type. `Command` already declares optional `scope` and `handle`, so no new
+fields are needed.
 
 ```swift
-case "debt":
-  struct DebtReply: Encodable { let rows: [SaveReceipts.DebtRow] }
+case "debt.list":
+  struct DebtReply: Encodable { let rows: [DebtRow] }
   try reply(try json(DebtReply(rows: try saves.unresolvedDebt())))
 case "debt.release":
-  struct ReleaseReply: Encodable { let released: Bool }
-  try reply(try json(ReleaseReply(released: try saves.releaseDebt(
-    scope: required(command.scope), handle: required(command.handle)))))
+  struct ReleaseReply: Encodable { let outcome: String }
+  try reply(
+    try json(
+      ReleaseReply(
+        outcome: try saves.releaseDebt(
+          scope: required(command.scope), handle: required(command.handle)).rawValue)))
 ```
 
-- [ ] **Step 4: Add the CLI command**
+- [ ] **Step 5: Add the CLI command**
+
+A refusal arrives as a rejected promise whose message is the native code, and the `catch` at the
+bottom of `main()` would print "Companion command failed. Check configuration, permissions, login and
+the native build." for `temporary_still_present`. That is the wrong sentence for the one case the
+owner most needs to understand, so this branch handles its own refusals.
 
 ```ts
+type DebtRow = {
+  scope: string;
+  handle: string;
+  state: string;
+  root: string;
+  relative: string;
+  bytes: number;
+  temporary: string;
+  releasable: boolean;
+};
+
 if (command === "debt") {
-  const { values } = parseArgs({ args: process.argv.slice(3), options: { release: { type: "string" } } });
+  const { values } = parseArgs({
+    args: process.argv.slice(3),
+    options: { release: { type: "string" }, scope: { type: "string" } },
+  });
   const native = new NativeProcess();
   try {
-    if (values.release) {
-      const out = await native.call({ op: "debt.release", scope: "default", handle: values.release });
-      process.stdout.write(out.meta.released ? "Released.\n" : "No such handle.\n");
+    if (values.release !== undefined) {
+      // The reservation id is a digest of scope and handle and cannot be inverted, so the scope
+      // has to be named. It is never "default": it is a hash of origin, client and owner.
+      if (!values.scope) throw new Error("usage");
+      const { outcome } = (await native.call({ op: "debt.release", scope: values.scope, handle: values.release }))
+        .meta as { outcome: string };
+      process.stdout.write(
+        { released: "Released.\n", no_such_receipt: "No such receipt.\n", not_charged: "Nothing charged.\n" }[
+          outcome
+        ] ?? `Unexpected outcome: ${outcome}\n`,
+      );
       return;
     }
-    const rows = (await native.call({ op: "debt" })).meta.rows as DebtRow[];
+    const { rows } = (await native.call({ op: "debt.list" })).meta as { rows: DebtRow[] };
     if (rows.length === 0) {
       process.stdout.write("No charged save debt.\n");
       return;
     }
-    for (const r of rows) {
-      const remedy = r.temporaryPresent
-        ? "start the companion; the helper collects this on startup"
-        : `run: gmail-mcp-companion debt --release ${r.handle}`;
-      process.stdout.write(`${r.handle}  ${r.state}  ${r.bytes} bytes  ${r.root}/${r.relative}\n  ${remedy}\n`);
+    for (const row of rows) {
+      const remedy = row.releasable
+        ? `run: gmail-mcp-companion debt --scope ${row.scope} --release ${row.handle}`
+        : row.temporary === "present"
+          ? "start the companion; the helper collects this safely on startup"
+          : `not clearable: state ${row.state}, temporary ${row.temporary}`;
+      process.stdout.write(
+        `${row.handle}  ${row.state}  ${row.bytes} bytes  ${row.root}/${row.relative}\n  ${remedy}\n`,
+      );
     }
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "native_failed";
+    if (!/^[a-z_]+$/.test(code)) throw error;
+    process.stdout.write(`Refused: ${code}\n`);
+    process.exitCode = 1;
   } finally {
     native.close();
   }
@@ -313,48 +581,121 @@ if (command === "debt") {
 }
 ```
 
-Add `debt` to the usage string in the `catch` at the bottom of `main()`.
+Add `debt [--scope SCOPE --release HANDLE]` to the usage string in the `catch` at the bottom of
+`main()`.
 
-- [ ] **Step 5: Run the test and watch it pass**
+- [ ] **Step 6: Run the test and watch it pass**
 
 Run: `cd companion && npx vitest run test/cli.test.ts`
-Expected: PASS
+Expected: PASS, both tests, neither skipped.
 
-- [ ] **Step 6: Repair the live machine and record the result**
+- [ ] **Step 7: Prove the refusal reaches the owner as a sentence**
 
-This plan was written on a machine holding real debt. Confirm the command reads it:
+The refusal path is the one the generic handler used to swallow, so exercise it by hand once:
 
-Run: `node companion/src/cli.ts debt`
-Expected: one row, 26,214,400 bytes, state `publication_unknown`, `temporaryPresent` false, remedy
-`--release <handle>`.
+Run: `node companion/src/cli.ts debt --scope nosuchscope --release nosuchhandle`
+Expected: `No such receipt.` and exit 0, not the usage line.
 
-Take the handle from that output. Do **not** use
-`dfbf797b5fb1ce98630b409df9817790415c5cfbef7d1a2449f7d0de78fb042e`, which is what
-`sqlite3 journal.sqlite "SELECT id FROM reservations"` prints: that is the reservation id,
-`"save:" + digest(scope + NUL + handle)`, and the digest cannot be inverted to a handle. The handle
-is the journal record's key, which is why `unresolvedDebt` reports both.
-
-Run: `node companion/src/cli.ts debt --release <handle from the listing>`
-Expected: `Released.` Then prove the repair end to end, because `Released.` is a claim and the
-saving is the evidence: run a `save_attachment` to a path that does not exist yet and expect a
-published receipt rather than `spool_budget`.
-
-- [ ] **Step 7: Run the gate and commit**
+- [ ] **Step 8: Run both gates and commit**
 
 ```bash
 npm run verify
+npm run verify:native
 git add companion/src companion/test companion/native/Sources
 git commit -m "feat(companion): a debt command, because spool_budget needs a way out
 
 When a save answers spool_budget the owner has no way to see what is
-charged or clear it. debt lists every unresolved receipt with the remedy
-that fits it: a restart when the helper can still collect the temporary
-safely, a release when it cannot."
+charged or clear it. debt lists every charged receipt with the remedy that
+fits it: a restart where the helper can still collect the temporary
+safely, a release where it cannot, and a plain refusal where neither is
+safe.
+
+--scope is required. The reservation id is a digest of scope and handle
+and cannot be inverted, and the scope is a hash of origin, client and
+owner rather than a constant, so a default here would have been wrong
+against every real reservation while reporting nothing wrong."
 ```
 
 ---
 
-### Task 3: Section 4.8 documents the qualification architecture, not only its gates
+### Task 3: Repair the live machine, with the owner's authorization for that one act
+
+Tasks 1 and 2 are ordinary work. This one mutates the owner's real journal, so it is a task of its
+own and does not start without the owner saying to start it. **Do not begin this task on the
+strength of Plan 7 being approved.** Approval of a plan is not authorization for a specific
+irreversible act against live data.
+
+The state below was read from the live journal on 2026-09-19 and is the preflight: if what the
+command prints disagrees with it, stop and report rather than releasing anything.
+
+| Field       | Value                                                                         |
+| ----------- | ----------------------------------------------------------------------------- |
+| reservation | `save:dfbf797b5fb1ce98630b409df9817790415c5cfbef7d1a2449f7d0de78fb042e`       |
+| bytes       | 26,214,400                                                                    |
+| scope       | `09073736bfb2586fd378d4dfcf53838a65642c4145448847a3f48018b149074d`            |
+| handle      | `sh_LE-JU3GsJxbOKsMw4x6q80Z2kawvCJusvPZQWqSWsqs`                              |
+| state       | `publication_unknown`                                                         |
+| temporary   | `.gmail-mcp-8198FF28-3AFB-4F65-9781-AF6151DA3028`, absent from the write root |
+| destination | `attachments/internship-info.pdf`                                             |
+
+Two other save records exist and neither holds a reservation: `sh_Xq4T…` is `prepared` and
+`sh_2FPY…` is `acknowledged`. Exactly one row should appear.
+
+**Files:** none. This task changes owner data and the plan's execution record, not the repository.
+
+- [ ] **Step 1: Confirm the owner has authorized this run**
+
+Ask, and wait. Name the reservation, the byte count and the fact that the receipt stays
+`publication_unknown` afterwards. If the answer has not arrived, stop here; Tasks 4 to 8 do not
+depend on this one.
+
+- [ ] **Step 2: Quit the companion, then read the debt**
+
+The helper's lock is exclusive and its waiter blocks, so a save in flight makes this command wait
+rather than fail. Quit the MCP client's companion connection first.
+
+Run: `node companion/src/cli.ts debt`
+Expected: exactly one row, matching every field of the table above, whose remedy line reads
+`run: gmail-mcp-companion debt --scope 09073736bf… --release sh_LE-JU3Gs…`.
+
+Stop if more than one row appears, if the byte count differs, if the state is not
+`publication_unknown`, or if the temporary is anything but absent. Any of those means the machine
+moved since the preflight was taken, and the preflight is what authorizes the release.
+
+- [ ] **Step 3: Release, using the scope and handle the listing printed**
+
+Copy them from the output; do not retype them from this document, and do not pass
+`dfbf797b…`, which is the reservation id rather than the handle.
+
+Run: `node companion/src/cli.ts debt --scope <scope> --release <handle>`
+Expected: `Released.`
+
+Run: `node companion/src/cli.ts debt`
+Expected: `No charged save debt.`
+
+- [ ] **Step 4: Prove the repair with a save, then clean up after it**
+
+`Released.` is a claim; a save is the evidence. Use a disposable destination and remove it
+afterwards, because the write root is the owner's own Downloads folder.
+
+Restart the companion, then run `save_attachment` with `root: "attachments"` and
+`path: "plan7-repair-proof.pdf"`, a name nothing else uses.
+Expected: a published, acknowledged receipt rather than `spool_budget`.
+
+Then delete `~/Downloads/Gmail MCP/plan7-repair-proof.pdf` through the Finder or `rm`, and run
+`node companion/src/cli.ts debt` once more. Expected: `No charged save debt.` A completed save
+releases its own reservation, so deleting its destination afterwards leaves nothing charged. Confirm
+that rather than assuming it.
+
+- [ ] **Step 5: Record the result in the execution record**
+
+Both outcomes are worth recording. Write the preflight as read, the outcome of the release, the
+save's receipt state, and the final listing. If any step refused, record the refusal and what it
+proves; a refusal here is the guard working.
+
+---
+
+### Task 4: Section 4.8 documents the qualification architecture, not only its gates
 
 The reconciliation added the five external gates and stopped, because describing RunIdentity,
 evidence-graph integrity and qualification epochs from memory would have been fiction. Read the
@@ -365,6 +706,11 @@ source first, then write only what it says.
 - Read: `scripts/qualification/` in full, and `worker/src/build-identity.ts`
 - Modify: `docs/superpowers/specs/2026-09-09-gmail-mcp-design.md`, section 4.8
 
+This task carries no draft prose on purpose. Writing that section from memory is how the document
+became a palimpsest, and a plan that supplied the words would invite the executor to skip the
+reading. The deliverable is checkable even so: Step 3 requires a file and symbol behind every
+sentence, and a sentence without one is deleted.
+
 - [ ] **Step 1: Read the qualification source and list what exists**
 
 Run: `ls scripts/qualification && grep -rn "identitySha256\|RunIdentity\|epoch" scripts/qualification | head -40`
@@ -374,15 +720,16 @@ observation carries, how evidence is verified, and what an epoch changes. Do not
 
 - [ ] **Step 2: Extend 4.8 with what you found**
 
-Cover, and only if the source supports each one: how a build identity is derived and what it hashes;
+Cover, and only where the source supports it: how a build identity is derived and what it hashes;
 what `identitySha256` binds an observation to; how the evidence graph is checked before release; what
 a qualification epoch is and what replacing one does to work already in flight; and which components
-must have evidence for release to be possible.
+must carry evidence for release to be possible.
 
 - [ ] **Step 3: Check every claim against a file**
 
-For each sentence, name the file and symbol that makes it true. Delete any sentence you cannot
-anchor. A design document that describes machinery nobody can find is worse than one that is silent.
+For each sentence, name the file and symbol that makes it true, in the execution record. Delete any
+sentence you cannot anchor. A design document describing machinery nobody can find is worse than one
+that is silent.
 
 - [ ] **Step 4: Run stop-slop, then the gate, then commit**
 
@@ -394,11 +741,11 @@ git commit -m "docs(spec): describe the qualification architecture from source"
 
 ---
 
-### Task 4: The testing matrix describes the gauntlet, not the pre-implementation plan
+### Task 5: The testing matrix describes the gauntlet, not the pre-implementation plan
 
 Section 4.7 predates the gauntlet and reads like a list of intentions. It should say how the system
-is actually verified and point at the canonical evidence, without scattering test counts that go
-stale the next time anyone adds a test.
+is verified and point at the canonical evidence, without scattering test counts that go stale the
+next time anyone adds a test.
 
 **Files:**
 
@@ -406,22 +753,24 @@ stale the next time anyone adds a test.
 
 - [ ] **Step 1: Rewrite 4.7 around method rather than inventory**
 
-Name the four suites and what each one runs against: the Worker suite inside workerd with real D1,
-R2 and KV emulation; the shared package under Node; the companion suite; the native Swift suite.
-State the three rules the gauntlet converged on, which are already in CLAUDE.md and are the useful
-part: an assertion must not be vacuous, the named guard must actually be reached, and a mutation
-must have changed the region intended.
+Name the four suites and what each runs against: the Worker suite inside workerd with real D1, R2 and
+KV emulation; the shared package under Node; the companion suite; the native Swift suite. State the
+three rules the gauntlet converged on, which are already in CLAUDE.md and are the useful part: an
+assertion must not be vacuous, the named guard must actually be reached, and a mutation must have
+changed the region intended.
 
-- [ ] **Step 2: Replace counts with a pointer**
+- [ ] **Step 2: Replace counts with a pointer, and name both gates**
 
-Delete any fixed test count. Say that `npm run verify` is the gate and that
-`docs/superpowers/reviews/2026-09-17-full-project-gauntlet.md` holds the invariant matrix, the
+Delete any fixed test count. Say that `npm run verify` covers format, lint, typecheck and the
+TypeScript suites, that `npm run verify:native` covers `swift test` and the release build, and that
+the first does not include the second. Point at
+`docs/superpowers/reviews/2026-09-17-full-project-gauntlet.md` for the invariant matrix, the
 load-bearing predicate table and the findings.
 
 - [ ] **Step 3: Keep the four things the matrix got right**
 
 The 25 MiB round trips stay as functional exercises with their 4.8 caveat. The fake-Gmail adapter,
-the elicitation resume and the media/resumable boundary at 5 MB stay, because each names a real
+the elicitation resume and the media-to-resumable boundary at 5 MB stay, because each names a real
 case. Do not lose them in the rewrite.
 
 - [ ] **Step 4: Run stop-slop, then the gate, then commit**
@@ -434,33 +783,40 @@ git commit -m "docs(spec): 4.7 describes how the system is verified now"
 
 ---
 
-### Task 5: A second gauntlet over the reconciled document
+### Task 6: A second gauntlet over the reconciled document
 
-Step 9 of the review that prompted the reconciliation. The first gauntlet audited the
-implementation; this one audits the document that now claims to describe it. It runs after Tasks 3
-and 4, because auditing a section that is about to be rewritten wastes the pass.
+Step 9 of the review that prompted the reconciliation. The first gauntlet audited the implementation;
+this one audits the document that now claims to describe it. It runs after Tasks 4 and 5, because
+auditing a section about to be rewritten wastes the pass.
 
 **Files:**
 
 - Create: `docs/superpowers/reviews/2026-09-19-spec-reconciliation-gauntlet.md`
 
+**What "probe" means here.** A probe is a read: running the suite, reading source, `sqlite3` against
+a local journal, `curl` against a public endpoint, `wrangler tail` observing traffic the owner
+generated. A probe never sends mail, never deploys, never revokes, never restores, never triggers a
+destructive native test, and never generates target-specific qualification evidence. Any of those is
+a separate act with its own authorization, like Task 3. Where a claim can only be settled by one of
+them, the finding is `not_verified` with the reason, which is a legitimate outcome.
+
 - [ ] **Step 1: Take the baseline**
 
-Record the commit, the output of `npm run verify`, and the spec's current revision line. A gauntlet
-without a baseline cannot tell a finding from a change made during the run.
+Record the commit, the output of `npm run verify` and `npm run verify:native`, and the spec's current
+revision line. A gauntlet without a baseline cannot tell a finding from a change made during the run.
 
-- [ ] **Step 2: Sweep every normative claim in the spec against source or a live probe**
+- [ ] **Step 2: Sweep every normative claim in the spec against source or a probe**
 
 For each claim, record the file and symbol, or the probe and its output, or `not_verified` with the
 reason. The 2026-09-19 pass verified six claims this way: the `search_threads` ceiling of 50, the
 998-byte subject cap, the 500-recipient cap, malformed addresses refused before policy, the label
-tools refusing TRASH, and `+overwrite` having no emitter. Extend that, do not repeat it.
+tools refusing TRASH, and `+overwrite` having no emitter. Extend that; do not repeat it.
 
 - [ ] **Step 3: Check the document against itself**
 
 The first reconciliation existed because sections contradicted each other: OAuth state in KV in one
 place and D1 in another, a journal heading denied three lines later, two definitions of
-`requestState`. Look for the same shape again, in the sections the reconciliation did not touch.
+`requestState`. Look for the same shape in the sections the reconciliation did not touch.
 
 - [ ] **Step 4: Classify every finding before looking at the answer**
 
@@ -468,20 +824,21 @@ Stop-ship, medium or precision, with the expected terminal state written before 
 the first gauntlet did for its external gates. A finding classified after the result is a finding
 shaped by it.
 
-- [ ] **Step 5: Append the record and commit**
+- [ ] **Step 5: Append the record, run stop-slop, then the gate, then commit**
 
-Append to the new review file; never rewrite an earlier review. Run stop-slop over it.
+Append to the new review file; never rewrite an earlier review.
 
 ```bash
+npm run verify
 git add docs/superpowers/reviews/2026-09-19-spec-reconciliation-gauntlet.md
 git commit -m "docs(review): second gauntlet over the reconciled architecture"
 ```
 
 ---
 
-### Task 6: The companion CLI test races the CLI's own startup
+### Task 7: The companion CLI test races the CLI's own startup
 
-Reproduced and captured while this plan was being gauntleted, on the eighth full-suite run:
+Reproduced and captured on the eighth full-suite run while this plan was being gauntleted:
 
 ```
 FAIL test/cli.test.ts > launches the CLI directly in Node and lists tools without accessing credentials
@@ -491,36 +848,75 @@ AssertionError: expected false to be true
 Caused by: Error: Matcher did not succeed in time.
 ```
 
-The earlier guess in CLAUDE.md, that host state from `init` and `login` had leaked in, is wrong and
-the capture is what kills it: the failure is the **first** poll, waiting for the `initialize` reply,
-in a test whose own name says it runs without accessing credentials. Nothing has read a config by
-then. What the test actually does is spawn `node src/cli.ts serve`, which makes Node type-strip
-`cli.ts` and everything it imports on every run, then wait on `expect.poll`'s default budget of one
-second. Under a parallel suite that budget is not reliably enough for a cold Node start plus type
-stripping. The test is timing the machine, not the CLI.
+The earlier guess in CLAUDE.md, that host state from `init` and `login` had leaked in, is wrong, and
+the capture kills it: the failure is the **first** poll, waiting for the `initialize` reply, in a test
+whose own name says it runs without credentials. Nothing has read a config by then. The test spawns
+`node src/cli.ts serve`, which makes Node type-strip `cli.ts` and its imports on every run, then waits
+on `expect.poll`'s default budget of one second.
+
+**The measurement, taken 2026-09-19 on this machine.** Spawn to first `initialize` reply, which is the
+boundary the poll actually waits on:
+
+| Condition                  | n   | min   | median | p95   | max   |
+| -------------------------- | --- | ----- | ------ | ----- | ----- |
+| idle                       | 10  | 205ms | 253ms  | 513ms | 513ms |
+| during `worker` vitest run | 12  | 379ms | 464ms  | 694ms | 694ms |
+
+Against a 1000ms budget, the loaded p95 leaves a factor of 1.4. That is not a margin, and a full
+`npm run verify` is busier than one worker suite. The test is timing the machine.
 
 **Files:**
 
 - Modify: `companion/test/cli.test.ts`
 
-- [ ] **Step 1: Confirm the mechanism before changing anything**
+- [ ] **Step 1: Reproduce the measurement before changing anything**
 
-Measure how long the spawn actually takes, alone and under load, so the fix is sized by a number
-rather than by taste:
+Revision 1's command was `/usr/bin/time -p node src/cli.ts serve </dev/null >/dev/null 2>&1`, which
+sends `/usr/bin/time`'s own report to `/dev/null` and measures process exit rather than the reply the
+test waits for. Measure the right boundary instead. Write this to the scratchpad, not the repository:
 
-```bash
-cd companion
-for i in 1 2 3; do /usr/bin/time -p node src/cli.ts serve </dev/null >/dev/null 2>&1; done
-npx vitest run 2>&1 | grep -E "cli.test|Duration"
+```js
+import { spawn } from "node:child_process";
+const cli = new URL("../src/cli.ts", import.meta.url).pathname;
+const samples = [];
+for (let i = 0; i < Number(process.argv[2] ?? 20); i++) {
+  const t0 = performance.now();
+  const child = spawn(process.execPath, [cli, "serve"], { stdio: ["pipe", "pipe", "pipe"] });
+  let out = "";
+  const first = new Promise((res) =>
+    child.stdout.on("data", (d) => {
+      out += d.toString();
+      if (out.includes('"id":1')) res(performance.now() - t0);
+    }),
+  );
+  child.stdin.write(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "m", version: "1" } },
+    }) + "\n",
+  );
+  samples.push(await first);
+  child.kill();
+}
+samples.sort((a, b) => a - b);
+const q = (p) => samples[Math.min(samples.length - 1, Math.floor(p * samples.length))].toFixed(0);
+console.log(
+  `n=${samples.length} min=${samples[0].toFixed(0)} median=${q(0.5)} p95=${q(0.95)} max=${samples.at(-1).toFixed(0)}`,
+);
 ```
 
-Expected: a cold start in the hundreds of milliseconds, close enough to one second under load to
-explain an occasional miss. If it is nowhere near, this diagnosis is wrong; record that in the
-execution record and stop rather than applying the fix below.
+Take 20 idle samples, then 20 more while `cd worker && npx vitest run` is in flight.
+
+Expected: a loaded p95 within a small factor of 1000ms, as the table shows. If the loaded p95 comes
+back under about 250ms, this diagnosis is wrong: record that in the execution record and stop rather
+than applying the change below.
 
 - [ ] **Step 2: Give both polls a budget that reflects a process start**
 
-Both polls need it, not only the one that failed; the second is merely luckier.
+Both need it, not only the one that failed; the second is merely luckier, because the process is warm
+by then.
 
 ```ts
 await expect.poll(() => stdout.includes('"id":1'), { timeout: 15_000, interval: 50 }).toBe(true);
@@ -528,14 +924,14 @@ await expect.poll(() => stdout.includes('"id":1'), { timeout: 15_000, interval: 
 await expect.poll(() => stdout.includes('"id":2'), { timeout: 15_000, interval: 50 }).toBe(true);
 ```
 
-This is not loosening a check. The assertion is unchanged, and a reply that never arrives still
-fails; what changes is that the test stops asserting a deadline it was never trying to measure. If
-the CLI genuinely hangs, fifteen seconds still catches it.
+This is not loosening a check. The assertion is unchanged and a reply that never arrives still fails;
+what changes is that the test stops asserting a deadline it was never trying to measure. Fifteen
+seconds still catches a genuine hang.
 
 - [ ] **Step 3: Make the failure diagnosable when it does fail**
 
-The capture above cost eight runs because the assertion prints `expected false to be true` and
-discards everything the child said. Include it:
+The capture cost eight runs because the assertion prints `expected false to be true` and discards
+everything the child said. Include it:
 
 ```ts
 await expect
@@ -546,13 +942,26 @@ await expect
   });
 ```
 
-- [ ] **Step 4: Run the loop**
+- [ ] **Step 4: Run the loop on exit codes, not on grep**
 
-Run: `cd companion && for i in $(seq 1 40); do npx vitest run 2>&1 | grep -q "[0-9] failed" && echo "FAIL $i"; done`
-Expected: forty clean runs. Anything else means the timeout was not the cause, and the execution
-record says so rather than the timeout being raised again.
+Revision 1 parsed vitest's presentation text for `"[0-9] failed"`, which misses a crash with a
+different message and reads `grep`'s own exit status rather than the run's. Use the process status:
 
-- [ ] **Step 5: Commit**
+```bash
+cd companion
+set -euo pipefail
+for i in $(seq 1 40); do
+  echo "run $i/40"
+  npx vitest run
+done
+echo "40 clean runs"
+```
+
+Expected: the final line prints. `set -e` stops at the first non-zero exit, and the run number says
+which. Anything else means the timeout was not the cause, and the execution record says so rather
+than the timeout being raised again.
+
+- [ ] **Step 5: Run the gate and commit**
 
 ```bash
 npm run verify
@@ -560,80 +969,131 @@ git add companion/test/cli.test.ts
 git commit -m "test(companion): stop timing a cold Node start with a one-second poll"
 ```
 
-### Task 7: Decide what the recovery-suite timeouts are
+---
+
+### Task 8: Decide what the recovery-suite timeouts are
 
 Two recovery tests failed on timeouts at 18.5s and 29.2s during a run in which only markdown had
 changed, and a re-run was clean. CLAUDE.md already records that contention, not regression, is the
-usual cause, and that anything above about 600ms locally deserves a look. The question this task
-answers is whether these two are contention or are genuinely close to their ceiling.
+usual cause, and that anything above about 600ms locally deserves a look. This task answers whether
+these two are contention or are genuinely near their ceiling.
+
+Two observations cannot answer that. A single isolated run against a single loaded run gives a ratio
+with no distribution behind it, and the six-to-nine figure in CLAUDE.md came from a different test on
+CI hardware. Collect samples.
 
 **Files:**
 
 - Read: `worker/test/recovery-barrier-ladder.test.ts`, `worker/test/recovery-transport-matrix.test.ts`
+- Modify: `CLAUDE.md`, and `worker/test/*` only if Step 3 finds a real ceiling
 
-- [ ] **Step 1: Measure them alone**
+- [ ] **Step 1: Ten isolated samples**
 
-Run: `cd worker && npx vitest run test/recovery-barrier-ladder.test.ts test/recovery-transport-matrix.test.ts --reporter=verbose`
-Record the per-test durations.
+```bash
+cd worker
+for i in $(seq 1 10); do
+  npx vitest run test/recovery-barrier-ladder.test.ts test/recovery-transport-matrix.test.ts \
+    --reporter=verbose 2>&1 | grep -E "^ *✓|✗.*recovery-(barrier|transport)"
+done
+```
 
-- [ ] **Step 2: Measure them under the full suite**
+Record every per-test duration. Ten runs, both files, so about twenty samples per test.
 
-Run: `cd worker && npx vitest run --reporter=verbose 2>&1 | grep -E "recovery-(barrier|transport)"`
-Record the same durations under load and compute the ratio.
+- [ ] **Step 2: Ten loaded samples**
 
-- [ ] **Step 3: Decide, and write the decision down**
+```bash
+cd worker
+for i in $(seq 1 10); do
+  npx vitest run --reporter=verbose 2>&1 | grep -E "recovery-(barrier|transport)"
+done
+```
 
-If the alone-to-loaded ratio is in the six-to-nine range CLAUDE.md already documents for CI, this is
-contention and the finding is closed with the measurement. If a test is near its ceiling even alone,
-cut its cost the way the settlement sweep was cut: hoist the expensive setup out of the loop first,
-and only then consider a timeout, with the real reason written next to it.
+Record the same durations under the full suite.
+
+- [ ] **Step 3: Compute the distribution and decide**
+
+For each of the two tests, report n, median, p95 and max in both conditions, and the loaded-to-isolated
+ratio at the median and at p95. Then decide:
+
+- Loaded p95 comfortably under the configured timeout and the ratio in the range CLAUDE.md documents:
+  contention. The finding closes with the measurement and no code changes.
+- Isolated p95 already near the timeout: a real ceiling. Cut the cost the way the settlement sweep was
+  cut, hoisting expensive setup out of the loop first, and only then consider a timeout with the real
+  reason written beside it.
+- The two tests disagree: decide them separately and say so.
 
 Do not raise a timeout to make a run green. That converts a measurement into a wish.
 
-- [ ] **Step 4: Commit the measurement**
+- [ ] **Step 4: Put the numbers and the conclusion in different places**
+
+The full table goes in this plan's execution record, which is where a measurement belongs: it is dated
+evidence about one machine on one day. Only the reusable conclusion goes to CLAUDE.md, in the form the
+other entries take, symptom first. If the verdict is contention with no code change, CLAUDE.md gains
+one paragraph and `worker/test` gains nothing.
+
+- [ ] **Step 5: Run the gate and commit**
 
 ```bash
-git add worker/test CLAUDE.md
+npm run verify
+git add CLAUDE.md docs/superpowers/plans/2026-09-19-gmail-mcp-plan-7-repair-and-reconciliation.md
 git commit -m "test(recovery): measure the two slow files and record the verdict"
 ```
 
 ---
 
-## Self-review
+## Defect ledger
 
-**Spec coverage.** Tasks 3, 4 and 5 close the three documentation items the reconciliation left
-open: the qualification architecture in 4.8, the testing matrix in 4.7, and the second gauntlet.
-Tasks 1 and 2 close the repair gap the code comments promise and do not provide. Tasks 6 and 7 close
-the two intermittents. Nothing here touches the five external gates in 4.8, and nothing should.
+Revision 1 was audited twice before anyone executed it. Both passes are recorded, including where a
+reviewer was wrong, because the rates are the useful part.
 
-**Placeholders.** Every code step carries the code. Task 3 deliberately carries no prose: its first
-step is to read the source, because writing that section from memory is how the document became a
-palimpsest in the first place.
+**Pass 1, the author's self-gauntlet.** Nine inferred APIs checked against source. Four held:
+`new NativeProcess()` defaults to no `--init`; `Command` already declares optional `scope` and
+`handle`; `journal.entries(prefix:)` yields `(scope, key, record)` with the payload the receipt
+decodes from; `reservation(scope, handle)` is reachable inside `SaveReceipts`. Five were wrong:
+`item.record.bytes` does not exist and the charge lives in the `reservations` table;
+`(error as? NativeError)?.reason` does not exist because `NativeError` is an enum with no properties;
+`dfbf797b…` is the reservation id and is not invertible to a handle; `runCli` and `fakeNative` do not
+exist in `test/cli.test.ts`; and the helper answers with `reply(try json(value))` rather than a
+`Response` type. Five of nine inferred APIs wrong.
 
-**Type consistency.** `DebtRow` has the same seven fields in the Swift definition, the Swift test,
-the helper response and the TypeScript consumer. `releaseDebt` returns `Bool` in Swift and is read
-as `meta.released` in the CLI. `temporaryExists(root:path:)` is named identically at its definition
-in `SafeFiles.swift` and both call sites in `SaveReceipts.swift`.
+**Pass 2, the external review.** Nine stop-ships and twelve mediums. Seventeen adopted as written,
+two adopted with the remedy replaced, and both replacements came from source:
 
-**Self-gauntlet, run before anyone executed this.** Nine assumptions in the first draft were
-checked against source. Four held: `new NativeProcess()` defaults to no `--init`, `Command` already
-declares optional `scope` and `handle`, `journal.entries(prefix:)` yields `(scope, key, record)`
-with the payload the receipt decodes from, and `reservation(scope, handle)` is reachable inside
-`SaveReceipts`. Five were wrong and are corrected above:
+- The tri-state temporary probe is right, and the reviewer's design is reasonable, but
+  `discardTemporary` already separates ENOENT from every other open failure. The probe copies that
+  shape instead of inventing one.
+- Requiring `path == leaf` would break every temporary in a subdirectory, and `prepare` builds
+  exactly those: `(parent.isEmpty ? "" : parent + "/") + ".gmail-mcp-" + UUID()`. The fix is
+  `validated(parent)`, which is what `discardTemporary` calls.
 
-| Defect                            | What the source says                                                                                                                                                         |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `item.record.bytes`               | `entries()` selects `scope, key, request_hash, payload` only; the charge lives in the `reservations` table, so `Journal.reservedBytes(id:)` had to be added to the interface |
-| `(error as? NativeError)?.reason` | `NativeError` is `enum { refused(String), system(String, Int32) }` with no properties; the test must pattern-match                                                           |
-| `--release dfbf797b…`             | that is the reservation id, `"save:" + digest(scope + NUL + handle)`, and is not invertible; the release takes the handle, which is the journal key                          |
-| `runCli` / `fakeNative`           | neither exists in `test/cli.test.ts`, which spawns the real CLI over stdio                                                                                                   |
-| `Response(meta:)`                 | the helper answers with `reply(try json(value))`                                                                                                                             |
+The review also asked for a concurrency statement between owner repair and `recoverStartup`. There is
+nothing to add: `main.swift` takes an exclusive `ProcessLock` before either runs, so they cannot
+overlap. That is now written down in Task 2 rather than built.
 
-Every one of those would have stopped the engineer at the first compile. They are recorded rather
-than quietly fixed, because the rate matters: five of nine inferred APIs were wrong, so any future
-plan step that was not read out of the source should be treated as a guess until it is.
+**Pass 3, reading the live machine and measuring the flake.** Four defects neither pass found:
 
-**Known weakness.** Task 1 assumes `ReceiptTests` has a harness with `markPublicationUnknown` and
-`createTemporary`. It does not yet. Whoever executes Task 1 writes them first, as part of Step 1,
-and if the existing harness shape makes that awkward the test setup is the thing to change, not the
-assertion.
+| Defect                                                                                                                                                                                                                  | How it was found                              |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `ProcessLock` defaults to `wait: true`, so `debt` blocks rather than failing while a save is in flight; every test spawn needs a timeout                                                                                | reading `Auth.swift:9` and `main.swift:51`    |
+| The global constraint named `swift build --package-path native`, which does not resolve from the repository root, and missed that `npm run verify:native` already exists and runs both halves                           | reading the root `package.json`               |
+| Revision 1's Task 1 invented two test helpers it admitted did not exist; the production route to the defect is reproducible with the existing `FileTests().fixture` and one `removeItem`, so the helpers are not needed | tracing `publish` into `recover` line by line |
+| A `releaseDebt` refusal would have surfaced to the owner as "Companion command failed. Check configuration, permissions, login and the native build."                                                                   | reading `main().catch` in `cli.ts`            |
+
+And the numbers that turned two guesses into measurements: the live reservation belongs to handle
+`sh_LE-JU3Gs…` under scope `09073736bf…`, confirmed by recomputing
+`sha256(scope + NUL + handle)` for all three save records and matching `dfbf797b…`; and the CLI
+spawn-to-`initialize` boundary sits at a 694ms loaded p95 against a 1000ms budget.
+
+**Self-review of Revision 2.** Spec coverage: Tasks 4, 5 and 6 close the three documentation items;
+Tasks 1 to 3 close the repair gap the code comments promise; Tasks 7 and 8 close the two
+intermittents. Nothing here touches the five external gates in 4.8. Placeholders: every code step
+carries its code, and Task 4's deliberate absence of prose is argued at the task rather than left
+unexplained. Type consistency: `DebtRow` has the same eight fields at its Swift definition, in the
+Swift tests, in the helper reply and in the TypeScript type; `releaseDebt` returns `DebtRelease` in
+Swift, crosses the wire as `outcome: String`, and is read as `outcome` in the CLI;
+`temporaryPresence(root:path:)` is spelled identically at its definition and both call sites;
+`debt.list` and `debt.release` are the only operation names anywhere in this document.
+
+**Standing weakness.** Task 4 is the least checkable task here, and deliberately so. Its output cannot
+be shown in advance without inviting the executor to copy it instead of reading the source. Step 3 is
+what keeps it honest, and a reviewer should read Task 4's execution record before the diff.
