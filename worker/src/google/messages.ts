@@ -277,6 +277,11 @@ export function messageView(
   return view;
 }
 
+/** The attachments a message actually has, for naming the valid choices when a lookup misses. */
+export function messageAttachments(m: GmailMessage): AttachmentMeta[] {
+  return attachmentsOf(m.payload);
+}
+
 export function findAttachment(
   m: GmailMessage,
   by: { attachmentId: string } | { partId: string },

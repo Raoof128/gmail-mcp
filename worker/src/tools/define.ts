@@ -50,7 +50,18 @@ export function defineTool<S extends z.ZodObject<z.ZodRawShape> & StandardSchema
   registerExecutor(spec.name, spec.version, spec.execute);
   server.registerTool(
     spec.name,
-    { description: spec.description, inputSchema: spec.input, annotations: spec.annotations },
+    // Strict, centrally, so no tool can be registered without it. zod strips unknown keys by
+    // default, which made a misspelled argument a silent nothing: a send_message carrying `text`
+    // rather than `body` was accepted and queued with no body at all, and the approval page
+    // truthfully showed an empty message. Measured on the first live send this system ever made.
+    // It also puts additionalProperties: false in the advertised schema, so a client can catch the
+    // mistake before spending a call. Hashing is unaffected: the intent hash covers parsed
+    // arguments, and a key that used to be dropped now never reaches the parse at all.
+    {
+      description: spec.description,
+      inputSchema: spec.input.strict() as typeof spec.input,
+      annotations: spec.annotations,
+    },
     // The SDK derives the argument type from the schema, and S is a type parameter here, so the
     // derivation stays unresolved and nothing satisfies it. The handler takes the parsed arguments as
     // unknown and is named as the SDK's own handler type at the boundary.

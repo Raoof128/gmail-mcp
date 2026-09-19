@@ -17,6 +17,7 @@ import { gmailJson } from "../google/gmail";
 import {
   findAttachment,
   gmailFormatFor,
+  messageAttachments,
   messageView,
   partData,
   type GmailDraft,
@@ -237,8 +238,23 @@ export function registerReadTools(server: McpServer, toolContext: (ctx: ServerCo
           const meta = p.attachment_id
             ? findAttachment(m, { attachmentId: p.attachment_id })
             : findAttachment(m, { partId: p.part_id! });
-          if (!meta)
-            throw new GmailMcpError("handle_invalid", `handle_invalid: no such attachment on message ${p.message_id}`);
+          if (!meta) {
+            // Gmail re-issues attachmentId on every fetch, so an id the caller read from an earlier
+            // get_message never matches the message this tool fetches for itself. Measured against
+            // real Gmail: two consecutive reads of one message gave two different 404-character ids.
+            // part_id is stable, so the refusal names the ones this message actually has rather than
+            // leaving a caller to retry an id that cannot ever work.
+            const available = messageAttachments(m)
+              .map((a) => `${a.part_id} (${a.filename})`)
+              .join(", ");
+            const why = p.attachment_id
+              ? "Gmail re-issues attachment ids on every fetch, so an id from an earlier read cannot resolve here; use part_id"
+              : "no part with that id";
+            throw new GmailMcpError(
+              "handle_invalid",
+              `handle_invalid: no such attachment on message ${p.message_id}. ${why}. Available: ${available || "none"}`,
+            );
+          }
           if (meta.size > LIMITS.stagedFileBytes)
             throw new GmailMcpError(
               "limit_exceeded",

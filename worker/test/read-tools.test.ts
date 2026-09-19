@@ -139,6 +139,18 @@ describe("reads", () => {
   });
 });
 
+// zod strips unknown keys by default, so a misspelled argument used to be a silent nothing: a
+// send_message carrying `text` rather than `body` was accepted, hashed and queued with no body at
+// all, and the approval page truthfully showed an empty message. That happened on the first live
+// send of this system. Strict turns it into an error naming the key, and the advertised JSON schema
+// gains additionalProperties: false so a client can catch it before spending a call.
+describe("unknown arguments", () => {
+  it("refuses an argument the tool does not have, and names it", async () => {
+    const r = await call("search_threads", { query: "x", max_results: 3 });
+    expect(JSON.stringify(r)).toContain("max_results");
+  });
+});
+
 describe("download_attachment", () => {
   it("stages the decoded bytes as a download handle with sha256 and a 30 minute expiry", async () => {
     const data = new Uint8Array(5000).map((_, i) => i % 251);
@@ -232,5 +244,25 @@ describe("download_attachment", () => {
     expect(rows.results[0]).toMatchObject({ phase: "intent", decision: "allow", action: "read.attachment" });
     expect(rows.results[1]).toMatchObject({ phase: "outcome", decision: "executed" });
     expect(rows.results[0].summary).toMatch(/^ids=/);
+  });
+
+  // Gmail re-issues attachmentId on every fetch: two consecutive get_message calls on one real
+  // message returned two different 404-character ids. findAttachment matches the id by exact string
+  // against a message the tool fetches itself, so an id the client read a moment earlier can never
+  // match, and the whole attachment_id input path answers handle_invalid against real Gmail. The
+  // fake used to hand back a stable id, which is why nothing here saw it. The refusal must at least
+  // tell the caller what to use instead.
+  it("tells the caller to use part_id when an attachment id no longer resolves", async () => {
+    const m = gm().seedMessage({
+      from: "a@x.test",
+      to: ["me@x.test"],
+      subject: "stale",
+      text: "t",
+      attachments: [{ filename: "report.pdf", mime: "application/pdf", bytes: new Uint8Array(10) }],
+    });
+    const r = await call("download_attachment", { message_id: m.id, attachment_id: "ANGjdJ-stale-id" });
+    expect(r.result.error).toBe("handle_invalid");
+    expect(r.result.message).toContain("part_id");
+    expect(r.result.message).toContain("re-issues");
   });
 });
