@@ -501,41 +501,88 @@ origin, which is the property `no-referrer` was chosen for, and keeps the Origin
 defence reads. The suite could not have caught this and still cannot without a browser: a test
 builds its own Request and sets a correct Origin, so no test wears the header the page serves.
 
-### 4.7 Testing matrix
+### 4.7 How the system is verified
 
-**Normal CI (no real Gmail credentials)**
+**Four suites, and one gate is not the other.** The Worker suite runs inside the real workerd
+runtime through `@cloudflare/vitest-plugin`, against D1, R2 and KV emulation with the migrations
+applied as a binding; nothing in the storage layer is mocked, so a passing test means the SQL, the
+transactions and the constraints work. Storage there is isolated per file rather than per test, so
+a query filtered on `user_id` alone counts a neighbouring test's rows. The shared package runs as
+plain TypeScript under Node with its own config. The companion suite runs under Node and drives the
+CLI over stdio where it needs the real thing. The native suite is `swift test` against the Swift
+helper, and it is the authority for the save receipt state machine, the exclusive rename and crash
+recovery.
 
-- Unit, Vitest in the Workers runtime via the Cloudflare vitest pool:
-  - policy engine, table-driven over every action × level × modifier, including consumer vs Workspace `+external`, `+tag` stripping, Punycode domains, `@domain` boundary cases
-  - state machine and operations: no sequence reaches `executed` twice; two concurrent claims yield one success; same idempotency key returns the first result and never calls the fake Gmail twice; global policy duplicate insert rejected; account and user FK mismatch rejected
-  - crypto: decrypt fails on AAD mismatch, unknown key id, truncated ciphertext; keyring rotation re-encrypts lazily
-  - handles: cross-account, cross-user, expired, reserved, ACK after TTL all rejected; same handle in two sends yields one reservation
-  - argument limits: over-cap body, 501 recipients, 1 MB-plus inline attachments, 1 MB-plus canonical payload all rejected before any row is written
-  - blocked extensions: every seeded entry rejected at intent and at send
-  - MIME encoders: RFC 2047 words at most 75 characters, RFC 2231 continuations, header injection refused (added 2026-09-10, plan 3)
-  - companion: traversal, symlink escape, all overwrites refused; sha mismatch deletes the temp file; bidi and control path components refused; upload proceeds only with a valid ticket
-- Workers integration against a fake Gmail HTTP adapter: full tool round-trips, `ask` result shape, approval page POST, elicitation resume, `send_draft` path, media vs resumable upload selection at the 5 MB boundary, 25 MB MIME streamed, which is a functional round trip and not a memory qualification (4.8).
-- **Fault injection** at each checkpoint, killing or throwing deliberately: operation inserted; pending action claimed; attachments reserved; MIME construction begins; Google request headers sent; Google request body partially sent; Google response received; before D1 success write; after D1 success write; before audit outcome write. For each, assert either no duplicate external side effect or `delivery_unknown` with no automatic retry.
-- OAuth and web adversarial: redirect_uri substitution, authorization-code replay, `state` replay, `nonce` replay, issuer mix-up, wrong audience, expired `id_token`, session fixation, CSRF token from another pending action, open-redirect attempts, CIMD metadata tampering, a DCR client requesting `staging`, `mcp` token to `/staging`, `staging` token to `/mcp`, `execute_pending` replay, `requestState` field tampering one field at a time, retried elicitation call with changed recipients, approval URL opened under a different session, `last_seen_at` alone attempting a recent-auth action.
+`npm run verify` is the gate CI runs: format, lint, typecheck and the TypeScript suites across the
+workspaces. It does not compile or test Swift. `npm run verify:native` is the other half,
+`swift test --package-path companion/native` followed by a release build. A change to the helper
+owes both.
 
-**Protected Gmail integration (manual pre-release only; never on forks)**
+**Three rules the gauntlet converged on**, in order of how easily each is missed. An assertion must
+not be vacuous: a loop over an empty array of observations passes without running one assertion.
+The named guard must actually be reached, because a case can be sound and still never execute the
+clause it was written around. And a mutation must have changed the region intended, because a
+first-occurrence replace lands elsewhere and reports a false survival.
 
-- Dedicated scratch Gmail account in `gmail-mcp-dev`, secret only in the protected environment, mailbox holds no real mail.
+**What the unit layer covers**, table-driven where the input space allows it: the policy engine over
+every action, level and modifier, including consumer against Workspace `+external`, `+tag`
+stripping, Punycode domains and `@domain` boundaries; the state machine and operations, where no
+sequence reaches `executed` twice, two concurrent claims yield one success, and a reused
+idempotency key returns the first result without calling Gmail again; the crypto layer, where
+decryption fails on AAD mismatch, an unknown key id and a truncated ciphertext, and keyring rotation
+re-encrypts lazily; handles, where cross-account, cross-user, expired, reserved and post-TTL
+acknowledgement are all refused and one handle in two sends yields one reservation; the argument
+limits and blocked extensions, all refused before a row is written; the MIME encoders, including
+RFC 2047 word length, RFC 2231 continuations and header injection; and the companion's path safety,
+where traversal, symlink escape, every overwrite, and bidi or control components are refused.
+
+**What the integration layer exercises** against a fake Gmail HTTP adapter: the full tool round
+trips, the `ask` result shape, the approval page POST, elicitation resume, `send_draft`, and the
+media-to-resumable selection at the 5 MB boundary in both directions.
+
+**Fault injection** runs at each checkpoint, killing or throwing deliberately: operation inserted;
+pending action claimed; attachments reserved; MIME construction begun; Google request headers sent;
+Google request body partially sent; Google response received; before the D1 success write; after it;
+before the audit outcome write. For each, assert either no duplicate external side effect or
+`delivery_unknown` with no automatic retry.
+
+**OAuth and web adversarial coverage**: redirect_uri substitution, authorization-code replay,
+`state` replay, `nonce` replay, issuer mix-up, wrong audience, an expired `id_token`, session
+fixation, a CSRF token from another pending action, open-redirect attempts, CIMD metadata tampering,
+a DCR client requesting `staging`, an `mcp` token at `/staging` and a `staging` token at `/mcp`,
+`execute_pending` replay, `requestState` tampered one field at a time, a retried elicitation call
+with changed recipients, an approval URL opened under a different session, and `last_seen_at` alone
+attempting a recent-auth action.
+
+**Protected Gmail integration**, manual and pre-release only, never on forks. A dedicated scratch
+account in `gmail-mcp-dev` whose mailbox holds no real mail, with the secret only in the protected
+environment.
+
+- **Message-ID preservation gate.** Send with a supplied `Message-ID` and find it by
+  `rfc822msgid:`. Reconciliation in 3.5 is enabled only if this passes.
 - Send with a staged attachment, fetch it back, sha256 matches.
-- **Message-ID preservation gate**: send with a supplied `Message-ID`, search `rfc822msgid:`, must match. Reconciliation in 3.5 is enabled only if this passes.
-- `send_draft` round-trip and the negative guarantee that reused headers/threads never automatically confirm an ambiguous draft send.
-- Revoke the token in Google; next call flips to `needs_reconnect` and returns a URL elicitation.
-- **25 MiB download and 25 MiB send round-trips.** Functional exercise of the buffering decision in 3.7. It is not a memory qualification: see 4.8.
+- `send_draft` round trip, and the negative guarantee that reused headers or threads never
+  automatically confirm an ambiguous draft send.
+- Revoke the token in Google; the next call flips to `needs_reconnect` and returns a URL
+  elicitation.
 - Reply threading: `reply` produces a message Gmail shows in the original thread.
+- **25 MiB download and 25 MiB send round trips.** A functional exercise of the buffering decision
+  in 3.7, and not a memory qualification: see 4.8.
 
-**End to end**
-
-- MCP Inspector against `/mcp` for auth and schemas.
-- Claude Code: `ask` via native URL-mode elicitation; companion save, stage with `allow` and with `ask`.
-- Claude Desktop: `ask` via approval link then `execute_pending`; companion save; overwrite refused.
-- claude.ai: `ask` via approval link then `execute_pending`; no companion.
+**End to end**, per client. MCP Inspector against `/mcp` for auth and schemas. Claude Code for `ask`
+through native URL-mode elicitation, plus companion save and stage under both `allow` and `ask`.
+Claude Desktop for `ask` through the approval link then `execute_pending`, companion save, and
+overwrite refused. claude.ai for `ask` through the approval link then `execute_pending`, with no
+companion.
 
 Every adversarial test records both outcomes. A caught abuse is evidence the gate works.
+
+No test count appears in this section, and none did before the rewrite either. Keeping it that way
+is the point: a number here goes stale the next time anyone adds a test, and the counts that do
+exist live in CLAUDE.md where they are read as a snapshot rather than as a requirement.
+`docs/superpowers/reviews/2026-09-17-full-project-gauntlet.md` is canonical for the invariant matrix
+with its proof types, the load-bearing predicate table, the source-derived tool matrix and the
+findings. It is appended to, never rewritten.
 
 ### 4.8 Qualification, restore and the external gates
 
