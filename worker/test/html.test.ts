@@ -27,6 +27,18 @@ describe("html primitives", () => {
     expect(body).not.toMatch(/<script/i);
     expect(body).not.toMatch(/ style=/i);
   });
+  // Measured against the deployed Worker, not reasoned about: every form post answered "Cross-origin
+  // form post refused" while this header said no-referrer. Under that policy a browser serialises the
+  // Origin of its own same-origin, non-CORS POST as the string "null" (Fetch, appending the Origin
+  // header), and checkOrigin refuses "null" as it should. The page was nulling its own origin and
+  // then rejecting itself, which took out approve, deny, revoke, policy edits, logout and consent.
+  // same-origin still sends no referrer off this origin, so nothing leaks to Google that did not
+  // before. A control run on a local server confirmed the pair: no-referrer gave Origin "null",
+  // same-origin gave the real origin.
+  it("does not serve a referrer policy that nulls the Origin of its own form posts", () => {
+    expect(PAGE_HEADERS["referrer-policy"]).not.toBe("no-referrer");
+    expect(PAGE_HEADERS["referrer-policy"]).toBe("same-origin");
+  });
   it("redirect only accepts internal paths", () => {
     expect(redirect("/accounts").headers.get("location")).toBe("/accounts");
     expect(redirect("/accounts").status).toBe(303);

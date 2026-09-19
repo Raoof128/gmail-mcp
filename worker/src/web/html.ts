@@ -1,7 +1,12 @@
 export const PAGE_HEADERS: Record<string, string> = {
   "cache-control": "no-store",
   pragma: "no-cache",
-  "referrer-policy": "no-referrer",
+  // Not no-referrer, which would be the stricter-looking choice. Under that policy a browser
+  // serialises the Origin of its own same-origin, non-CORS POST as the string "null", and
+  // checkOrigin refuses "null", so every form on these pages refused itself. same-origin sends no
+  // referrer off this origin, which is the property no-referrer was chosen for, and keeps the
+  // Origin header that the CSRF defence reads.
+  "referrer-policy": "same-origin",
   // form-action also governs where a form submission may be *redirected* (Chrome enforces this),
   // so the identity provider is listed: /reauth and /connect answer a form post with a 303 to Google.
   "content-security-policy":
