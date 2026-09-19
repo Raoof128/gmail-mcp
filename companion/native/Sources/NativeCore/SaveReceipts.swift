@@ -8,6 +8,17 @@ public struct SaveReceipt: Codable, Sendable {
   public var temporary: String?
   public var created: FileResult?
 }
+public struct DebtRow: Codable, Sendable {
+  public let scope: String, handle: String, state: String, root: String, relative: String
+  public let bytes: Int
+  public let temporary: String  // TemporaryPresence.rawValue
+  public let releasable: Bool
+}
+public enum DebtRelease: String, Codable, Sendable {
+  case released
+  case noSuchReceipt = "no_such_receipt"
+  case notCharged = "not_charged"
+}
 /// The caller holds the process lock through preparation, GET, publication and ACK.
 public final class SaveReceipts {
   private let files: SafeFiles
@@ -125,6 +136,55 @@ public final class SaveReceipts {
     receipt.state = "acknowledged"
     try persist(scope: scope, handle: handle, receipt: receipt)
     return receipt
+  }
+  /// Charged debt: a receipt short of acknowledged that still holds bytes against the 25 MiB save
+  /// budget. A receipt with no charge is history, not debt, and is not listed; without that guard
+  /// a released receipt keeps appearing for ever, because releasing a charge leaves the receipt
+  /// exactly where it was. `releasable` is decided here rather than in the CLI, because which
+  /// receipts a human may clear is an authority decision and belongs on this side.
+  public func unresolvedDebt() throws -> [DebtRow] {
+    var rows: [DebtRow] = []
+    for item in try journal.entries(prefix: "save:") {
+      let receipt = try JSONDecoder().decode(SaveReceipt.self, from: Data(item.record.payload.utf8))
+      guard receipt.state != "acknowledged" else { continue }
+      let scope = String(item.scope.dropFirst(5))
+      guard let bytes = try journal.reservedBytes(id: reservation(scope, item.key)), bytes > 0
+      else { continue }
+      let presence =
+        receipt.temporary.map { files.temporaryPresence(root: receipt.root, path: $0) } ?? .absent
+      rows.append(
+        DebtRow(
+          scope: scope, handle: item.key, state: receipt.state, root: receipt.root,
+          relative: receipt.relative, bytes: bytes, temporary: presence.rawValue,
+          releasable: receipt.state == "publication_unknown" && presence == .absent))
+    }
+    return rows
+  }
+  /// The owner may clear a charge in exactly one state: a publication_unknown receipt whose
+  /// temporary is provably gone. Everything else belongs to recoverStartup, which can still check
+  /// the device and inode it recorded. An unknown probe refuses as firmly as a present file,
+  /// because unknown is not absent. This repairs accounting only: the receipt goes on saying
+  /// publication_unknown, because nothing here learned what happened at the destination.
+  public func releaseDebt(scope: String, handle: String) throws -> DebtRelease {
+    guard let row = try journal.get(scope: "save:" + scope, key: handle) else {
+      return .noSuchReceipt
+    }
+    let receipt = try JSONDecoder().decode(SaveReceipt.self, from: Data(row.payload.utf8))
+    guard receipt.state == "publication_unknown" else {
+      throw NativeError.refused("receipt_not_releasable")
+    }
+    let presence =
+      receipt.temporary.map { files.temporaryPresence(root: receipt.root, path: $0) } ?? .absent
+    switch presence {
+    case .present: throw NativeError.refused("temporary_still_present")
+    case .unknown: throw NativeError.refused("temporary_unknown")
+    case .absent: break
+    }
+    guard let bytes = try journal.reservedBytes(id: reservation(scope, handle)), bytes > 0 else {
+      return .notCharged
+    }
+    try journal.release(id: reservation(scope, handle))
+    return .released
   }
   public func recoverStartup() throws {
     for item in try journal.entries(prefix: "save:") {

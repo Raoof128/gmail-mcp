@@ -162,6 +162,15 @@ public final class Journal {
   public func release(id: String) throws {
     try execute("DELETE FROM reservations WHERE id=?", [id])
   }
+  /// entries(prefix:) selects scope, key, request_hash and payload only; the charge lives here,
+  /// under a digest of scope and handle that cannot be inverted back to either.
+  public func reservedBytes(id: String) throws -> Int? {
+    guard let value = try scalar("SELECT bytes FROM reservations WHERE id=?", [id]) else {
+      return nil
+    }
+    guard let bytes = Int(value) else { throw NativeError.refused("journal_read") }
+    return bytes
+  }
   public func entries(prefix: String) throws -> [(
     scope: String, key: String, record: JournalRecord
   )] {

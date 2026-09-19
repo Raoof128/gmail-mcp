@@ -7,6 +7,9 @@ public enum NativeError: Error {
   case refused(String)
   case system(String, Int32)
 }
+public enum TemporaryPresence: String, Codable, Sendable {
+  case present, absent, unknown
+}
 public struct RootGrant: Codable, Sendable {
   public let path: String
   public let read: Bool
@@ -263,6 +266,24 @@ public final class SafeFiles {
     guard directory >= 0 else { throw NativeError.refused("publication_unknown") }
     defer { close(directory) }
     guard fsync(directory) == 0 else { throw NativeError.refused("publication_unknown") }
+  }
+
+  /// Only ENOENT establishes absence. A permission error, a lost root, an I/O error and an
+  /// unparseable path are all `unknown`, because releaseDebt reads `absent` as permission to drop
+  /// a charge and must never be handed a guess. Failing open here would make every unreadable
+  /// temporary look collected. The path validation is discardTemporary's, not an approximation of
+  /// it: a temporary legitimately sits inside the destination's parent directory.
+  public func temporaryPresence(root id: String, path: String) -> TemporaryPresence {
+    guard let r = try? root(id, write: true) else { return .unknown }
+    let leaf = (path as NSString).lastPathComponent
+    let parent = (path as NSString).deletingLastPathComponent
+    guard leaf.range(of: "^\\.gmail-mcp-[A-Fa-f0-9-]{36}$", options: .regularExpression) != nil
+    else { return .unknown }
+    if !parent.isEmpty, (try? validated(parent)) == nil { return .unknown }
+    let fd = gm_open(r.fd, path, O_RDONLY | O_NONBLOCK, 0)
+    if fd < 0 { return errno == ENOENT ? .absent : .unknown }
+    close(fd)
+    return .present
   }
 
   public func discardTemporary(root id: String, path: String, expected: FileResult?) throws -> Bool

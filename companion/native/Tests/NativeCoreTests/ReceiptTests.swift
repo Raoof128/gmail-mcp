@@ -47,4 +47,125 @@ final class ReceiptTests: XCTestCase {
         try saves.recover(scope: "owner", handle: "handle", root: "attachments", relative: "b.txt"))
     }
   }
+
+  /// The production route to a permanently charged receipt, reproduced rather than simulated. An
+  /// occupied destination refuses the exclusive rename and leaves the temporary behind; removing
+  /// that temporary by hand is what stops recoverStartup from ever clearing the charge.
+  func testUnresolvedDebtListsTheChargeAHandDeletedTemporaryLeaves() throws {
+    try FileTests().fixture { files, root, priv in
+      let journal = try Journal(path: priv.appendingPathComponent("debt.db").path)
+      let saves = SaveReceipts(files: files, journal: journal)
+      let bytes = Data("payload".utf8)
+
+      try Data("occupied".utf8).write(to: root.appendingPathComponent("a.txt"))
+      XCTAssertThrowsError(
+        try saves.publish(
+          scope: "s", handle: "h", root: "attachments", relative: "a.txt", bytes: bytes,
+          sha256: SafeFiles.digest(bytes)))
+
+      let temp = try XCTUnwrap(
+        FileManager.default.contentsOfDirectory(atPath: root.path).first {
+          $0.hasPrefix(".gmail-mcp-")
+        })
+      try FileManager.default.removeItem(at: root.appendingPathComponent(temp))
+      XCTAssertThrowsError(
+        try saves.recover(scope: "s", handle: "h", root: "attachments", relative: "a.txt"))
+
+      let debt = try saves.unresolvedDebt()
+      XCTAssertEqual(debt.count, 1)
+      XCTAssertEqual(debt[0].scope, "s")
+      XCTAssertEqual(debt[0].handle, "h")
+      XCTAssertEqual(debt[0].state, "publication_unknown")
+      XCTAssertEqual(debt[0].bytes, SafeFiles.maximum)
+      XCTAssertEqual(debt[0].temporary, "absent")
+      XCTAssertTrue(debt[0].releasable)
+    }
+  }
+
+  /// Releasing repairs accounting and nothing else. The receipt still says publication_unknown
+  /// afterwards, because dropping a charge learns nothing about the destination.
+  func testReleaseDebtClearsTheChargeAndLeavesThePublicationTruthAlone() throws {
+    try FileTests().fixture { files, root, priv in
+      let journal = try Journal(path: priv.appendingPathComponent("release.db").path)
+      let saves = SaveReceipts(files: files, journal: journal)
+      let bytes = Data("payload".utf8)
+      try Data("occupied".utf8).write(to: root.appendingPathComponent("a.txt"))
+      XCTAssertThrowsError(
+        try saves.publish(
+          scope: "s", handle: "h", root: "attachments", relative: "a.txt", bytes: bytes,
+          sha256: SafeFiles.digest(bytes)))
+      let temp = try XCTUnwrap(
+        FileManager.default.contentsOfDirectory(atPath: root.path).first {
+          $0.hasPrefix(".gmail-mcp-")
+        })
+      try FileManager.default.removeItem(at: root.appendingPathComponent(temp))
+      XCTAssertThrowsError(
+        try saves.recover(scope: "s", handle: "h", root: "attachments", relative: "a.txt"))
+
+      XCTAssertEqual(try saves.releaseDebt(scope: "s", handle: "h"), .released)
+      XCTAssertTrue(try saves.unresolvedDebt().isEmpty)
+
+      let row = try XCTUnwrap(journal.get(scope: "save:s", key: "h"))
+      let after = try JSONDecoder().decode(SaveReceipt.self, from: Data(row.payload.utf8))
+      XCTAssertEqual(after.state, "publication_unknown")
+
+      // A second release is not a second success, and an absent receipt says so plainly.
+      XCTAssertEqual(try saves.releaseDebt(scope: "s", handle: "h"), .notCharged)
+      XCTAssertEqual(try saves.releaseDebt(scope: "s", handle: "absent"), .noSuchReceipt)
+    }
+  }
+
+  /// The collector can still check the device and inode it recorded here, so the charge is its
+  /// job and not a human's. The listing says so rather than offering a release.
+  func testReleaseDebtRefusesAReceiptTheCollectorCanStillHandle() throws {
+    try FileTests().fixture { files, root, priv in
+      let saves = SaveReceipts(
+        files: files, journal: try Journal(path: priv.appendingPathComponent("collect.db").path))
+      let bytes = Data("payload".utf8)
+      try Data("occupied".utf8).write(to: root.appendingPathComponent("a.txt"))
+      XCTAssertThrowsError(
+        try saves.publish(
+          scope: "s", handle: "h", root: "attachments", relative: "a.txt", bytes: bytes,
+          sha256: SafeFiles.digest(bytes)))
+
+      let debt = try saves.unresolvedDebt()
+      XCTAssertEqual(debt.count, 1)
+      XCTAssertEqual(debt[0].state, "verified")
+      XCTAssertEqual(debt[0].temporary, "present")
+      XCTAssertFalse(debt[0].releasable)
+      XCTAssertThrowsError(try saves.releaseDebt(scope: "s", handle: "h")) { error in
+        guard case NativeError.refused(let reason) = error else { return XCTFail("\(error)") }
+        XCTAssertEqual(reason, "receipt_not_releasable")
+      }
+    }
+  }
+
+  /// Something else takes the temporary's name after the receipt is condemned. The collector
+  /// refuses it on device and inode, and so must a human release: dropping the charge here would
+  /// leave a file nobody accounts for.
+  func testReleaseDebtRefusesWhenSomethingElseNowHoldsTheTemporaryName() throws {
+    try FileTests().fixture { files, root, priv in
+      let saves = SaveReceipts(
+        files: files, journal: try Journal(path: priv.appendingPathComponent("reused.db").path))
+      let bytes = Data("payload".utf8)
+      try Data("occupied".utf8).write(to: root.appendingPathComponent("a.txt"))
+      XCTAssertThrowsError(
+        try saves.publish(
+          scope: "s", handle: "h", root: "attachments", relative: "a.txt", bytes: bytes,
+          sha256: SafeFiles.digest(bytes)))
+      let temp = try XCTUnwrap(
+        FileManager.default.contentsOfDirectory(atPath: root.path).first {
+          $0.hasPrefix(".gmail-mcp-")
+        })
+      try FileManager.default.removeItem(at: root.appendingPathComponent(temp))
+      XCTAssertThrowsError(
+        try saves.recover(scope: "s", handle: "h", root: "attachments", relative: "a.txt"))
+
+      try Data("not ours".utf8).write(to: root.appendingPathComponent(temp))
+      XCTAssertThrowsError(try saves.releaseDebt(scope: "s", handle: "h")) { error in
+        guard case NativeError.refused(let reason) = error else { return XCTFail("\(error)") }
+        XCTAssertEqual(reason, "temporary_still_present")
+      }
+    }
+  }
 }
