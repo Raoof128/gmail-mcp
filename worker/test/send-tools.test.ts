@@ -372,6 +372,65 @@ describe("forward", () => {
   });
 });
 
+// An agent asked to send a file that is already in the mailbox used to have no usable route.
+// download_attachment hands back a download-direction handle, reserve() only accepts upload-direction
+// ones, so the bytes had to go out to the companion and come back before they could be attached: two
+// OAuth clients, three approvals, six steps. forward already carried attachments straight from Gmail
+// with none of that, but only forward, and only all of them at once. attach_from_message is that same
+// carry, picked per file, on the tools an agent actually reaches for.
+describe("attach_from_message", () => {
+  it("carries a chosen attachment into a reply without any staging round trip", async () => {
+    const m = gm().seedMessage({
+      from: "prof@uni.test",
+      to: ["me@uni.test"],
+      subject: "Slides",
+      text: "here are the slides",
+      attachments: [
+        { filename: "slides.pdf", mime: "application/pdf", bytes: new Uint8Array(1500) },
+        { filename: "notes.txt", mime: "text/plain", bytes: new Uint8Array(20) },
+      ],
+    });
+    const meta = (await call("get_message", { account: "uni", message_id: m.id })).result.message.attachments;
+    const slides = meta.find((a: { filename: string }) => a.filename === "slides.pdf");
+
+    const r = await call("reply", {
+      account: "uni",
+      message_id: m.id,
+      body: "attached",
+      attach_from_message: [{ message_id: m.id, part_id: slides.part_id }],
+    });
+    // Only the one that was asked for, and it raises the level the same way a staged file does.
+    expect(r.result.modifiers).toContain("+attachment");
+    expect(r.result.summary).toContain("1 attachment (slides.pdf, 1.5 KB)");
+    expect(r.result.summary).not.toContain("notes.txt");
+
+    await approvePending(env.DB, { id: r.result.action_id, userId: "owner-sub", via: "browser" });
+    const sent = await call("execute_pending", { action_id: r.result.action_id });
+    expect(sent.result.status).toBe("executed");
+    expect(lastRaw()).toContain('filename="slides.pdf"');
+    expect(lastRaw()).not.toContain('filename="notes.txt"');
+  });
+
+  it("refuses a part the message does not have, naming the ones it does", async () => {
+    const m = gm().seedMessage({
+      from: "prof@uni.test",
+      to: ["me@uni.test"],
+      subject: "One file",
+      text: "x",
+      attachments: [{ filename: "only.pdf", mime: "application/pdf", bytes: new Uint8Array(10) }],
+    });
+    const r = await call("send_message", {
+      account: "uni",
+      to: ["friend@example.test"],
+      subject: "s",
+      body: "b",
+      attach_from_message: [{ message_id: m.id, part_id: "999" }],
+    });
+    expect(r.result.error).toBe("handle_invalid");
+    expect(r.result.message).toContain("only.pdf");
+  });
+});
+
 describe("send_draft", () => {
   it("derives recipients, attachments and the draft's Message-ID, +attachment when it has any, and sends via drafts.send", async () => {
     const d = gm().seedDraft({

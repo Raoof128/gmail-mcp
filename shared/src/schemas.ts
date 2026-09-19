@@ -192,9 +192,18 @@ export const UpdateDraftInput = z.object({
   bcc: z.array(Recipient).max(2000).optional(),
 });
 export const IdempotencyKey = z.string().min(1).max(128);
+/**
+ * A file already in the mailbox, named by the part that holds it. part_id and not attachment_id:
+ * Gmail re-issues attachmentId on every fetch, so an id a caller read a moment ago cannot be
+ * resolved later, and this reference has to survive from the tool call through an approval.
+ */
+export const CarriedAttachmentRef = z.strictObject({ message_id: GmailId, part_id: z.string().min(1).max(64) });
+export const CarryFrom = z.array(CarriedAttachmentRef).max(20).default([]);
+
 export const SendMessageInput = z.object({
   account: AccountAlias,
   ...ComposeFields,
+  attach_from_message: CarryFrom,
   idempotency_key: IdempotencyKey.optional(),
 });
 export const ReplyInput = z
@@ -203,6 +212,7 @@ export const ReplyInput = z
     message_id: GmailId,
     reply_all: z.boolean().default(false),
     ...ComposeFields,
+    attach_from_message: CarryFrom,
     idempotency_key: IdempotencyKey.optional(),
   })
   .omit({ subject: true });

@@ -6,7 +6,7 @@ import type { Env } from "../env";
 import type { Deps } from "../deps";
 import { canonicalize, hashCanonical } from "../crypto/canonical";
 import { gmailJson } from "../google/gmail";
-import { messageView, type GmailDraft } from "../google/messages";
+import { findAttachment, messageAttachments, messageView, type GmailDraft } from "../google/messages";
 import { sendDraft, sendMime } from "../operations/send";
 import { parseAddress, recipientModifiers } from "../policy/recipients";
 import { trustContext, type AccountRef } from "./accounts";
@@ -185,17 +185,64 @@ async function draftPayload(env: Env, deps: Deps, userId: string, account: Accou
   };
 }
 
+/**
+ * Resolve files already in the mailbox into the same carry the forward tool uses, so the bytes go
+ * Gmail to Gmail and never touch staging or the companion. Named by part_id because Gmail re-issues
+ * attachmentId on every fetch and this reference has to survive an approval. The attachment_id
+ * captured here is the one the execute step hands back to Gmail, which accepts an id from an earlier
+ * read: measured live, a forward approved a minute after it was planned still carried its file.
+ */
+async function carryFrom(
+  env: Env,
+  t: ToolContext,
+  account: AccountRef,
+  refs: readonly { message_id: string; part_id: string }[],
+): Promise<CarriedAttachment[]> {
+  const out: CarriedAttachment[] = [];
+  for (const ref of refs) {
+    const m = await getMessage(env, t.deps, acct(t.principal.userId, account), ref.message_id, "PLAIN_TEXT");
+    const meta = findAttachment(m, { partId: ref.part_id });
+    if (!meta || meta.attachment_id === null) {
+      const available = messageAttachments(m)
+        .filter((a) => a.attachment_id !== null)
+        .map((a) => `${a.part_id} (${a.filename})`)
+        .join(", ");
+      throw new GmailMcpError(
+        "handle_invalid",
+        `handle_invalid: message ${ref.message_id} has no attachable part ${ref.part_id}. Available: ${available || "none"}`,
+      );
+    }
+    out.push({
+      message_id: ref.message_id,
+      attachment_id: meta.attachment_id,
+      filename: meta.filename,
+      mime: meta.mime,
+      size: meta.size,
+    });
+  }
+  return out;
+}
+
 export function registerSendTools(server: McpServer, toolContext: (ctx: ServerContext) => ToolContext, env: Env): void {
   defineTool(server, toolContext, env, {
     name: "send_message",
     version: 1,
     description:
-      "Send new mail. Replies go through `reply`, existing drafts through `send_draft`. Attachments are staging handles.",
+      "Send new mail. Replies go through `reply`, existing drafts through `send_draft`. To attach a file that is already in this mailbox, pass attach_from_message with its message_id and part_id from get_message; `attachments` is only for staging handles uploaded by the local companion.",
     input: SendMessageInput,
     annotations: openWorld,
     action: "send.message",
     journal: true,
-    plan: (e, t, account, args, inline) => planSend(e, t.principal.userId, account, args, inline, { carry: [] }, ""),
+    plan: async (e, t, account, args, inline) =>
+      planSend(
+        e,
+        t.principal.userId,
+        account,
+        args,
+        inline,
+        { carry: await carryFrom(e, t, account, args.attach_from_message) },
+        "",
+      ),
     execute: executeSend,
   });
 
@@ -203,7 +250,7 @@ export function registerSendTools(server: McpServer, toolContext: (ctx: ServerCo
     name: "reply",
     version: 1,
     description:
-      "Reply to a message. The Worker derives the thread, subject, In-Reply-To and References. reply_all adds the original To and Cc minus this account.",
+      "Reply to a message. The Worker derives the thread, subject, In-Reply-To and References. reply_all adds the original To and Cc minus this account. To send back a file from any message in this mailbox, pass attach_from_message with its message_id and part_id from get_message.",
     input: ReplyInput,
     annotations: openWorld,
     action: "send.message",
@@ -223,7 +270,7 @@ export function registerSendTools(server: McpServer, toolContext: (ctx: ServerCo
         { ...args, to, cc, subject: th.subject },
         inline,
         {
-          carry: [],
+          carry: await carryFrom(e, t, account, args.attach_from_message),
           message_id: args.message_id,
           thread_id: th.thread_id,
           in_reply_to: th.in_reply_to,
@@ -239,7 +286,7 @@ export function registerSendTools(server: McpServer, toolContext: (ctx: ServerCo
     name: "forward",
     version: 1,
     description:
-      "Forward a message with optional text. Original attachments are excluded unless include_original_attachments is true.",
+      "Forward a message with optional text. Original attachments are excluded unless include_original_attachments is true, which carries all of them; to pick individual files, or to attach them to a reply or a new message instead, use attach_from_message.",
     input: ForwardInput,
     annotations: openWorld,
     action: "send.forward",

@@ -216,7 +216,7 @@ export function registerReadTools(server: McpServer, toolContext: (ctx: ServerCo
     name: "download_attachment",
     version: 1,
     description:
-      "Fetch one attachment into staging by attachment_id or part_id and return a handle. Bytes never enter the result. 25 MB ceiling.",
+      "Fetch one attachment into staging by part_id and return a handle for the local companion to collect. Bytes never enter the result. 25 MB ceiling. This handle cannot be attached to a send: to put a file from this mailbox on a message, use attach_from_message on send_message or reply instead. Prefer part_id, since Gmail re-issues attachment_id on every fetch.",
     input: DownloadAttachmentInput,
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     action: "read.attachment",
