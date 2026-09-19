@@ -1196,3 +1196,76 @@ path again, and `recover` cannot verify a destination that is gone. The record c
 reservation, so `debt` correctly stays silent and nothing is charged. The cost is one inert row, and
 the general fact is worth knowing: **deleting a file the companion saved condemns its receipt.**
 Anyone writing a future cleanup step should expect that rather than discover it.
+
+### Task 7: the companion CLI flake
+
+Commit `8a84cfe`. `npm run verify` exit 0.
+
+The measurement did not justify the change, and reproducing the failure did. Spawn to the
+`initialize` reply, measured at the boundary the poll waits on:
+
+| Condition                                      | n   | min   | median | p95   | max   |
+| ---------------------------------------------- | --- | ----- | ------ | ----- | ----- |
+| external, idle                                 | 20  | 188ms | 190ms  | 225ms | 225ms |
+| external, during the worker suite              | 20  | 201ms | 233ms  | 355ms | 355ms |
+| external, during `npm run verify`              | 20  | 199ms | 226ms  | 423ms | 423ms |
+| in-harness, companion suite alone              | 20  | 214ms | 259ms  | 311ms | 311ms |
+| in-harness, worker and qualification alongside | 15  | 261ms | 350ms  | 528ms | 528ms |
+
+Not one of those 95 samples crossed the one-second budget. On the plan's own terms that is close to
+the stop condition, so the change was not applied on the strength of it. Instead the original budget
+was restored and forty suites were run with the worker and qualification suites alongside:
+
+```
+FAIL at run 12
+failures: 1 / 40 (1s budget, under load)
+```
+
+The capture is the original one, line for line: `test/cli.test.ts:26`, the first poll,
+`Matcher did not succeed in time`. So the body of the distribution is comfortable, its tail crosses
+the budget at roughly one run in forty, and 95 samples were not enough to see it. A budget sitting
+inside the tail of its own metric is the defect, and the fix removes a deadline the test never
+meant to assert. Forty runs under the same load afterwards are clean.
+
+The lesson is about method rather than about this test. A rare tail is not refuted by a hundred
+samples of the body; reproduce the failure, or say you could not.
+
+### Task 8: the recovery-suite timeouts
+
+**Verdict: contention. No code change.** With one caveat worth more than the verdict.
+
+Isolated, the two files are nowhere near their ceilings. Ten runs of the two files alone:
+
+| Test                                           | n   | median | p95    | max    | ceiling  |
+| ---------------------------------------------- | --- | ------ | ------ | ------ | -------- |
+| `rolls the settlement back at every statement` | 10  | 988ms  | 1329ms | 1329ms | 30,000ms |
+| `provider-commit` ladder rung                  | 10  | 608ms  | 958ms  | 958ms  | 5,000ms  |
+| `resumable: partial-json`                      | 10  | 436ms  | 829ms  | 829ms  | 5,000ms  |
+
+Ten runs of the full worker suite with the default reporter, which is the condition `npm run verify`
+creates: **0 failures**.
+
+Ten runs of the full worker suite with `--reporter=verbose` piped to `grep`, on a machine at load
+average 15: **4 failures**, and the numbers finally match the ones that opened this task.
+
+| Test                       | isolated median | loaded median | loaded max | ceiling  |
+| -------------------------- | --------------- | ------------- | ---------- | -------- |
+| settlement statement sweep | 988ms           | 2816ms        | 29,683ms   | 30,000ms |
+| `resumable: partial-json`  | 436ms           | 1254ms        | 14,640ms   | 5,000ms  |
+| `resumable: lost-body`     | 430ms           | 1586ms        | 14,388ms   | 5,000ms  |
+| `provider-commit` rung     | 608ms           | 2073ms        | 9,606ms    | 5,000ms  |
+
+The median ratio is 2.9 to 3.7, inside the range CLAUDE.md already documents for contention, so the
+original 18.5s and 29.2s are explained: 29,683ms against a 30,000ms ceiling is the settlement sweep
+consuming 99 percent of its budget, and the two `resumable:` cases are the ones that actually went
+over.
+
+No timeout was raised. The rule is cost first and ceiling second, the isolated cost is under a
+second, and the condition that turns these red is not the condition the gate runs in. Raising a
+ceiling on the strength of a contaminated measurement is the wish this task exists to refuse.
+
+**The caveat, and the reason this task was worth running.** The instrument was part of the load.
+The same ten runs pass with the default reporter and fail four times out of ten with
+`--reporter=verbose` piped to `grep`, because 651 streamed lines through a pipe are themselves
+enough pressure to push these tests over. Anyone measuring this suite must not measure it that way,
+and a red run obtained that way is not evidence of a regression.
