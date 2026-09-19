@@ -1097,3 +1097,102 @@ Swift, crosses the wire as `outcome: String`, and is read as `outcome` in the CL
 **Standing weakness.** Task 4 is the least checkable task here, and deliberately so. Its output cannot
 be shown in advance without inviting the executor to copy it instead of reading the source. Step 3 is
 what keeps it honest, and a reviewer should read Task 4's execution record before the diff.
+
+---
+
+## Execution record
+
+Executed inline on 2026-09-19 from `acffbbc`, on branch `plan7-repair`.
+
+### Task 1: the native repair
+
+Commit `7b99a9e`. `npm run verify` exit 0, `npm run verify:native` exit 0, 26 native tests.
+
+The listing test failed first with `value of type 'SaveReceipts' has no member 'unresolvedDebt'`, as
+predicted. `releaseDebt` was written in the same edit as `unresolvedDebt`, which would have let its
+three tests pass the moment they were written, so it was removed to the scratchpad, the tests were
+run red against the missing member, and it was restored. That round trip is the only reason those
+three tests count as evidence.
+
+The fixture reproduces the production charge rather than standing in for it: `bytes` comes back as
+`SafeFiles.maximum`, 26,214,400, the same number the live machine held.
+
+Mutation results, each restored before the next:
+
+| Mutation                                                               | Test                                         | Result                                                              |
+| ---------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------- |
+| `guard receipt.state == "publication_unknown" \|\| true`               | `…RefusesAReceiptTheCollectorCanStillHandle` | RED: got `temporary_still_present`, wanted `receipt_not_releasable` |
+| `case .present: break`                                                 | `…RefusesWhenSomethingElseNowHoldsThe…`      | RED: `XCTAssertThrowsError failed: did not throw an error`          |
+| `let bytes = try journal.reservedBytes(…) ?? 0`, revision 1's own line | `…ClearsTheChargeAndLeavesThePublication…`   | RED at line 106, `XCTAssertTrue failed`                             |
+
+The third mutation is the one worth keeping. Line 106 is `unresolvedDebt().isEmpty`, the assertion
+the external review said Revision 1 could never satisfy. Restoring Revision 1's line reproduces
+exactly that failure, so the claim is now demonstrated rather than argued.
+
+`swift format lint` reports nothing new; its four existing warnings are the deliberate snake_case
+wire fields.
+
+### Task 2: the CLI
+
+Commit `882fbf5`. `npm run verify` exit 0 with 24 companion tests, `npm run verify:native` exit 0.
+
+The test failed first on `expect(list.status).toBe(0)` returning 1, because `debt` was an unknown
+command and `main().catch` sets the exit code. The filter matched one test, not zero.
+
+The refusal path was exercised by hand, which is the point of the branch's own `catch`:
+
+```
+$ node companion/src/cli.ts debt --scope nosuchscope --release nosuchhandle
+No such receipt.
+exit=0
+```
+
+And the live listing, before any repair, matched the Task 3 preflight in every field:
+
+```
+sh_LE-JU3GsJxbOKsMw4x6q80Z2kawvCJusvPZQWqSWsqs  publication_unknown  26214400 bytes  attachments/internship-info.pdf
+  run: gmail-mcp-companion debt --scope 09073736bf… --release sh_LE-JU3Gs…
+```
+
+### Task 3: the live repair
+
+Authorized by the owner on 2026-09-19 after the preflight was shown. The preflight was re-read
+immediately before the release and still matched, so the release went ahead.
+
+```
+$ node companion/src/cli.ts debt --scope 09073736bf… --release sh_LE-JU3Gs…
+Released.
+$ node companion/src/cli.ts debt
+No charged save debt.
+$ sqlite3 journal.sqlite "SELECT id,bytes FROM reservations"
+(no rows)
+```
+
+The receipt still reads `publication_unknown`, which is the whole point: accounting was repaired and
+publication truth was left alone.
+
+**The proof.** `Released.` is a claim, so a full save was driven through the helper's own stdio
+protocol to a disposable path. That exercises the exact operation that was failing, because
+`spool_budget` came from `journal.reserve` inside `save.prepare`:
+
+```
+prepare: {"state":"prepared","relative":"plan7-repair-proof.pdf","temporary":".gmail-mcp-692A8803-…"}
+publish: {"state":"published","file":{"size":20,"sha256":"45c15da4…","inode":193311833}}
+ack    : {"state":"acknowledged", …}
+```
+
+No staging handle was minted for this, because the Worker side is not what the repair touched.
+
+**A consequence the plan did not predict.** Step 4 said to delete the proof file afterwards, and
+deleting it turns its `acknowledged` receipt into `publication_unknown` on the next helper start.
+Measured, not reasoned about: after `rm`, the journal reads
+
+```
+sh_plan7RepairProof0000000000000000000000000|publication_unknown
+```
+
+That is invariant 35 holding. An established publication never becomes permission to write to that
+path again, and `recover` cannot verify a destination that is gone. The record carries no
+reservation, so `debt` correctly stays silent and nothing is charged. The cost is one inert row, and
+the general fact is worth knowing: **deleting a file the companion saved condemns its receipt.**
+Anyone writing a future cleanup step should expect that rather than discover it.
