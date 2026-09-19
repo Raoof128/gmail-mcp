@@ -165,7 +165,11 @@ export class Companion {
         await response.body?.cancel();
         throw new Error(`authority_${response.status}`);
       }
-      const length = response.headers.get("content-length"),
+      // Cloudflare drops content-length when the Worker streams the R2 body, so the deployed
+      // authority answers without it and this refused every save with download_metadata. The Worker
+      // also sends x-size, which the edge leaves alone. Either is enough: the bytes are bounded by
+      // the length and then checked against x-sha256 below, so a wrong length cannot get past.
+      const length = response.headers.get("content-length") ?? response.headers.get("x-size"),
         digest = response.headers.get("x-sha256");
       if (
         !length ||

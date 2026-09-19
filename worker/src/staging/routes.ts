@@ -67,6 +67,10 @@ export function stagingApiHandler(_deps: Deps): FetchHandler {
             headers: {
               "content-type": row.mime,
               "content-length": String(row.size),
+              // The edge recomputes framing and drops content-length for a streamed body, so the
+              // size also travels in a header nothing rewrites. Measured against the deployment:
+              // the companion saw no content-length and refused the save.
+              "x-size": String(row.size),
               "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(row.filename)}`,
               "x-sha256": row.sha256,
               "cache-control": "no-store",
