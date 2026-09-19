@@ -540,10 +540,77 @@ Every adversarial test records both outcomes. A caught abuse is evidence the gat
 ### 4.8 Qualification, restore and the external gates
 
 Release authority is not reachable today, and that is a property of the system rather than an
-oversight. A build carries an identity bound to its inputs, an observation carries the
-`identitySha256` of the run that produced it, and evidence is a graph whose integrity is checked
-before anything is released. Resource evidence is mandatory, and it is missing, so qualification
-cannot pass. The served build identity is `unqualified`, which is correct.
+oversight. What follows is the machinery that would grant it, read out of `scripts/qualification/`,
+and then why it cannot conclude.
+
+**Build identity.** `computeBuildId` in `scripts/qualification/build-id.ts` hashes the production
+inputs and nothing else. Its `production()` predicate selects everything under `worker/src/`,
+`shared/src/` and `worker/migrations/`, plus eight named manifests and configs. `hashInputs` sorts
+on path and length-prefixes both the path and the bytes, so the result does not depend on
+enumeration order and no two input sets collide by concatenation. Two substitutions make the hash
+mean something. `worker/src/build-identity.ts` is normalised back to its `unqualified` template
+before hashing, so an identity never hashes itself, and the file is refused outright if the template
+has been edited. `worker/wrangler.jsonc` is replaced by `canonicalConfig`, which is the private
+effective configuration in canonical key order with `vars.BUILD_ID` removed; it throws on any
+variable whose name matches `/SECRET|TOKEN|PASSWORD|KEKS|HMAC/i`, so a secret cannot enter a build
+identity even by accident. A dirty or untracked production input is refused before any of it runs.
+The served value today is `BUILD_ID = "unqualified"` in `worker/src/build-identity.ts`, which is
+what a build with no qualified identity must say.
+
+**What a run is.** `RunIdentity` in `contracts.ts` is version 2 and carries `runId`, a `purpose` of
+either `recovery-mode` or `release-component`, the `target`, `preparationCommitment`,
+`preparationRoot`, `manifestSha256`, `mode`, `qualificationEpoch` and `probeExpiresAt`. Its
+refinement is the load-bearing part: a `recovery-mode` run must have a preparation root, a mode, an
+epoch and an expiry, with `startedAt` before `probeExpiresAt`, and a `release-component` run must
+have all four null. One shape cannot pose as the other.
+
+The `target` is a `Snapshot` plus `userId`, `accountId` and `credentialVersion`. The snapshot pins
+origin, platform account, worker name, database, deployment and deployment version, four build ids
+for the worker, the qualification harness, the companion and the native helper, the config and
+schema digests, the restore generation, the profile, and a `compatibilityVersion` fixed at 3.
+`snapshotOf` drops the three account fields, which is how component evidence gathered under one
+account is compared against a run's snapshot without the accounts having to match.
+
+**What an observation binds.** `Observation` carries `identitySha256` and `sourceSha256`.
+`identityHash(domain, value, canonicalize)` is a SHA-256 over `gmail-mcp/plan6/v2/<domain>`, a
+newline, and the RFC 8785 canonicalisation the Worker itself uses, so every hash is
+domain-separated and reproducible by anyone holding the inputs. The verifier refuses a row whose
+`identitySha256` is not `identityHash("run", identity)`, and refuses a source whose
+`identitySha256` differs from the row it supports, so an observation cannot be moved between runs
+and a chain of derivations cannot cross one. `deriveCaseVerdict` fails a case unless every sample
+id is distinct and every `safety` counter is zero.
+
+**How the graph is checked.** `EvidenceVerifier.validateCase` recomputes `preparationRoot` from the
+preparation identity, the closure's outcomes and the authorization, and refuses unless it matches
+the report, and for a recovery-mode run the identity as well. `preparationRoot` refuses in turn
+unless the authorization's `targetHash` is `identityHash("target", target)`, the preparation's
+`authorizationSha256` is `identityHash("authorization", authorization)`, and the preparation expires
+no later than the authorization. `assertModeReports` then requires the mode's proof case to be the
+one `requiredProof` names for that mode, to pass, and to carry exactly three attempts and three
+observations; and requires each of the nine `CommonCases` to appear exactly once, to pass, to be a
+`release-component` run, and to share one snapshot hash.
+
+**What release requires.** `assessRelease` is read-only and returns a verdict rather than granting
+anything. It demands both modes and all nine common cases, refuses a run id or a qualification epoch
+reused across the two modes, and refuses a null epoch. `qualification` reads `pass` only when both
+modes and all nine components verify. `implementation` is hard-coded to `not_run` and
+`implementation_incomplete` is always the first blocker, because implementation readiness is
+code-owned and no manifest may assert it. Version-1 evidence stays readable as history and can grant
+nothing: `loadEnableEvidence` rejects with "version-1 evidence cannot enable recovery; v2 admission
+required".
+
+**What an epoch changes.** The epoch is the qualification generation a lease was admitted under.
+Replacing it stops work already in flight rather than only the next request, and it takes three
+steps to do so. `qualificationFence` in `worker/src/operations/recovery-admission.ts` is a D1
+assertion evaluated on every admission, matching `recovery_control` on origin, build id, account,
+credential version, mode and `c.epoch=?` bound from the lease, so an epoch that has moved fails the
+assertion rather than being read once at the start. The pass then reports `suspended`, and
+`recoverDeliveries` computes `manual = suspended || next >= deadline` and writes `state='manual'`
+while nulling the session key. `dueRecoveries` selects `r.state='active'` only, so nothing picks
+that row up again. Re-arming it is an operator act.
+
+Resource evidence is one of the nine mandatory components and it is missing, so qualification cannot
+pass.
 
 Restore has no controller. `prepareRestore` ends in refusal, and the six refusal predicates around
 it are tested. No restore request can be issued today, so "no blind retry" currently holds **by
