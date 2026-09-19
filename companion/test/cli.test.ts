@@ -23,10 +23,26 @@ it("launches the CLI directly in Node and lists tools without accessing credenti
         params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "cli-test", version: "1" } },
       }) + "\n",
     );
-    await expect.poll(() => stdout.includes('"id":1')).toBe(true);
+    // The default poll budget is one second. Measured on this machine, spawn to initialize reply
+    // sits at a 260ms median and a 350ms median under load, but its tail crosses one second at
+    // roughly one run in forty: reproduced at run 12 of 40 with the worker and qualification
+    // suites running alongside, failing on exactly this line. The assertion is unchanged and a
+    // reply that never arrives still fails; what changes is that the test stops asserting a
+    // deadline it was never trying to measure.
+    await expect
+      .poll(() => stdout.includes('"id":1'), { timeout: 15_000, interval: 50 })
+      .toBe(true)
+      .catch(() => {
+        throw new Error(`no initialize reply.\nstdout: ${stdout}\nstderr: ${stderr}`);
+      });
     child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
     child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }) + "\n");
-    await expect.poll(() => stdout.includes('"id":2')).toBe(true);
+    await expect
+      .poll(() => stdout.includes('"id":2'), { timeout: 15_000, interval: 50 })
+      .toBe(true)
+      .catch(() => {
+        throw new Error(`no tools/list reply.\nstdout: ${stdout}\nstderr: ${stderr}`);
+      });
     const reply = stdout
       .split("\n")
       .filter(Boolean)
