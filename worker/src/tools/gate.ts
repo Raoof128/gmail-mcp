@@ -348,7 +348,11 @@ export async function resumeGated(
   if (s.v !== APPROVAL_STATE_VERSION || s.tool !== o.tool || s.account_id !== o.account.id)
     return mismatch("state does not belong to this call");
   const row = await getPending(db, s.pending_id, userId);
-  if (!row) throw new GmailMcpError("pending_not_approved", "pending_not_approved: unknown");
+  if (!row)
+    throw new GmailMcpError(
+      "pending_not_approved",
+      "pending_not_approved: no pending action with that id; it was never created, or it expired and was purged",
+    );
   if (row.intent_hash !== o.intentHash || s.intent_hash !== row.intent_hash) return mismatch("arguments changed", row);
 
   const answer = t.round.answer();
@@ -359,7 +363,11 @@ export async function resumeGated(
   const deadline = Date.now() + t.deps.approvalWait.deadlineMs;
   for (;;) {
     const cur = await getPending(db, row.id, userId);
-    if (!cur) throw new GmailMcpError("pending_not_approved", "pending_not_approved: unknown");
+    if (!cur)
+      throw new GmailMcpError(
+        "pending_not_approved",
+        "pending_not_approved: no pending action with that id; it was never created, or it expired and was purged",
+      );
     if (cur.expires_at <= Date.now() && (cur.state === "pending" || cur.state === "approved"))
       throw new GmailMcpError("pending_expired", "pending_expired");
     switch (cur.state) {
@@ -554,7 +562,11 @@ export async function executePending(t: ToolContext, pendingId: string): Promise
   const db = t.env.DB;
   const userId = t.principal.userId;
   const before = await getPending(db, pendingId, userId);
-  if (!before) throw new GmailMcpError("pending_not_approved", "pending_not_approved: unknown");
+  if (!before)
+    throw new GmailMcpError(
+      "pending_not_approved",
+      "pending_not_approved: no pending action with that id; it was never created, or it expired and was purged",
+    );
   // Staging approvals are consumed only by the owner-bound transfer protocol.
   if (before.action === "attachment.stage_upload")
     throw new GmailMcpError("pending_not_approved", "pending_not_approved: resume this transfer through the companion");

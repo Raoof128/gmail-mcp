@@ -136,6 +136,11 @@ const simple = (
 const apply = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
 const destructive = { readOnlyHint: false, destructiveHint: true, openWorldHint: false } as const;
 
+// Spec table: +sensitive is raised when the target is "a sensitive or system label". Nothing at
+// the tool surface said so, so an agent starring a message met an approval it could not predict.
+const SENSITIVE_NOTE =
+  "Any system label (STARRED, UNREAD, INBOX, IMPORTANT and the rest) carries +sensitive, which raises the level, so expect approval for these even though label.apply is allow by default.";
+
 export function registerLabelTools(
   server: McpServer,
   toolContext: (ctx: ServerContext) => ToolContext,
@@ -144,7 +149,7 @@ export function registerLabelTools(
   defineTool(server, toolContext, env, {
     name: "label_message",
     version: 1,
-    description: "Add labels to a message. TRASH and SPAM are refused here; use the sensitive tools.",
+    description: "Add labels to a message. TRASH and SPAM are refused here; use the sensitive tools." + SENSITIVE_NOTE,
     input: LabelMessageInput,
     annotations: apply,
     action: "label.apply",
@@ -166,7 +171,7 @@ export function registerLabelTools(
   defineTool(server, toolContext, env, {
     name: "unlabel_message",
     version: 1,
-    description: "Remove labels from a message.",
+    description: "Remove labels from a message." + SENSITIVE_NOTE,
     input: UnlabelMessageInput,
     annotations: destructive,
     action: "label.apply",
@@ -188,7 +193,7 @@ export function registerLabelTools(
   defineTool(server, toolContext, env, {
     name: "label_thread",
     version: 1,
-    description: "Add labels to every message in a thread. TRASH and SPAM are refused here.",
+    description: "Add labels to every message in a thread. TRASH and SPAM are refused here." + SENSITIVE_NOTE,
     input: LabelThreadInput,
     annotations: apply,
     action: "label.apply",
@@ -210,7 +215,7 @@ export function registerLabelTools(
   defineTool(server, toolContext, env, {
     name: "unlabel_thread",
     version: 1,
-    description: "Remove labels from every message in a thread.",
+    description: "Remove labels from every message in a thread." + SENSITIVE_NOTE,
     input: UnlabelThreadInput,
     annotations: destructive,
     action: "label.apply",
@@ -232,7 +237,7 @@ export function registerLabelTools(
   defineTool(server, toolContext, env, {
     name: "update_message_labels",
     version: 1,
-    description: "Add and remove labels on one message in one call.",
+    description: "Add and remove labels on one message in one call." + SENSITIVE_NOTE,
     input: UpdateMessageLabelsInput,
     annotations: destructive,
     action: "label.apply",
@@ -255,7 +260,8 @@ export function registerLabelTools(
   defineTool(server, toolContext, env, {
     name: "apply_sensitive_message_label",
     version: 1,
-    description: "Move one message to Trash or mark it as spam. Always carries +sensitive.",
+    description:
+      "Move one message to Trash or mark it as spam. Always carries +sensitive, so it always needs the owner's approval: expect status pending_approval with approval.url and an action_id for execute_pending.",
     input: ApplySensitiveMessageLabelInput,
     annotations: destructive,
     action: "label.apply",
@@ -277,7 +283,8 @@ export function registerLabelTools(
   defineTool(server, toolContext, env, {
     name: "apply_sensitive_thread_label",
     version: 1,
-    description: "Move one thread to Trash or mark it as spam. Always carries +sensitive.",
+    description:
+      "Move one thread to Trash or mark it as spam. Always carries +sensitive, so it always needs the owner's approval: expect status pending_approval with approval.url and an action_id for execute_pending.",
     input: ApplySensitiveThreadLabelInput,
     annotations: destructive,
     action: "label.apply",

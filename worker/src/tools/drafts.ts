@@ -134,7 +134,7 @@ export function registerDraftTools(
     name: "create_draft",
     version: 1,
     description:
-      "Create a draft, optionally as a reply. Attachments are staging handles; inline_attachments are converted to handles (1 MB total).",
+      "Create a draft, optionally as a reply. Attachments are staging handles from the local companion; inline_attachments are converted to handles (1 MB total). A draft cannot carry a file straight from the mailbox: send it with send_message or reply and attach_from_message instead.",
     input: CreateDraftInput,
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     action: "draft.write",

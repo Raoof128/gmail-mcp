@@ -264,6 +264,35 @@ describe("send_message", () => {
 });
 
 describe("reply", () => {
+  // Found by sweeping all 38 tools against a real mailbox: replying to a message this account sent
+  // answered "invalid_address: at least one recipient is required". The sender is us, so excluding
+  // our own addresses empties the list. Following up on your own last message is ordinary, and
+  // Gmail addresses the original recipients, so this does too.
+  it("replies to the original recipients when this account sent the message", async () => {
+    const t = gm().seedMessage({
+      from: "uni@example.test",
+      to: ["supervisor@uni.test", "peer@uni.test"],
+      subject: "Draft chapter",
+      text: "here it is",
+    });
+    const r = await call("reply", { account: "uni", message_id: t.id, body: "bumping this" });
+    expect(r.result.status).toBe("pending_approval");
+    expect(r.result.summary).toContain("supervisor@uni.test");
+    expect(r.result.summary).not.toContain("uni@example.test");
+  });
+
+  it("replies to itself for a note this account sent only to itself", async () => {
+    const t = gm().seedMessage({
+      from: "uni@example.test",
+      to: ["uni@example.test"],
+      subject: "Note to self",
+      text: "remember",
+    });
+    const r = await call("reply", { account: "uni", message_id: t.id, body: "still remembering" });
+    expect(r.result.status).toBe("pending_approval");
+    expect(r.result.summary).toContain("uni@example.test");
+  });
+
   it("derives thread, subject, In-Reply-To and References; Reply-To lists win over From; reply_all adds the rest minus self", async () => {
     const t = gm().seedMessage({
       from: "Prof <prof@uni.test>",

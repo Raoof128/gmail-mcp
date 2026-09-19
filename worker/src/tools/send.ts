@@ -261,7 +261,16 @@ export function registerSendTools(server: McpServer, toolContext: (ctx: ServerCo
       );
       const self = [account.email, ...account.sendAs];
       const primary = th.reply_to.length ? th.reply_to : th.from ? [th.from] : [];
-      const to = dedupe([...primary, ...(args.reply_all ? th.to : []), ...args.to], self);
+      let to = dedupe([...primary, ...(args.reply_all ? th.to : []), ...args.to], self);
+      // Replying to a message this account sent used to refuse with "at least one recipient is
+      // required": the sender is us, so excluding our own addresses leaves nothing. Following up on
+      // your own last message is ordinary, and Gmail answers it by addressing the original
+      // recipients, so fall back to those. A note sent only to yourself falls back once more and
+      // replies to yourself, which is the only address the message names.
+      if (to.length === 0) {
+        to = dedupe(th.to, self);
+        if (to.length === 0) to = dedupe([...primary, ...th.to]);
+      }
       const cc = dedupe(args.reply_all ? [...th.cc, ...args.cc] : args.cc, [...self, ...to]);
       return planSend(
         e,

@@ -1,3 +1,4 @@
+import { DEFAULT_POLICY } from "@gmail-mcp/shared/actions";
 import type {
   AnyToolHandler,
   McpServer,
@@ -41,6 +42,12 @@ export type ToolSpec<S extends z.ZodObject<z.ZodRawShape> & StandardSchemaWithJS
  * hash covers what the client asked for and nothing the server generated, so a resume never re-plans:
  * what executes is the stored row, and the retried arguments only have to match the intent it came from.
  */
+// Appended from the action's default level rather than written into each description, so the 38
+// tools cannot drift apart on the one thing an agent most needs to know. A sweep of all of them
+// found that not one said what pending_approval means or what to do next.
+const APPROVAL_NOTE =
+  " Approval-gated by default: the result is status pending_approval carrying approval.url and action_id. The owner opens that URL; call execute_pending with the action_id once they approve, or cancel_pending to withdraw it. get_policy shows the levels actually in force.";
+
 export function defineTool<S extends z.ZodObject<z.ZodRawShape> & StandardSchemaWithJSON>(
   server: McpServer,
   toolContext: (ctx: ServerContext) => ToolContext,
@@ -58,7 +65,7 @@ export function defineTool<S extends z.ZodObject<z.ZodRawShape> & StandardSchema
     // mistake before spending a call. Hashing is unaffected: the intent hash covers parsed
     // arguments, and a key that used to be dropped now never reaches the parse at all.
     {
-      description: spec.description,
+      description: spec.description + (DEFAULT_POLICY[spec.action] === "ask" ? APPROVAL_NOTE : ""),
       inputSchema: spec.input.strict() as typeof spec.input,
       annotations: spec.annotations,
     },

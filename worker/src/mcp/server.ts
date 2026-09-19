@@ -45,7 +45,7 @@ export function buildServer(env: Env, principal: Principal, deps: Deps, era: Era
     "list_accounts",
     {
       description: "List connected Gmail accounts: alias, email, status, default flag. Never returns tokens.",
-      inputSchema: z.object({}),
+      inputSchema: z.object({}).strict(),
       annotations: { readOnlyHint: true },
     },
     async () => {
@@ -61,8 +61,9 @@ export function buildServer(env: Env, principal: Principal, deps: Deps, era: Era
   server.registerTool(
     "get_policy",
     {
-      description: "Effective allow/ask/deny policy for an account after overrides.",
-      inputSchema: z.object({ account: AccountAlias.optional() }),
+      description:
+        "Effective allow/ask/deny policy for an account after overrides. Call it to know which tools will return pending_approval before you try them; modifiers such as an attachment, an untrusted recipient or a system label raise a level further and are not shown here.",
+      inputSchema: z.object({ account: AccountAlias.optional() }).strict(),
       annotations: { readOnlyHint: true },
     },
     async ({ account }, ctx) =>
@@ -79,8 +80,9 @@ export function buildServer(env: Env, principal: Principal, deps: Deps, era: Era
   server.registerTool(
     "list_pending",
     {
-      description: "List pending and approved-but-unexecuted approvals for the caller.",
-      inputSchema: z.object({}),
+      description:
+        "List actions waiting on the owner, and approved ones not yet run. Use it to recover an action_id after a lost result, then execute_pending.",
+      inputSchema: z.object({}).strict(),
       annotations: { readOnlyHint: true },
     },
     async () => {
@@ -98,8 +100,9 @@ export function buildServer(env: Env, principal: Principal, deps: Deps, era: Era
   server.registerTool(
     "execute_pending",
     {
-      description: "Execute an action the owner approved in the browser. Claimable once; a replay is refused.",
-      inputSchema: z.object({ action_id: z.string().regex(/^pa_[A-Za-z0-9_-]{22}$/) }),
+      description:
+        "Run an action the owner approved in the browser, named by the action_id a gated tool returned. Claimable once; a replay is refused. If it answers pending_not_approved, the owner has not approved it yet.",
+      inputSchema: z.object({ action_id: z.string().regex(/^pa_[A-Za-z0-9_-]{22}$/) }).strict(),
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     },
     async ({ action_id }, ctx) => {
@@ -111,8 +114,9 @@ export function buildServer(env: Env, principal: Principal, deps: Deps, era: Era
   server.registerTool(
     "cancel_pending",
     {
-      description: "Withdraw a pending or approved action before it executes.",
-      inputSchema: z.object({ action_id: z.string().regex(/^pa_[A-Za-z0-9_-]{22}$/) }),
+      description:
+        "Withdraw a pending or approved action before it executes. Use it to abandon anything a gated tool queued that you no longer want; it also works after the owner approved but before execute_pending.",
+      inputSchema: z.object({ action_id: z.string().regex(/^pa_[A-Za-z0-9_-]{22}$/) }).strict(),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ action_id }) =>
@@ -124,7 +128,7 @@ export function buildServer(env: Env, principal: Principal, deps: Deps, era: Era
     {
       description:
         "Connect or reconnect a Google account under an alias. Completes in the owner's browser; opens the page when the client can, else returns its URL.",
-      inputSchema: z.object({ alias: AccountAlias }),
+      inputSchema: z.object({ alias: AccountAlias }).strict(),
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
     async ({ alias }, ctx) => {
@@ -145,7 +149,7 @@ export function buildServer(env: Env, principal: Principal, deps: Deps, era: Era
     "open_policy_editor",
     {
       description: "Policy is edited in the browser only. Returns the policy page URL.",
-      inputSchema: z.object({}),
+      inputSchema: z.object({}).strict(),
       annotations: { readOnlyHint: true },
     },
     async () => {
