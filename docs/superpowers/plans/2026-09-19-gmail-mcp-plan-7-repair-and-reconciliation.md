@@ -1336,3 +1336,84 @@ The documentation strand closed the three items the reconciliation left open and
 while closing them.
 
 Nothing here closed any of the five external gates in 4.8, and nothing should have.
+
+## End-to-end run, 2026-09-19
+
+Driven at the owner's request after the eight tasks closed, against the real helper, the real CLI
+and the real journal, with the deployed Worker answering `/healthz` with `ready`. Twenty-six
+assertions, all passing on the final run. It found two defects on the way there, and both were in
+this plan's own work.
+
+**Phase A, the companion MCP surface over stdio.** `initialize`, `tools/list` returning exactly
+`list_roots`, `save_attachment` and `stage_file`, and a `list_roots` call reporting `attachments`
+as writable.
+
+**Phase B, the debt lifecycle.** An occupied destination refuses the exclusive rename and leaves
+the temporary; the destination is untouched; running `debt` collects the temporary and reports
+nothing charged; a later save is admitted; failing again and removing the temporary by hand
+condemns the receipt; the retained charge then refuses every later save with `spool_budget`; `debt`
+prints the row with the exact release command including the scope; a wrong scope finds no receipt;
+the release succeeds; a second release answers `Nothing charged.`; the receipt still reads
+`publication_unknown`; and a fresh save prepares, publishes, acknowledges and leaves nothing
+charged.
+
+### E1. `debt` can never show a collectable temporary, and its remedy said otherwise
+
+The first draft of the run asserted a row in state `verified` with `temporary: present` and the
+remedy "start the companion". It got an empty listing instead, and the reason is structural:
+answering `debt` spawns a helper, and `main.swift` calls `recoverStartup()` before the command loop
+begins. The collection happens before the listing prints. Every collectable temporary is already
+collected by the time the owner reads the output.
+
+So the only row that can reach a listing with `temporary: present` is one the collector **refused**,
+which needs the temporary to exist while failing to match the device and inode recorded at
+creation. Reproduced by swapping the inode at the temporary's path:
+
+```
+debt.list: {"rows":[{"releasable":false,"scope":"plan7probe","handle":"sh_probe","bytes":26214400,
+            "state":"verified","root":"attachments","temporary":"present"}]}
+```
+
+For that row, "start the companion; the helper collects this safely on startup" is advice that has
+already been taken and has already failed. The text now says what is true: the helper ran with the
+listing and left it, the temporary does not match the identity recorded at creation, nothing may
+remove it safely, and the owner should report it rather than delete anything by hand. A native test
+pins both halves, the collected case and the refused one.
+
+### E2. `--release` without `--scope` printed `Refused: usage`
+
+The guard was inside the branch's own `catch`, which matches a native error code against
+`/^[a-z_]+$/`. "usage" matches, so a mistyped command was rendered as a refusal from the helper.
+The check now sits outside the try, so it reaches `main()`'s handler and prints the usage line on
+stderr. The companion CLI test asserts the empty stdout, the usage line and the exit code.
+
+### An open finding, not fixed here
+
+The refused-temporary row from E1 holds a charge that nothing can clear. `releaseDebt` accepts only
+`publication_unknown`, and that row is `verified`, so the owner has no command for it: the same
+class of problem this plan exists to end, reintroduced at a different state. Widening release
+authority is a security-relevant change to a permission boundary and it owes its own design gate,
+so it is recorded here rather than done in the middle of an end-to-end run. Reaching the state
+needs a deliberate act, because it means creating a file at a path named by a UUID, which is why it
+is a finding rather than an emergency.
+
+### What the run touched
+
+Two files were created under `~/Downloads/Gmail MCP` and both were removed; the owner's
+`internship-info.pdf` is the only file left there. The journal records the run created under the
+scopes `plan7e2e` and `plan7probe` were deleted afterwards, which is the one hand-edit of owner
+data in this plan and is recorded because the rule against hand-editing that journal is what caused
+the original defect. No reservation was deleted by hand; every charge the run created was cleared
+by `debt --release` or by the collector.
+
+### Task 8's verdict, confirmed in the wild
+
+The gate run immediately after this end-to-end failed with ten failures, every one of them
+`Test timed out in 5000ms`: one companion case and nine qualification cases, all of them tests that
+spawn a process. Nothing in the diff touched qualification. `uptime` read a load average of 38 with
+an external `tar -tf` at 94 percent CPU, from something outside this work. Waiting for the machine
+to fall below a load average of 8 and re-running gave exit 0 with 851 tests.
+
+That is the contention verdict from Task 8 happening again, on a different set of tests, within an
+hour of being written down. It is also why the entry in CLAUDE.md is worth its space: without it,
+ten red tests across two workspaces reads as a regression in whatever was last edited.

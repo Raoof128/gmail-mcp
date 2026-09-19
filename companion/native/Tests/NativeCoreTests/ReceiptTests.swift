@@ -168,4 +168,57 @@ final class ReceiptTests: XCTestCase {
       }
     }
   }
+
+  /// The only way a temporary survives to be listed. recoverStartup runs on every helper start,
+  /// including the one that answers `debt`, so a collectable temporary is collected before any
+  /// listing prints. What reaches a listing is a temporary the collector refused: one whose inode
+  /// no longer matches the identity recorded at creation. Found by an end-to-end run, not by
+  /// reasoning: the first draft of that run asserted a collectable row and got an empty listing.
+  func testACollectedTemporaryLeavesNoDebtAndARefusedOneRemains() throws {
+    try FileTests().fixture { files, root, priv in
+      let saves = SaveReceipts(
+        files: files, journal: try Journal(path: priv.appendingPathComponent("collected.db").path))
+      let bytes = Data("payload".utf8)
+      try Data("occupied".utf8).write(to: root.appendingPathComponent("a.txt"))
+      XCTAssertThrowsError(
+        try saves.publish(
+          scope: "s", handle: "h", root: "attachments", relative: "a.txt", bytes: bytes,
+          sha256: SafeFiles.digest(bytes)))
+      let temp = try XCTUnwrap(
+        FileManager.default.contentsOfDirectory(atPath: root.path).first {
+          $0.hasPrefix(".gmail-mcp-")
+        })
+
+      // Our own temporary: the collector verifies device and inode, removes it, and frees the
+      // charge, so nothing is left to list.
+      try saves.recoverStartup()
+      XCTAssertTrue(try saves.unresolvedDebt().isEmpty)
+      XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(temp).path))
+
+      // Now the case that does survive. Re-run the failure, then swap the inode at the temporary's
+      // path so the collector refuses it on every pass.
+      XCTAssertThrowsError(
+        try saves.publish(
+          scope: "s", handle: "h2", root: "attachments", relative: "a.txt", bytes: bytes,
+          sha256: SafeFiles.digest(bytes)))
+      let temp2 = try XCTUnwrap(
+        FileManager.default.contentsOfDirectory(atPath: root.path).first {
+          $0.hasPrefix(".gmail-mcp-")
+        })
+      try FileManager.default.removeItem(at: root.appendingPathComponent(temp2))
+      try Data("not ours".utf8).write(to: root.appendingPathComponent(temp2))
+
+      try saves.recoverStartup()
+      let debt = try saves.unresolvedDebt()
+      XCTAssertEqual(debt.count, 1)
+      XCTAssertEqual(debt[0].state, "verified")
+      XCTAssertEqual(debt[0].temporary, "present")
+      XCTAssertFalse(debt[0].releasable)
+
+      // And it stays: a second collection pass changes nothing, so telling the owner to start the
+      // companion would be advice that has already been taken.
+      try saves.recoverStartup()
+      XCTAssertEqual(try saves.unresolvedDebt().count, 1)
+    }
+  }
 }

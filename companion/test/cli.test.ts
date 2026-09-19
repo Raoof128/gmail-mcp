@@ -82,4 +82,15 @@ it.skipIf(!existsSync(nativeBinary))("debt lists charged debt and refuses a hand
   });
   expect(bogus.error).toBeUndefined();
   expect(bogus.stdout).toBe("No such receipt.\n");
+
+  // --release without --scope is a mistyped command, not a refusal from the helper. Found by an
+  // end-to-end run: the check used to sit inside the branch's own catch and printed
+  // "Refused: usage" on stdout.
+  const noScope = spawnSync(process.execPath, [cli, "debt", "--release", "sh_whatever"], {
+    encoding: "utf8",
+    timeout: 60_000,
+  });
+  expect(noScope.stdout).toBe("");
+  expect(noScope.stderr).toContain("Usage: gmail-mcp-companion");
+  expect(noScope.status).toBe(1);
 });

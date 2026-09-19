@@ -75,12 +75,14 @@ async function main() {
       args: process.argv.slice(3),
       options: { release: { type: "string" }, scope: { type: "string" } },
     });
+    // The reservation id is a digest of scope and handle and cannot be inverted, so the scope has
+    // to be named. It is never a constant: it is a hash of origin, client and owner. This check
+    // sits outside the try on purpose: inside it, the branch's own catch turns a usage error into
+    // "Refused: usage", which reads like a refusal from the helper rather than a mistyped command.
+    if (values.release !== undefined && !values.scope) throw new Error("usage");
     const native = new NativeProcess();
     try {
       if (values.release !== undefined) {
-        // The reservation id is a digest of scope and handle and cannot be inverted, so the scope
-        // has to be named. It is never a constant: it is a hash of origin, client and owner.
-        if (!values.scope) throw new Error("usage");
         const { outcome } = (await native.call({ op: "debt.release", scope: values.scope, handle: values.release }))
           .meta as { outcome: string };
         process.stdout.write(
@@ -96,10 +98,14 @@ async function main() {
         return;
       }
       for (const row of rows) {
+        // A collectable temporary never reaches this listing. recoverStartup runs on every helper
+        // start, including the one answering this command, so anything the collector could clear
+        // is already cleared. A temporary that survives to be printed is one the collector
+        // refused, which is why the remedy here is not "start the companion".
         const remedy = row.releasable
           ? `run: gmail-mcp-companion debt --scope ${row.scope} --release ${row.handle}`
           : row.temporary === "present"
-            ? "start the companion; the helper collects this safely on startup"
+            ? "not collected: the helper ran with this listing and left it. Its temporary exists but does not match the identity recorded at creation, so nothing may remove it safely. Report this rather than deleting anything by hand."
             : `not clearable: state ${row.state}, temporary ${row.temporary}`;
         process.stdout.write(
           `${row.handle}  ${row.state}  ${row.bytes} bytes  ${row.root}/${row.relative}\n  ${remedy}\n`,
