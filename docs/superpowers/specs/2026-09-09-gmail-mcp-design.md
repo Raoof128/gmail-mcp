@@ -216,9 +216,9 @@ Standard MCP hints, set truthfully and treated as hints only:
 - `search_threads`, `get_*`, `list_*`, `get_policy`, `open_policy_editor`, `list_pending`, `list_roots`: `readOnlyHint: true`
 - `download_attachment`: `readOnlyHint: false`, `destructiveHint: false`, `openWorldHint: false` (creates staging state)
 - `send_message`, `reply`, `send_draft`, `forward`: `readOnlyHint: false`, `destructiveHint: false`, `openWorldHint: true`
-- `trash_*`, `unlabel_*`, `mark_*_spam`, `delete_label`: `destructiveHint: true`
-- `untrash_*`, `unmark_*_spam`, `label_*`, `create_label`, `update_label`, `create_draft`, `update_draft`: `destructiveHint: false`
-- `stage_file`: `readOnlyHint: false`, `openWorldHint: false`
+- `trash_message`, `trash_thread`, `mark_message_spam`, `mark_thread_spam`, `unlabel_message`, `unlabel_thread`, `update_message_labels`, `apply_sensitive_message_label`, `apply_sensitive_thread_label`, `delete_label`: `destructiveHint: true`. The trash and spam tools compute it from the direction, so the mutating half of each pair carries `true` and the reversing half carries `false`. `update_message_labels` is on this list because it can remove labels, and the two `apply_sensitive_*` tools because they apply TRASH or SPAM.
+- `untrash_message`, `untrash_thread`, `unmark_message_spam`, `unmark_thread_spam`, `label_message`, `label_thread`, `create_label`, `update_label`, `create_draft`, `update_draft`: `destructiveHint: false`
+- `stage_file`: `readOnlyHint: false`, `destructiveHint: false`, `openWorldHint: false`
 - `save_attachment`: `readOnlyHint: false`, `destructiveHint: false`, `openWorldHint: false`
 
 Not used: `_meta.anthropic/requiresUserInteraction` (forces a client prompt on every call and would override `allow`), `_meta.anthropic/maxResultSizeChars` (raises the persistence threshold; pagination handles size).
@@ -269,8 +269,10 @@ Blocked extensions: `GMAIL_BLOCKED_EXTENSION_SET`, configuration seeded from Goo
 
 ### 2.8 Recipient trust rules for `+external`
 
-- Addresses are parsed with a real RFC 5322 address parser. A malformed address fails the call before policy.
-- Address comparison: local part and domain compared after the domain is lower-cased and converted to ASCII (Punycode). Gmail `+tag` suffixes are stripped for comparison. Dots in the local part are not normalised.
+- Addresses are parsed by a deliberately restricted grammar, not a full RFC 5322 parser: no quoted local parts, no comments, no leading, trailing or consecutive dots, one address per string. This is a permission boundary, so it prefers false negatives. A malformed address fails the call before policy.
+- Address comparison: the domain is lower-cased and converted to ASCII (Punycode), and compared that way always.
+- The local part is normalised only when the domain is `gmail.com` or `googlemail.com`, where the provider is known to fold case and strip `+tag` suffixes. Everywhere else the local part is compared raw, so the comparison is case-sensitive and a `+tag` is significant: an allowlist holding `a@corp.test` does not trust `A@corp.test` or `a+x@corp.test`. SMTP treats local parts as potentially case-sensitive, so normalising only where the provider is known to fold is the conservative reading.
+- Dots in the local part are never normalised, on any domain.
 - Domain pattern `@example.com` matches `a@example.com` and nothing else. It does not match `a@evil-example.com` or `a@sub.example.com`.
 - The trusted set is evaluated over the union of To, Cc and Bcc.
 - Consumer Gmail account: trusted = the account's own address, its configured send-as aliases, and the allowlist.
