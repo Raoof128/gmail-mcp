@@ -40,6 +40,14 @@ export function escapeVisible(s: string): string {
 
 export type Chrome = { logoutCsrf: string; reauthCsrf: string } | null;
 
+// The nav marks its own page so the current section is legible without a script. Matching on the
+// title is enough because these three pages title themselves after their link.
+const NAV: readonly (readonly [string, string])[] = [
+  ["/accounts", "Accounts"],
+  ["/policy", "Policy"],
+  ["/audit", "Audit"],
+];
+
 export function layout(title: string, body: string, chrome: Chrome): string {
   return `<!doctype html>
 <html lang="en">
@@ -50,7 +58,7 @@ export function layout(title: string, body: string, chrome: Chrome): string {
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-<header><a href="/accounts">Accounts</a> <a href="/policy">Policy</a> <a href="/audit">Audit</a>
+<header>${NAV.map(([href, label]) => `<a href="${href}"${label === title ? ' aria-current="page"' : ""}>${label}</a>`).join(" ")}
 ${
   chrome
     ? `<form method="post" action="/reauth" class="inline"><input type="hidden" name="csrf" value="${escapeHtml(chrome.reauthCsrf)}"><button>Re-authenticate</button></form>
