@@ -94,7 +94,7 @@ afterwards, because nothing in this path learned what happened at the destinatio
 state would convert an honest unknown into a claim, which is the failure invariant 35 exists to
 prevent.
 
-- [ ] **Step 1: Write the failing test for listing charged debt**
+- [x] **Step 1: Write the failing test for listing charged debt**
 
 Revision 1 assumed a `harness()` with `markPublicationUnknown` and `createTemporary`, and admitted
 in its own self-review that neither exists. They are not needed. `FileTests().fixture` is the
@@ -137,12 +137,12 @@ func testUnresolvedDebtListsTheChargeAHandDeletedTemporaryLeaves() throws {
 }
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `swift test --package-path companion/native --filter ReceiptTests/testUnresolvedDebt`
 Expected: FAIL, `value of type 'SaveReceipts' has no member 'unresolvedDebt'`
 
-- [ ] **Step 3: Add the presence probe to `SafeFiles.swift`**
+- [x] **Step 3: Add the presence probe to `SafeFiles.swift`**
 
 `discardTemporary` already separates ENOENT from every other open failure, and this probe reuses
 that shape rather than approximating it. Do not require `path == leaf`: `prepare` builds temporaries
@@ -174,7 +174,7 @@ public func temporaryPresence(root id: String, path: String) -> TemporaryPresenc
 }
 ```
 
-- [ ] **Step 4: Add `reservedBytes` to `Journal.swift`**
+- [x] **Step 4: Add `reservedBytes` to `Journal.swift`**
 
 `entries(prefix:)` selects `scope, key, request_hash, payload` and carries no byte count. The charge
 lives in the `reservations` table under `reservation(scope, handle)`, which is
@@ -190,7 +190,7 @@ public func reservedBytes(id: String) throws -> Int? {
 }
 ```
 
-- [ ] **Step 5: Implement `unresolvedDebt` in `SaveReceipts.swift`**
+- [x] **Step 5: Implement `unresolvedDebt` in `SaveReceipts.swift`**
 
 Declare `DebtRow` and `DebtRelease` at file scope beside `SaveReceipt`, not nested inside
 `SaveReceipts`, so the helper spells the type `DebtRow`.
@@ -231,13 +231,13 @@ public func unresolvedDebt() throws -> [DebtRow] {
 }
 ```
 
-- [ ] **Step 6: Run it and watch it pass**
+- [x] **Step 6: Run it and watch it pass**
 
 Run: `swift test --package-path companion/native --filter ReceiptTests/testUnresolvedDebt`
 Expected: PASS, with `bytes` equal to 26,214,400. That is the same number the live machine holds,
 which is the point: the fixture reproduces the production charge rather than a stand-in for it.
 
-- [ ] **Step 7: Write the failing tests for the release and its three refusals**
+- [x] **Step 7: Write the failing tests for the release and its three refusals**
 
 The refusals are the task. Each one names a different reason a human must not clear the charge.
 
@@ -326,12 +326,12 @@ func testReleaseDebtRefusesWhenSomethingElseNowHoldsTheTemporaryName() throws {
 }
 ```
 
-- [ ] **Step 8: Run all three and watch them fail**
+- [x] **Step 8: Run all three and watch them fail**
 
 Run: `swift test --package-path companion/native --filter ReceiptTests/testReleaseDebt`
 Expected: FAIL, no member `releaseDebt`
 
-- [ ] **Step 9: Implement `releaseDebt`**
+- [x] **Step 9: Implement `releaseDebt`**
 
 ```swift
 /// The owner may clear a charge in exactly one state: a publication_unknown receipt whose
@@ -362,12 +362,12 @@ public func releaseDebt(scope: String, handle: String) throws -> DebtRelease {
 }
 ```
 
-- [ ] **Step 10: Run the whole native suite**
+- [x] **Step 10: Run the whole native suite**
 
 Run: `swift test --package-path companion/native`
 Expected: PASS, including the existing crash, race and restart tests.
 
-- [ ] **Step 11: Mutation-confirm all three predicates separately**
+- [x] **Step 11: Mutation-confirm all three predicates separately**
 
 One mutation at a time. After each edit, print the mutated region with
 `sed -n '/func releaseDebt/,/^  }/p' companion/native/Sources/NativeCore/SaveReceipts.swift` to
@@ -382,7 +382,7 @@ confirm it landed in `releaseDebt` and nowhere else, then restore before the nex
 The third one is the guard Revision 1 lacked. Without it the listing keeps returning a released
 receipt with zero bytes, and `unresolvedDebt().isEmpty` can never be true.
 
-- [ ] **Step 12: Run both gates and commit**
+- [x] **Step 12: Run both gates and commit**
 
 ```bash
 npm run verify
@@ -448,12 +448,12 @@ TypeScript gate silently depend on a native build. The test therefore skips itse
 binary is absent, and Task 2 runs it for real with the binary present. The native suite remains the
 authority for the behaviour; this test only proves the wiring.
 
-- [ ] **Step 1: Build the native binary**
+- [x] **Step 1: Build the native binary**
 
 Run: `cd companion && npm run build:native`
 Expected: exit 0, and `companion/native/.build/release/gmail-mcp-native` exists.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 `test/cli.test.ts` has no `runCli` and no `fakeNative`; it spawns the real CLI over stdio. Follow
 that. The two assertions below hold whatever the machine's journal contains, which is what makes an
@@ -488,7 +488,7 @@ it.skipIf(!existsSync(nativeBinary))("debt lists charged debt and refuses a hand
 });
 ```
 
-- [ ] **Step 3: Run it and watch it fail**
+- [x] **Step 3: Run it and watch it fail**
 
 Run: `cd companion && npx vitest run test/cli.test.ts -t "debt lists charged debt"`
 Expected: FAIL. The CLI throws `usage` for an unknown command, so stdout is empty and stderr carries
@@ -496,7 +496,7 @@ the usage line. Confirm the filter matched one test rather than zero: vitest pri
 names it. A run reporting `no tests found` means the `-t` string is wrong, which is how Revision 1
 would have failed here, filtering on a name no test had.
 
-- [ ] **Step 4: Route both operations in the helper**
+- [x] **Step 4: Route both operations in the helper**
 
 In `main.swift`, beside the existing `save.*` cases. The helper answers with `try reply(try json(value))`;
 there is no `Response` type. `Command` already declares optional `scope` and `handle`, so no new
@@ -515,7 +515,7 @@ case "debt.release":
           scope: required(command.scope), handle: required(command.handle)).rawValue)))
 ```
 
-- [ ] **Step 5: Add the CLI command**
+- [x] **Step 5: Add the CLI command**
 
 A refusal arrives as a rejected promise whose message is the native code, and the `catch` at the
 bottom of `main()` would print "Companion command failed. Check configuration, permissions, login and
@@ -584,19 +584,19 @@ if (command === "debt") {
 Add `debt [--scope SCOPE --release HANDLE]` to the usage string in the `catch` at the bottom of
 `main()`.
 
-- [ ] **Step 6: Run the test and watch it pass**
+- [x] **Step 6: Run the test and watch it pass**
 
 Run: `cd companion && npx vitest run test/cli.test.ts`
 Expected: PASS, both tests, neither skipped.
 
-- [ ] **Step 7: Prove the refusal reaches the owner as a sentence**
+- [x] **Step 7: Prove the refusal reaches the owner as a sentence**
 
 The refusal path is the one the generic handler used to swallow, so exercise it by hand once:
 
 Run: `node companion/src/cli.ts debt --scope nosuchscope --release nosuchhandle`
 Expected: `No such receipt.` and exit 0, not the usage line.
 
-- [ ] **Step 8: Run both gates and commit**
+- [x] **Step 8: Run both gates and commit**
 
 ```bash
 npm run verify
@@ -643,13 +643,13 @@ Two other save records exist and neither holds a reservation: `sh_Xq4T…` is `p
 
 **Files:** none. This task changes owner data and the plan's execution record, not the repository.
 
-- [ ] **Step 1: Confirm the owner has authorized this run**
+- [x] **Step 1: Confirm the owner has authorized this run**
 
 Ask, and wait. Name the reservation, the byte count and the fact that the receipt stays
 `publication_unknown` afterwards. If the answer has not arrived, stop here; Tasks 4 to 8 do not
 depend on this one.
 
-- [ ] **Step 2: Quit the companion, then read the debt**
+- [x] **Step 2: Quit the companion, then read the debt**
 
 The helper's lock is exclusive and its waiter blocks, so a save in flight makes this command wait
 rather than fail. Quit the MCP client's companion connection first.
@@ -662,7 +662,7 @@ Stop if more than one row appears, if the byte count differs, if the state is no
 `publication_unknown`, or if the temporary is anything but absent. Any of those means the machine
 moved since the preflight was taken, and the preflight is what authorizes the release.
 
-- [ ] **Step 3: Release, using the scope and handle the listing printed**
+- [x] **Step 3: Release, using the scope and handle the listing printed**
 
 Copy them from the output; do not retype them from this document, and do not pass
 `dfbf797b…`, which is the reservation id rather than the handle.
@@ -673,7 +673,7 @@ Expected: `Released.`
 Run: `node companion/src/cli.ts debt`
 Expected: `No charged save debt.`
 
-- [ ] **Step 4: Prove the repair with a save, then clean up after it**
+- [x] **Step 4: Prove the repair with a save, then clean up after it**
 
 `Released.` is a claim; a save is the evidence. Use a disposable destination and remove it
 afterwards, because the write root is the owner's own Downloads folder.
@@ -687,7 +687,7 @@ Then delete `~/Downloads/Gmail MCP/plan7-repair-proof.pdf` through the Finder or
 releases its own reservation, so deleting its destination afterwards leaves nothing charged. Confirm
 that rather than assuming it.
 
-- [ ] **Step 5: Record the result in the execution record**
+- [x] **Step 5: Record the result in the execution record**
 
 Both outcomes are worth recording. Write the preflight as read, the outcome of the release, the
 save's receipt state, and the final listing. If any step refused, record the refusal and what it
@@ -711,27 +711,27 @@ became a palimpsest, and a plan that supplied the words would invite the executo
 reading. The deliverable is checkable even so: Step 3 requires a file and symbol behind every
 sentence, and a sentence without one is deleted.
 
-- [ ] **Step 1: Read the qualification source and list what exists**
+- [x] **Step 1: Read the qualification source and list what exists**
 
 Run: `ls scripts/qualification && grep -rn "identitySha256\|RunIdentity\|epoch" scripts/qualification | head -40`
 
 Write down, in the plan's execution record, the actual names: the identity a run binds, the field an
 observation carries, how evidence is verified, and what an epoch changes. Do not proceed on memory.
 
-- [ ] **Step 2: Extend 4.8 with what you found**
+- [x] **Step 2: Extend 4.8 with what you found**
 
 Cover, and only where the source supports it: how a build identity is derived and what it hashes;
 what `identitySha256` binds an observation to; how the evidence graph is checked before release; what
 a qualification epoch is and what replacing one does to work already in flight; and which components
 must carry evidence for release to be possible.
 
-- [ ] **Step 3: Check every claim against a file**
+- [x] **Step 3: Check every claim against a file**
 
 For each sentence, name the file and symbol that makes it true, in the execution record. Delete any
 sentence you cannot anchor. A design document describing machinery nobody can find is worse than one
 that is silent.
 
-- [ ] **Step 4: Run stop-slop, then the gate, then commit**
+- [x] **Step 4: Run stop-slop, then the gate, then commit**
 
 ```bash
 npm run verify
@@ -751,7 +751,7 @@ next time anyone adds a test.
 
 - Modify: `docs/superpowers/specs/2026-09-09-gmail-mcp-design.md`, section 4.7
 
-- [ ] **Step 1: Rewrite 4.7 around method rather than inventory**
+- [x] **Step 1: Rewrite 4.7 around method rather than inventory**
 
 Name the four suites and what each runs against: the Worker suite inside workerd with real D1, R2 and
 KV emulation; the shared package under Node; the companion suite; the native Swift suite. State the
@@ -759,7 +759,7 @@ three rules the gauntlet converged on, which are already in CLAUDE.md and are th
 assertion must not be vacuous, the named guard must actually be reached, and a mutation must have
 changed the region intended.
 
-- [ ] **Step 2: Replace counts with a pointer, and name both gates**
+- [x] **Step 2: Replace counts with a pointer, and name both gates**
 
 Delete any fixed test count. Say that `npm run verify` covers format, lint, typecheck and the
 TypeScript suites, that `npm run verify:native` covers `swift test` and the release build, and that
@@ -767,13 +767,13 @@ the first does not include the second. Point at
 `docs/superpowers/reviews/2026-09-17-full-project-gauntlet.md` for the invariant matrix, the
 load-bearing predicate table and the findings.
 
-- [ ] **Step 3: Keep the four things the matrix got right**
+- [x] **Step 3: Keep the four things the matrix got right**
 
 The 25 MiB round trips stay as functional exercises with their 4.8 caveat. The fake-Gmail adapter,
 the elicitation resume and the media-to-resumable boundary at 5 MB stay, because each names a real
 case. Do not lose them in the rewrite.
 
-- [ ] **Step 4: Run stop-slop, then the gate, then commit**
+- [x] **Step 4: Run stop-slop, then the gate, then commit**
 
 ```bash
 npm run verify
@@ -800,31 +800,31 @@ destructive native test, and never generates target-specific qualification evide
 a separate act with its own authorization, like Task 3. Where a claim can only be settled by one of
 them, the finding is `not_verified` with the reason, which is a legitimate outcome.
 
-- [ ] **Step 1: Take the baseline**
+- [x] **Step 1: Take the baseline**
 
 Record the commit, the output of `npm run verify` and `npm run verify:native`, and the spec's current
 revision line. A gauntlet without a baseline cannot tell a finding from a change made during the run.
 
-- [ ] **Step 2: Sweep every normative claim in the spec against source or a probe**
+- [x] **Step 2: Sweep every normative claim in the spec against source or a probe**
 
 For each claim, record the file and symbol, or the probe and its output, or `not_verified` with the
 reason. The 2026-09-19 pass verified six claims this way: the `search_threads` ceiling of 50, the
 998-byte subject cap, the 500-recipient cap, malformed addresses refused before policy, the label
 tools refusing TRASH, and `+overwrite` having no emitter. Extend that; do not repeat it.
 
-- [ ] **Step 3: Check the document against itself**
+- [x] **Step 3: Check the document against itself**
 
 The first reconciliation existed because sections contradicted each other: OAuth state in KV in one
 place and D1 in another, a journal heading denied three lines later, two definitions of
 `requestState`. Look for the same shape in the sections the reconciliation did not touch.
 
-- [ ] **Step 4: Classify every finding before looking at the answer**
+- [x] **Step 4: Classify every finding before looking at the answer**
 
 Stop-ship, medium or precision, with the expected terminal state written before the check runs, as
 the first gauntlet did for its external gates. A finding classified after the result is a finding
 shaped by it.
 
-- [ ] **Step 5: Append the record, run stop-slop, then the gate, then commit**
+- [x] **Step 5: Append the record, run stop-slop, then the gate, then commit**
 
 Append to the new review file; never rewrite an earlier review.
 
@@ -869,7 +869,7 @@ Against a 1000ms budget, the loaded p95 leaves a factor of 1.4. That is not a ma
 
 - Modify: `companion/test/cli.test.ts`
 
-- [ ] **Step 1: Reproduce the measurement before changing anything**
+- [x] **Step 1: Reproduce the measurement before changing anything**
 
 Revision 1's command was `/usr/bin/time -p node src/cli.ts serve </dev/null >/dev/null 2>&1`, which
 sends `/usr/bin/time`'s own report to `/dev/null` and measures process exit rather than the reply the
@@ -913,7 +913,7 @@ Expected: a loaded p95 within a small factor of 1000ms, as the table shows. If t
 back under about 250ms, this diagnosis is wrong: record that in the execution record and stop rather
 than applying the change below.
 
-- [ ] **Step 2: Give both polls a budget that reflects a process start**
+- [x] **Step 2: Give both polls a budget that reflects a process start**
 
 Both need it, not only the one that failed; the second is merely luckier, because the process is warm
 by then.
@@ -928,7 +928,7 @@ This is not loosening a check. The assertion is unchanged and a reply that never
 what changes is that the test stops asserting a deadline it was never trying to measure. Fifteen
 seconds still catches a genuine hang.
 
-- [ ] **Step 3: Make the failure diagnosable when it does fail**
+- [x] **Step 3: Make the failure diagnosable when it does fail**
 
 The capture cost eight runs because the assertion prints `expected false to be true` and discards
 everything the child said. Include it:
@@ -942,7 +942,7 @@ await expect
   });
 ```
 
-- [ ] **Step 4: Run the loop on exit codes, not on grep**
+- [x] **Step 4: Run the loop on exit codes, not on grep**
 
 Revision 1 parsed vitest's presentation text for `"[0-9] failed"`, which misses a crash with a
 different message and reads `grep`'s own exit status rather than the run's. Use the process status:
@@ -961,7 +961,7 @@ Expected: the final line prints. `set -e` stops at the first non-zero exit, and 
 which. Anything else means the timeout was not the cause, and the execution record says so rather
 than the timeout being raised again.
 
-- [ ] **Step 5: Run the gate and commit**
+- [x] **Step 5: Run the gate and commit**
 
 ```bash
 npm run verify
@@ -987,7 +987,7 @@ CI hardware. Collect samples.
 - Read: `worker/test/recovery-barrier-ladder.test.ts`, `worker/test/recovery-transport-matrix.test.ts`
 - Modify: `CLAUDE.md`, and `worker/test/*` only if Step 3 finds a real ceiling
 
-- [ ] **Step 1: Ten isolated samples**
+- [x] **Step 1: Ten isolated samples**
 
 ```bash
 cd worker
@@ -999,7 +999,7 @@ done
 
 Record every per-test duration. Ten runs, both files, so about twenty samples per test.
 
-- [ ] **Step 2: Ten loaded samples**
+- [x] **Step 2: Ten loaded samples**
 
 ```bash
 cd worker
@@ -1010,7 +1010,7 @@ done
 
 Record the same durations under the full suite.
 
-- [ ] **Step 3: Compute the distribution and decide**
+- [x] **Step 3: Compute the distribution and decide**
 
 For each of the two tests, report n, median, p95 and max in both conditions, and the loaded-to-isolated
 ratio at the median and at p95. Then decide:
@@ -1024,14 +1024,14 @@ ratio at the median and at p95. Then decide:
 
 Do not raise a timeout to make a run green. That converts a measurement into a wish.
 
-- [ ] **Step 4: Put the numbers and the conclusion in different places**
+- [x] **Step 4: Put the numbers and the conclusion in different places**
 
 The full table goes in this plan's execution record, which is where a measurement belongs: it is dated
 evidence about one machine on one day. Only the reusable conclusion goes to CLAUDE.md, in the form the
 other entries take, symptom first. If the verdict is contention with no code change, CLAUDE.md gains
 one paragraph and `worker/test` gains nothing.
 
-- [ ] **Step 5: Run the gate and commit**
+- [x] **Step 5: Run the gate and commit**
 
 ```bash
 npm run verify
@@ -1269,3 +1269,70 @@ The same ten runs pass with the default reporter and fail four times out of ten 
 `--reporter=verbose` piped to `grep`, because 651 streamed lines through a pipe are themselves
 enough pressure to push these tests over. Anyone measuring this suite must not measure it that way,
 and a red run obtained that way is not evidence of a regression.
+
+### Task 4: section 4.8, the qualification architecture
+
+Commit `8cbfdae`. `npm run verify` exit 0.
+
+Step 1's deliverable, the names read out of the source before anything was written:
+
+| Thing               | Where                                                     | What it is                                                                                                                             |
+| ------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| build identity      | `build-id.ts` `computeBuildId`                            | sorted, length-prefixed SHA-256 over `worker/src/`, `shared/src/`, `worker/migrations/` and eight named manifests                      |
+| identity template   | `build-id.ts` `identitySource`                            | `worker/src/build-identity.ts` is normalised to `unqualified` before hashing and refused if edited                                     |
+| config substitution | `build-id.ts` `canonicalConfig`                           | replaces `worker/wrangler.jsonc`, drops `vars.BUILD_ID`, throws on `/SECRET\|TOKEN\|PASSWORD\|KEKS\|HMAC/i`                            |
+| run identity        | `contracts.ts` `RunIdentity`                              | version 2; a `recovery-mode` run needs root, mode, epoch and expiry, a `release-component` run needs all four null                     |
+| what a run targets  | `contracts.ts` `Snapshot`, `Target`, `snapshotOf`         | snapshot pins four build ids and `compatibilityVersion` 3; target adds `userId`, `accountId`, `credentialVersion`                      |
+| observation binding | `contracts.ts` `Observation`, `identityHash`              | `sha256("gmail-mcp/plan6/v2/<domain>\n" + canonicalize(value))`, over the Worker's own RFC 8785 canonicaliser                          |
+| graph integrity     | `contracts-validation.ts` `EvidenceVerifier.validateCase` | recomputes `preparationRoot`; refuses a row whose `identitySha256` is not the run's, and a source whose hash is not the row's          |
+| mode evidence       | `contracts.ts` `assertModeReports`                        | proof case must be `requiredProof(mode)`, pass, three attempts, three observations; nine `CommonCases` once each, sharing one snapshot |
+| release             | `assess-release.ts` `assessRelease`                       | read-only; two modes, nine components, no reused `runId` or epoch, no null epoch; `implementation` hard-coded `not_run`                |
+| version-1 evidence  | `evidence.ts` `loadEnableEvidence`                        | rejects: "version-1 evidence cannot enable recovery; v2 admission required"                                                            |
+
+Step 3 killed one sentence. The draft said replacing a qualification epoch "parks the affected
+recovery at `manual`", carried over from CLAUDE.md invariant 26. `qualificationFence` does no such
+thing on its own: it is a D1 assertion binding `c.epoch=?` from the lease, and a mismatch fails the
+assertion. Parking takes two more steps, in `recovery-cron.ts`: the pass reports `suspended`, and
+`recoverDeliveries` computes `manual = suspended || next >= r.deadline` and writes `state='manual'`
+while nulling the session key. `dueRecoveries` selects `r.state='active'` only, so nothing picks it
+up again. The section now describes all three steps.
+
+That is the value of the rule. The claim was true at the outcome and wrong at the mechanism, and
+only naming a file and symbol per sentence exposed the difference.
+
+### Task 5: section 4.7, the testing matrix
+
+Commit `5deefc7`. `npm run verify` exit 0.
+
+Rewritten around the four suites, the two gates and the three rules, with every normative
+requirement kept: the Message-ID preservation gate still governs whether 3.5's reconciliation is
+enabled, the ten fault-injection checkpoints are still enumerated, the OAuth and web adversarial
+classes are still listed, and the 25 MiB round trips still carry their 4.8 caveat. What went is the
+unit inventory's provenance notes and its to-do-list cadence.
+
+The draft's closing line claimed three stale test counts had been deleted from the section. Checked
+against `git show HEAD:...`: the old 4.7 contained no test count at all. Corrected before the
+commit and recorded in the gauntlet, because the rule about verifying a claim applies to one's own
+sentences first.
+
+### Task 6: the second gauntlet
+
+Commit `be48995`. Record in
+`docs/superpowers/reviews/2026-09-19-spec-reconciliation-gauntlet.md`.
+
+Eleven claims swept, all eleven predicted to hold, eight did. Two stop-ships, both in 2.8 and both
+misdescribing a permission boundary: the section claimed a real RFC 5322 parser where
+`recipients.ts` is a deliberately restricted grammar that prefers false negatives, and it stated
+`+tag` stripping flat where the code scopes it, together with local-part case folding, to
+`gmail.com` and `googlemail.com` alone. One precision finding: 2.5's destructive list missed three
+tools that carry `destructiveHint: true`. All four fixed in the document; no code changed.
+
+## Closing
+
+Eight tasks, eight commits, both gates green at each. The repair strand ran with the owner's
+explicit authorization for the one act that touched live data, and the companion answers saves
+again. The flake strand turned two intermittents into a reproduced failure and a measured verdict.
+The documentation strand closed the three items the reconciliation left open and found four more
+while closing them.
+
+Nothing here closed any of the five external gates in 4.8, and nothing should have.
