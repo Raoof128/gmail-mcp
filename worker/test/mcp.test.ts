@@ -69,6 +69,32 @@ describe("/mcp auth gate", () => {
   });
 });
 
+describe("structured results", () => {
+  // MCP 2026-07-28 carries machine-readable results in structuredContent beside the human-readable
+  // content block. Every tool here answered with JSON stringified inside a text block, so an agent
+  // had to parse a string out of prose to read its own result. One helper feeds all 38.
+  it("every tool result carries structuredContent matching its text block", async () => {
+    const r = await rpc(worker, testEnv(), token, "tools/call", { name: "list_accounts", arguments: {} }, 1);
+    expect(r.status).toBe(200);
+    const res = r.json.result;
+    expect(res.structuredContent).toBeDefined();
+    expect(res.structuredContent).toEqual(JSON.parse(res.content[0].text));
+  });
+  it("an error result is structured too, and still flagged isError", async () => {
+    const r = await rpc(
+      worker,
+      testEnv(),
+      token,
+      "tools/call",
+      { name: "execute_pending", arguments: { action_id: "pa_AAAAAAAAAAAAAAAAAAAAAA" } },
+      2,
+    );
+    const res = r.json.result;
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent).toMatchObject({ error: "pending_not_approved" });
+  });
+});
+
 describe("protocol", () => {
   it("initialize then tools/list returns the control tools", async () => {
     const init = await rpc(worker, testEnv(), token, "initialize", INIT, 1);
