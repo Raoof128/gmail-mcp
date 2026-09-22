@@ -380,7 +380,8 @@ export class FakeGmail {
       return new Response(null, {
         status: 200,
         headers: {
-          location: `https://gmail.googleapis.com/resumable/upload/gmail/v1/users/me/${rest}?uploadType=resumable&upload_id=${uploadId}`,
+          // Live Google appends session_crd (a third parameter); mirror it so every pipeline test sees it.
+          location: `https://gmail.googleapis.com/resumable/upload/gmail/v1/users/me/${rest}?uploadType=resumable&upload_id=${uploadId}&session_crd=${"c".repeat(512)}`,
         },
       });
     }

@@ -11,7 +11,7 @@ so the sentence that stood here, that nothing had sent an email, is no longer tr
 qualification gates remain `not_run`, release authority is unreachable by construction, and the served
 build identity is `unqualified`.
 
-The suite is 856 TypeScript tests (shared 11, worker 656, companion 24, qualification 165), the 656
+The suite is 860 TypeScript tests (shared 11, worker 660, companion 24, qualification 165), the 660
 worker tests running inside the real Workers runtime against D1, R2 and KV emulation with no mocked
 storage, plus 27 native tests under `swift test`. `npm run verify` is the TypeScript gate and CI runs
 exactly it; `npm run verify:native` is the separate Swift gate. This section is the one place current
@@ -28,6 +28,25 @@ counts are stated; other documents link here rather than repeating them.
   saying `publication_unknown`, because dropping a charge learns nothing about the destination.
 
 ### Fixed
+
+- **Every resumable upload was refused before a byte moved, so any message over 5 MiB failed.**
+  `validateSessionUrl` required the session URL to carry exactly `uploadType` and `upload_id`. Google's
+  live session URL also carries `session_crd` (512 base64url characters, observed 2026-09-23), so every
+  real session was refused with `invalid resumable session endpoint`. The fake Gmail omitted the parameter,
+  so all tests passed. `session_crd` is now accepted at most once with the same charset rule as
+  `upload_id`, and any other parameter is still refused. The fake now returns the live shape: with the old
+  validator it fails 19 tests. Verified live by drafting a 3,984,236-byte `.xlsx` (a ~5.4 MB message) and
+  reading back the attachment size.
+- **Refused session URLs are now diagnosable.** Each refusal logs `resumable_session_refused` with a
+  reason (`grammar`/`origin`/`traversal`/`draft_id`/`path`/`query`/`url`) and a `describeSessionUrl` shape.
+  In that shape every value outside a fixed vocabulary is reduced to its length and punctuation, so neither
+  the upload capability nor a mailbox address can reach the log. The error returned to callers is unchanged.
+- **A refused session URL is now a definite failure, not `delivery_unknown`.** `upload` validates the
+  session URL right after the session opens and before `beginSend`, while the operation is still `claimed`.
+  No byte can move through a URL that is never PUT to, so the gate settles `failed_safe` and releases the
+  staged handles, which can then be retried at once. Before, the operation was already `executing`: the
+  caller saw `delivery_unknown` and the handle stayed `handle_reserved`. `putResumable` keeps its own check
+  as a second line.
 
 - **The owner console refused every form post it served.** The pages sent `Referrer-Policy: no-referrer`,
   under which a browser serialises the `Origin` of its own same-origin POST as the string `null`, and the
