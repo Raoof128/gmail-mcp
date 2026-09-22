@@ -111,11 +111,15 @@ streamed is the model to follow.
 ## Changes that need extra care
 
 The project keeps a set of security invariants, each with a test behind it.
-[The design spec](docs/superpowers/specs/2026-09-09-gmail-mcp-design.md) holds the reasoning and is
-authoritative, and
-[the full-project gauntlet](docs/superpowers/reviews/2026-09-17-full-project-gauntlet.md) records the
-invariant matrix with the proof type behind each one. A change near any of them must leave its test
-demonstrating it, or amend the invariant deliberately and say so in the commit message.
+[docs/INVARIANTS.md](docs/INVARIANTS.md) is the canonical list and names the implementation site for each
+one. [The design spec](docs/superpowers/specs/2026-09-09-gmail-mcp-design.md) holds the reasoning, and
+[the full-project gauntlet](docs/superpowers/reviews/2026-09-17-full-project-gauntlet.md) records the proof
+type behind each invariant as of 2026-09-18 along with the load-bearing predicate table. That last one is a
+dated record: its matrix covers twenty-one invariants, which is what existed when it was written.
+
+A change near any invariant must leave its test demonstrating it, or amend the invariant deliberately and
+say so in the commit message. Where a predicate is marked mutation-confirmed, rerun that mutation rather
+than only the suite.
 
 Four areas concentrate them, and a change to any of these needs a test demonstrating the invariant still
 holds.
