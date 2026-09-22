@@ -32,6 +32,16 @@ TypeScript gate and CI runs exactly it; `npm run verify:native` is the separate 
   origin check refused it. Approve, deny, revoke, policy edits, the registration window, logout and
   consent were all affected. The policy is `same-origin`, which still sends no referrer off this origin.
   No test saw it, because a test builds its own request and sets a correct `Origin`.
+- **Every credential lifetime was the dependency's default, and the shortest of them was unrecoverable.**
+  The library defaults to a 1-hour access token, a 30-day grant and a 90-day client record, and extends
+  none of them on use: a refresh rotates the token but leaves the grant's original expiry, and nothing
+  touches the client record after registration. So the client record lapsed first. A client with no
+  record has only dynamic registration to fall back on, and that is shut, so Claude Code asked to
+  authenticate and then could not, until the owner opened a ten-minute window in the console. The
+  companion was never affected, because `createClient` is exempt from the registration lifetime. All
+  three values are now stated in `oauthOptions`, and the client record outlives its grant by design, so a
+  lapsed grant costs one consent click from the client that asked for it instead of a visit to
+  `/accounts`.
 - **A mistyped tool argument was dropped in silence.** No input schema called `.strict()`, so zod
   stripped unknown keys and a `send_message` carrying `text` rather than `body` was accepted, hashed and
   queued with no body. Inputs are strict now.

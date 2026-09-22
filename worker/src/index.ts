@@ -57,6 +57,20 @@ function oauthOptions(env: Env, deps: Deps): OAuthProviderOptions<Env> {
       return undefined;
     },
     scopesSupported: ["mcp", "staging"],
+    // Stated here rather than inherited, because registration being closed changes what an expiry
+    // costs. The library defaults are 1 hour, 30 days and 90 days, and the client record is the
+    // shortest-lived of the three: when it lapses, the client's only way back is dynamic registration,
+    // which is shut, so the owner must open a ten-minute window at /accounts before a session can work
+    // at all. The client record therefore outlives the grant by a wide margin. An expired grant then
+    // costs one consent click, which the owner can give from the client that asked for it.
+    //
+    // A year sets the re-consent cadence. It is not a security boundary: revocation is an owner action
+    // at /accounts, which kills the grant at once rather than waiting for a timeout. Neither value is
+    // load-bearing for safety, because every mailbox mutation still passes the policy engine and a
+    // token only ever buys what the policy already allows.
+    accessTokenTTL: 3600,
+    refreshTokenTTL: 365 * 86_400,
+    clientRegistrationTTL: 10 * 365 * 86_400,
     // Off deliberately. A CIMD client identifies by URL and never registers, so leaving this on is a
     // second door around the registration window above: any HTTPS host becomes a client id. MCP's
     // 2026 security guidance reserves "accept any HTTPS client_id" for open servers, and this
