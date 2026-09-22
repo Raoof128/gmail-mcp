@@ -11,9 +11,11 @@ so the sentence that stood here, that nothing had sent an email, is no longer tr
 qualification gates remain `not_run`, release authority is unreachable by construction, and the served
 build identity is `unqualified`.
 
-The suite is 851 TypeScript tests, 651 of them inside the real Workers runtime against D1, R2 and KV
-emulation with no mocked storage, plus 27 native tests under `swift test`. `npm run verify` is the
-TypeScript gate and CI runs exactly it; `npm run verify:native` is the separate Swift gate.
+The suite is 856 TypeScript tests (shared 11, worker 656, companion 24, qualification 165), the 656
+worker tests running inside the real Workers runtime against D1, R2 and KV emulation with no mocked
+storage, plus 27 native tests under `swift test`. `npm run verify` is the TypeScript gate and CI runs
+exactly it; `npm run verify:native` is the separate Swift gate. This section is the one place current
+counts are stated; other documents link here rather than repeating them.
 
 ### Added
 
@@ -71,6 +73,35 @@ TypeScript gate and CI runs exactly it; `npm run verify:native` is the separate 
 - Sections 4.7 and 4.8 of the design spec were rewritten from source: 4.7 describes how the system is
   verified and names both gates, and 4.8 describes the qualification architecture, the evidence graph and
   the five external gates.
+
+### Documentation
+
+- **`docs/INVARIANTS.md`, the published invariant index.** The current set of thirty-six invariants existed
+  only in a gitignored working-notes file, so the repository's own documents pointed at the gauntlet ledger
+  for a list it froze at twenty-one on 2026-09-18. Every entry was read back against source for the new
+  index, which names each implementation site and separates the two guarantees that hold only by
+  construction. The gauntlet stays canonical for proof types and the load-bearing predicate table as of its
+  date.
+- **`docs/README.md`, a documentation map** that separates the current documents from the development
+  record, so a reader following a link into a dated plan knows which one they landed on.
+- **The gate accounting is stated once and consistently.** Three open feasibility decisions, four
+  guarantees between them, and restore execution as a fifth external gate: documents variously said three
+  or five without the relationship, and the release-qualification runbook named writer quiescence while
+  omitting the deployment exclusion it is decided with.
+- Recovery's refusal to resume MIME is documented as the mechanism it is. `allowed()` in
+  `worker/src/google/recovery-http.ts` refuses any Gmail recovery request carrying a body, which is stronger
+  than the `phase_b_verified` flag a 2026-09-15 plan described and which never existed in the code.
+- Which recovery layer refuses first is now written down, because the reasons are not interchangeable: the
+  token pin reports `account_changed` before the durable admission gate is reached at all.
+- **A second declared-but-never-emitted refusal reason, found by reading the emitters rather than the enum.**
+  The gauntlet recorded `measurement_unavailable` as declared and returned by nothing.
+  `provider_barrier_unavailable` sits three lines above it in the same `Reason` enum and has the same shape:
+  nothing returns it either. Two of the four reasons reserved for the external gates are therefore enum
+  members only. Documented rather than fixed, because emitting a reason is a code change that owes its own
+  test, and the documents now say plainly that a declared reason is not an implemented refusal.
+- Restore is split into the three layers people collapse into one word: preflight and refusal (implemented,
+  tested, mutation-confirmed), the restore request itself (not implemented), and uncertain-response
+  reconciliation (not implemented, and unreachable because there is no request to be uncertain about).
 
 ### Earlier in this cycle
 
