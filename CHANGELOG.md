@@ -11,7 +11,7 @@ so the sentence that stood here, that nothing had sent an email, is no longer tr
 qualification gates remain `not_run`, release authority is unreachable by construction, and the served
 build identity is `unqualified`.
 
-The suite is 859 TypeScript tests (shared 11, worker 659, companion 24, qualification 165), the 659
+The suite is 860 TypeScript tests (shared 11, worker 660, companion 24, qualification 165), the 660
 worker tests running inside the real Workers runtime against D1, R2 and KV emulation with no mocked
 storage, plus 27 native tests under `swift test`. `npm run verify` is the TypeScript gate and CI runs
 exactly it; `npm run verify:native` is the separate Swift gate. This section is the one place current
@@ -41,10 +41,12 @@ counts are stated; other documents link here rather than repeating them.
   reason (`grammar`/`origin`/`traversal`/`draft_id`/`path`/`query`/`url`) and a `describeSessionUrl` shape.
   In that shape every value outside a fixed vocabulary is reduced to its length and punctuation, so neither
   the upload capability nor a mailbox address can reach the log. The error returned to callers is unchanged.
-- **Open:** the refusal happens after the operation has moved to `executing`, so a URL that is refused
-  before any upload is still reported as `delivery_unknown`, although nothing reached Gmail. Validating
-  before `beginSend` would make it a definite failure. This was left for a separate change because it
-  touches recovery classification.
+- **A refused session URL is now a definite failure, not `delivery_unknown`.** `upload` validates the
+  session URL right after the session opens and before `beginSend`, while the operation is still `claimed`.
+  No byte can move through a URL that is never PUT to, so the gate settles `failed_safe` and releases the
+  staged handles, which can then be retried at once. Before, the operation was already `executing`: the
+  caller saw `delivery_unknown` and the handle stayed `handle_reserved`. `putResumable` keeps its own check
+  as a second line.
 
 - **The owner console refused every form post it served.** The pages sent `Referrer-Policy: no-referrer`,
   under which a browser serialises the `Origin` of its own same-origin POST as the string `null`, and the

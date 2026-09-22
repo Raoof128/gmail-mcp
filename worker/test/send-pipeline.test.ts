@@ -163,6 +163,38 @@ describe("sendMime", () => {
     gm().afterSession = null;
     expect((await opRow(id)).state).toBe("executing");
   });
+  it("an unusable session URL is refused before the operation opens: it stays claimed and no PUT is sent", async () => {
+    const id = await op();
+    const big = new Uint8Array(MEDIA_UPLOAD_MAX).fill(4);
+    const methods: string[] = [];
+    gm().before = (req) => {
+      methods.push(req.method);
+      if (req.method === "POST" && new URL(req.url).searchParams.get("uploadType") === "resumable")
+        return Promise.resolve(
+          new Response(null, {
+            status: 200,
+            headers: {
+              location:
+                "https://gmail.googleapis.com/resumable/upload/gmail/v1/users/me/messages/send?uploadType=resumable&upload_id=u1&unexpected=1",
+            },
+          }),
+        );
+      return Promise.resolve(undefined);
+    };
+    await expect(
+      send(
+        id,
+        mime({
+          attachments: [
+            { filename: "b.bin", mime: "application/octet-stream", size: big.byteLength, open: fromBytes(big) },
+          ],
+        }),
+      ),
+    ).rejects.toThrow("invalid resumable session endpoint");
+    gm().before = null;
+    expect(methods).toEqual(["POST"]);
+    expect((await opRow(id)).state).toBe("claimed");
+  });
   it("a 401 on a small send never repeats its mutation body", async () => {
     const id = await op();
     await seedAccessToken(e, { ...acct, access: "at-stale", refresh: "rt-x" });

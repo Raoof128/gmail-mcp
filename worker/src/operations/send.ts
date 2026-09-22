@@ -3,8 +3,9 @@ import { GmailMcpError } from "@gmail-mcp/shared/errors";
 import type { Deps } from "../deps";
 import type { Env } from "../env";
 import { gmailFetch, openResumableSession, putResumable, type Upload } from "../google/gmail";
+import { validateSessionUrl } from "../google/resumable";
 import { beginRecoverableOperation } from "./recovery-state";
-import type { Binding } from "./recovery-types";
+import type { Binding, UploadEndpoint } from "./recovery-types";
 import { beginOperation } from "./journal";
 
 export const MEDIA_UPLOAD_MAX = 5 * 1024 * 1024;
@@ -140,15 +141,19 @@ async function upload(
     length: o.length,
     ...(metadata ? { metadata } : {}),
   });
+  const endpoint: UploadEndpoint =
+    o.path === "messages/send"
+      ? { kind: "send" }
+      : o.path === "drafts"
+        ? { kind: "draft_create" }
+        : { kind: "draft_update", draftId: decodeURIComponent(o.path.slice(7)) };
+  // Refuse an unusable session while the operation is still `claimed`: no byte can move through a URL we
+  // will not PUT to, so the gate settles failed_safe (and releases the handles) instead of delivery_unknown.
+  validateSessionUrl(session, endpoint);
   const expectedCredentialVersion = await beginSend(env, acct, o.operationId, o, session, initiationVersion);
   return putResumable(env, deps, acct, session, {
     expectedCredentialVersion,
-    endpoint:
-      o.path === "messages/send"
-        ? { kind: "send" }
-        : o.path === "drafts"
-          ? { kind: "draft_create" }
-          : { kind: "draft_update", draftId: decodeURIComponent(o.path.slice(7)) },
+    endpoint,
     contentType: o.contentType,
     length: o.length,
     body: o.body,
