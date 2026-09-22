@@ -580,11 +580,16 @@ companion.
 Every adversarial test records both outcomes. A caught abuse is evidence the gate works.
 
 No test count appears in this section, and none did before the rewrite either. Keeping it that way
-is the point: a number here goes stale the next time anyone adds a test, and the counts that do
-exist live in CLAUDE.md where they are read as a snapshot rather than as a requirement.
-`docs/superpowers/reviews/2026-09-17-full-project-gauntlet.md` is canonical for the invariant matrix
-with its proof types, the load-bearing predicate table, the source-derived tool matrix and the
-findings. It is appended to, never rewritten.
+is the point: a number here goes stale the next time anyone adds a test. Current counts live in one
+published place, the Unreleased section of `CHANGELOG.md`, where they read as a snapshot rather than
+as a requirement. They are deliberately not repeated elsewhere, and they are not in the working notes,
+which are not part of the repository.
+
+`docs/INVARIANTS.md` is canonical for the invariant set itself and names the implementation site
+behind each one. `docs/superpowers/reviews/2026-09-17-full-project-gauntlet.md` is canonical for the
+proof type behind each invariant as of 2026-09-18, the load-bearing predicate table, the
+source-derived tool matrix and the findings; its matrix covers twenty-one invariants, which is what
+existed when it was written. It is appended to, never rewritten.
 
 ### 4.8 Qualification, restore and the external gates
 
@@ -699,10 +704,21 @@ gmail/
     migrations/      D1
     test/
   companion/         stdio MCP: save_attachment, stage_file, list_roots, login CLI
+    native/          Swift helper: Darwin filesystem calls, SQLite, Security.framework
     test/
+  scripts/qualification/   build identity, evidence graph, controllers, release assessment
+    test/
+  docs/ARCHITECTURE.md                                     orientation and trust boundaries
+  docs/INVARIANTS.md                                       the canonical invariant index
+  docs/runbooks/                                           Google Cloud, companion, release, qualification
   docs/superpowers/specs/2026-09-09-gmail-mcp-design.md   (this file)
   docs/parity/hosted-2026-09-09.json                       (Appendix A schemas, captured in plan task 0)
 ```
+
+`shared`, `worker`, `companion` and `scripts/qualification` are the four npm workspaces the root gate
+runs across. Section 1.1 names neither the native helper nor the qualification harness, because both
+arrived after it was written and both are now load-bearing: the helper is the authority for the save
+receipt state machine, and the harness is where build identity and the evidence graph live.
 
 TypeScript for the Worker and companion protocol; Swift, Darwin C wrappers and SQLite for native authority. Every dependency is pinned exactly and the committed lockfile is normative for versions; this document names none, because a version written in prose goes stale the first time the lockfile moves. The Worker uses Cloudflare's MCP package and `@cloudflare/workers-oauth-provider` (tested at 0.10.3). Companion uses the MCP TypeScript SDK 2.x over stdio.
 
@@ -718,9 +734,13 @@ TypeScript for the Worker and companion protocol; Swift, Darwin C wrappers and S
 - `P4-OVERWRITE`: the overwrite design the `+overwrite` modifier is reserved for. V1 refuses every
   overwrite and nothing emits the modifier.
 
-The complete reconciled register of deferred and retired items lives with the gauntlet record in
-`docs/superpowers/reviews/2026-09-17-full-project-gauntlet.md`, which is canonical; the list above is
-a summary and the register wins where they differ.
+The complete register of deferred and retired items is
+`docs/superpowers/plans/2026-09-15-gmail-mcp-deferred-feature-register.md`, which is canonical and
+carries its own reconciliation against source dated 2026-09-19. The list above is a summary and the
+register wins where they differ; the register also holds one entry this summary omits, `P7-STUCK-DEBT`,
+a charged save receipt whose temporary exists but no longer matches its recorded device and inode.
+`docs/superpowers/reviews/2026-09-17-full-project-gauntlet.md` holds a separate reconciliation of the
+same register as of 2026-09-18, which is evidence about the register rather than the register itself.
 
 Retired: the `X-Claude-Audit-Id` header on sent mail. An internal audit id has no business travelling to recipients' mail servers.
 
