@@ -1,5 +1,11 @@
 # Gmail MCP Plan 6 continuation handoff
 
+> **Historical record.** This handoff describes the repository as it stood on 2026-09-17 at
+> `f69eb333d1107abd261bbeac8883e51c49e70e70`, including its test counts. For current status see
+> [the README](../../README.md); for the current architecture see
+> [the design spec](../superpowers/specs/2026-09-09-gmail-mcp-design.md). Nothing here has been edited
+> to match later work.
+
 Updated 2026-09-17. This file contains implementation history and safe continuation instructions. It contains no credentials, tokens, email contents, target secrets, or private topology.
 
 ## Repository state

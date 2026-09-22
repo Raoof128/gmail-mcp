@@ -119,7 +119,7 @@ Source: `docs/superpowers/plans/2026-09-13-gmail-mcp-plan-5-recovery-and-release
 
 **Tech stack:** Existing pinned Worker/TypeScript/Vitest, D1/R2/keyring, native Swift helper. No dependency upgrade is included.
 
-**Spec:** [Revision 3 design](../specs/2026-09-13-gmail-mcp-plan-5-recovery-design.md). **Normative implementation appendix:** [types, migration, transaction ordering, fixtures and live acceptance cases](2026-09-13-plan-5-contracts.md). Read both before executing any task, together with the [revision-3 review resolution and writer inventory](../reviews/2026-09-13-plan-5-revision3-resolution.md). The [finding resolution](../reviews/2026-09-13-plan-5-resolution.md) maps F01–F13 to these changes.
+**Spec:** [Revision 3 design](../specs/2026-09-13-gmail-mcp-plan-5-recovery-design.md). **Normative implementation appendix:** [types, migration, transaction ordering, fixtures and live acceptance cases](../plans/2026-09-13-plan-5-contracts.md). Read both before executing any task, together with the [revision-3 review resolution and writer inventory](../reviews/2026-09-13-plan-5-revision3-resolution.md). The [finding resolution](../reviews/2026-09-13-plan-5-resolution.md) maps F01–F13 to these changes.
 
 ## Constraints
 

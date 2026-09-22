@@ -18,3 +18,46 @@ Drafted with Plan 6 on 2026-09-15 against `f8a7c86363640c01453ac05a0e3a33838c839
 V1 blockers remain in the Plan 6 closure plan: provider/device controllers, complete fault/writer coverage, administrative interruption tests, restore quiescence and controller, target deployment receipts, installed clients, physical trials and resource measurements. They are not reclassified as deferred features by this register.
 
 The [follow-on design package](../specs/2026-09-16-gmail-mcp-feature-follow-ons.md) now defines each entry's authority boundary, failure behavior and acceptance evidence. These are design drafts awaiting independent review; implementation status is unchanged.
+
+## Reconciliation, 2026-09-19 at `c3302d2`
+
+Every entry above was re-checked against source rather than carried forward on trust. The table stands;
+what follows records the anchor for each disposition, one correction, and one new open item.
+
+| ID                     | Disposition                        | Anchor read this pass                                                                                         |
+| ---------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| P6-PHASE-B             | Deferred; provider proof required  | `worker/src/google/recovery-http.ts:42,54` refuse any recovery request carrying a body                        |
+| P4-OVERWRITE           | Deferred                           | `SafeFiles.save` publishes through `gm_publish`, the exclusive rename; an occupied destination refuses        |
+| P6-BATCH               | Deferred                           | `MessageTargetInput` and `ThreadTargetInput` in `shared/src/schemas.ts:63-64` each carry exactly one id       |
+| P6-ALL-ACCOUNTS        | Deferred                           | `worker/src/tools/read.ts:65` resolves one account before `search_threads` runs                               |
+| P6-LOCAL-PROXY         | Deferred                           | `companion/src/server.ts` registers three tools                                                               |
+| P6-MULTI-USER          | Deferred                           | `worker/src/env.ts:16` still gates login on the `OWNER_GOOGLE_SUBS` allowlist                                 |
+| P6-GOOGLE-VERIFICATION | Applicability assessment required  | unchanged; nothing in the repository records a completed assessment                                           |
+| P6-LARGE-DOWNLOAD      | Deferred                           | `STAGING_LIMITS.fileBytes` and `SafeFiles.maximum` are both 25 MiB, so the 26,214,400 ceiling holds           |
+| P6-AUDIT-HEADER        | Retired, and now regression-tested | `worker/test/retired-audit-header.test.ts:37-38` asserts no `x-` header is emitted and no `x-claude-audit-id` |
+
+### One correction
+
+The P6-PHASE-B row describes the current behaviour as `phase_b_verified=false`. **No such field exists**,
+in the Worker, the shared package, the companion or the qualification tooling; a repository-wide search
+for `phase_b_verified` and `phaseBVerified` returns nothing outside this document. The row is left as
+written because this register is a dated record, but the real mechanism is stronger than a flag:
+`recovery-http.ts` refuses categorically, returning false when `request.init.body != null`, so a recovery
+request cannot carry MIME at all rather than carrying it behind an unset boolean. Current documentation
+should describe the refusal, not the flag.
+
+### One new open item
+
+Plan 7 added `gmail-mcp-companion debt`, which clears a charged save reservation in exactly one state: a
+`publication_unknown` receipt whose temporary is provably absent. An end-to-end run on 2026-09-19 found a
+second charged state with no remedy.
+
+| ID            | Current behavior                                                                                              | Next design deliverable                                                                                                                | Acceptance condition                                                                                                               | Status                    |
+| ------------- | ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| P7-STUCK-DEBT | A `verified` receipt whose temporary exists but no longer matches its recorded device and inode stays charged | Whether release authority may widen to a state the collector has refused, and what proof replaces the ENOENT the current path requires | The widened predicate is mutation-confirmed, refuses an unknown probe, and cannot release a receipt whose bytes may have published | Deferred; design required |
+
+Reaching that state needs a deliberate act, because it means creating a file at a path named by a UUID,
+which is why it is recorded rather than treated as urgent. It is written down because an unclearable
+charge is the class of defect Plan 7 existed to end, and it should not be rediscovered from scratch. The
+reproduction is in the end-to-end section of
+[Plan 7](2026-09-19-gmail-mcp-plan-7-repair-and-reconciliation.md).

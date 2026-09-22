@@ -8,9 +8,14 @@ A Gmail [Model Context Protocol](https://modelcontextprotocol.io) server that mo
 from your disk, works across several Google accounts, and puts every mailbox mutation behind a permission
 model the server enforces rather than the model.
 
-> **Status: pre-release.** The Worker, Google OAuth, Gmail tools and macOS companion are implemented.
-> Local tests cover the protocol and recovery paths. Deployment, real Keychain/browser login and installed
-> Claude client checks remain release gates. Plan 5 adds guarded, status-only send recovery; live fault/device controllers remain gated. See [recovery qualification](docs/runbooks/release-qualification.md) and [the companion runbook](docs/runbooks/companion.md).
+> **Status: pre-release, deployed and exercised end to end.** The Worker, Google OAuth, the 38 Gmail
+> tools and the macOS companion are implemented, and a deployed Worker has completed the whole chain
+> against a real mailbox: dynamic client registration, PKCE, a scoped token, reads, a gated send that
+> refused until the owner approved it, and an attachment round trip to disk. That is not a release.
+> Five external qualification gates remain `not_run`, release authority is unreachable by construction,
+> and the served build identity is `unqualified`. See [project status](#project-status) below,
+> [the release qualification runbook](docs/runbooks/release-qualification.md) and
+> [the companion runbook](docs/runbooks/companion.md).
 
 ## Why this exists
 
@@ -103,20 +108,46 @@ model and the reasoning behind each decision, is in
 
 ## Project status
 
-| Component                                | State                                     |
-| ---------------------------------------- | ----------------------------------------- |
-| D1 schema, ownership invariants          | Built and tested                          |
-| Policy engine, actions and modifiers     | Built and tested                          |
-| Approval engine, atomic claim            | Built and tested                          |
-| Operation journal, idempotency           | Built and tested                          |
-| Attachment staging (server side)         | Built and tested                          |
-| Audit log, scheduled recovery            | Built and tested                          |
-| MCP endpoint and control tools           | OAuth scope and audience checks           |
-| Google OAuth and the approval pages      | Implemented; synthetic OAuth tests        |
-| The 38 Gmail tools and the send pipeline | Implemented; synthetic Gmail tests        |
-| Local companion                          | Implemented; macOS native and stdio tests |
+Three words are used precisely below and are not interchangeable. **Locally verified** means a test
+proves it inside the real Workers runtime or the native suite. **Live** means it has additionally run
+against the deployed Worker and real Google infrastructure. **`not_run`** means no evidence exists, which
+is a status rather than a failure.
 
-The Worker suite runs inside workerd with a synthetic Google service. The native suite exercises local files and SQLite; Keychain tests use an isolated adapter. This implementation run did not send mail or deploy the Worker.
+| Component                                | State                                                              |
+| ---------------------------------------- | ------------------------------------------------------------------ |
+| D1 schema, ownership invariants          | Locally verified                                                   |
+| Policy engine, actions and modifiers     | Locally verified                                                   |
+| Approval engine, atomic claim            | Locally verified; live, a send held until the owner approved it    |
+| Operation journal, idempotency           | Locally verified                                                   |
+| Attachment staging (server side)         | Locally verified; live, a PDF staged out of Gmail and read to disk |
+| Audit log, scheduled recovery            | Locally verified                                                   |
+| MCP endpoint and control tools           | Locally verified; live, registration, PKCE and all 38 tools listed |
+| Google OAuth and the approval pages      | Locally verified against a synthetic Google; live against Google   |
+| The 38 Gmail tools and the send pipeline | Locally verified against a synthetic Gmail; live, a message sent   |
+| Local companion and native helper        | Locally verified; live, a save to disk and an owner debt repair    |
+| The five external qualification gates    | `not_run`, and none can be closed from here                        |
+| Release authority                        | Unreachable by construction                                        |
+
+The Worker suite runs inside workerd against real D1, R2 and KV emulation with a synthetic Google
+service. The native suite exercises real files and SQLite; Keychain tests use an isolated adapter.
+
+### What is not established
+
+Five guarantees are external to this repository and remain `not_run`. A tested refusal path proves the
+system refuses without evidence; it does not produce the evidence.
+
+| Gate                                 | Why it cannot be closed from here                                           |
+| ------------------------------------ | --------------------------------------------------------------------------- |
+| Peak isolate memory                  | 128 MB is per isolate, shared and reused; sampled metrics cannot bound it   |
+| Restore execution and reconciliation | no restore controller exists, so no restore request can be issued           |
+| Authoritative writer quiescence      | cancelling in-flight queries does not exclude a delayed or cross-host write |
+| Cross-host deployment exclusion      | a local lock does not exclude another laptop, CI runner or operator         |
+| Provider commit barrier              | the provider does not expose whether a lost response committed              |
+
+None of these may be closed with an operator boolean, an elapsed timeout, a successful request, Node RSS
+or a mocked receipt. The
+[full-project gauntlet](docs/superpowers/reviews/2026-09-17-full-project-gauntlet.md) is canonical for
+their classification and the evidence behind it.
 
 ## Getting started
 
@@ -129,8 +160,9 @@ npm install
 npm run verify
 ```
 
-`npm run verify` runs formatting, linting, type checking and the tests. CI runs the same gate, so a green
-local run checks the same TypeScript gates. Run `npm run verify:native` on a supported Mac as a separate gate.
+`npm run verify` runs formatting, linting, type checking and the TypeScript suites across all four
+workspaces. CI runs exactly this. It does not compile or test Swift, so `npm run verify:native` is a
+separate gate that runs `swift test` and a release build on a supported Mac.
 
 ### Running the server
 
@@ -139,15 +171,15 @@ the OAuth flow, and the browser pages need a Google login as the configured owne
 
 ```bash
 cp worker/.dev.vars.example worker/.dev.vars
-cd worker
-npm run migrate:local
+npm run migrate:local --workspace worker
 ```
 
 Create the Google OAuth client and set the owner following
 [the Google Cloud runbook](docs/runbooks/google-cloud.md). Because the Worker builds its redirect URIs and
 audiences as `https://<WORKER_HOSTNAME>`, the OAuth flows do not complete against a plain-HTTP
 `wrangler dev`; deploy a dev Worker for manual checks. The test suite drives every flow, including the
-races, against an in-memory Google inside the real Workers runtime:
+races, against an in-memory Google inside the real Workers runtime, so run the gate from the repository
+root:
 
 ```bash
 npm run verify
@@ -161,21 +193,37 @@ npx @modelcontextprotocol/inspector https://<WORKER_HOSTNAME>/mcp
 
 ## Local companion
 
-[Set up the companion](docs/runbooks/companion.md) after registering its client on the Worker Accounts page. It exposes `list_roots`, `stage_file` and `save_attachment`. V1 refuses overwrites.
+[Set up the companion](docs/runbooks/companion.md) after registering its client on the Worker Accounts
+page. It exposes `list_roots`, `stage_file` and `save_attachment`, and refuses overwrites.
+
+A save that loses the exclusive rename holds its reservation against a 25 MiB budget until the helper
+collects the leftover temporary. When the collector cannot verify what it would remove, that charge stays
+and every later save answers `spool_budget`. `gmail-mcp-companion debt` lists whatever is charged with
+the remedy that fits it, and `debt --scope SCOPE --release HANDLE` clears a charge in the one state where
+a human safely can. Releasing repairs accounting only: the receipt still says `publication_unknown`,
+because dropping a charge learns nothing about the destination.
 
 ## Repository layout
 
 ```
 shared/     Contracts both halves depend on: action names, error codes, zod schemas
-worker/     The Cloudflare Worker: policy, approvals, operations, staging, audit
-  src/crypto/      canonical JSON, hashing, AES-GCM keyring
+worker/     The Cloudflare Worker: all of the authority
+  src/auth/        token scope and audience, consent, companion registration
+  src/crypto/      canonical JSON (RFC 8785), hashing, AES-GCM keyring
   src/policy/      recipient trust, argument limits, the policy engine
   src/approval/    pending actions and the atomic claim
-  src/operations/  the external-side-effect journal
-  src/staging/     attachment ingest, reads and lifecycle
-  migrations/      D1 schema
-companion/  TypeScript stdio client and Swift/Darwin helper
-docs/       Architecture, the design spec, and the implementation plans
+  src/operations/  the external-side-effect journal, the send pipeline, recovery
+  src/staging/     attachment ingest, reads, reservations and lifecycle
+  src/google/      the Google OIDC client, account connect, tokens, the Gmail client
+  src/tools/       the 38 tools and the one gate they all pass through
+  src/mime/        RFC 2047 and 2231 encoding, the message as a stream
+  src/web/         the owner console: accounts, policy, audit, approval, login
+  src/mcp/         the MCP server and the control tools
+  migrations/      D1 schema, append-only
+companion/  TypeScript stdio client
+  native/          the Swift helper: Darwin filesystem calls, SQLite, Keychain
+scripts/    qualification: build identity, evidence graph, release assessment
+docs/       Architecture, runbooks, the design spec, and the development history
 ```
 
 ## Security

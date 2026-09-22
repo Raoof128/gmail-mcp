@@ -6,12 +6,53 @@ release.
 
 ## [Unreleased]
 
-The project is pre-release. Nothing here has sent an email.
+The project is pre-release. A deployed Worker has now completed the whole chain against a real mailbox,
+so the sentence that stood here, that nothing had sent an email, is no longer true. The five external
+qualification gates remain `not_run`, release authority is unreachable by construction, and the served
+build identity is `unqualified`.
 
-The suite is 840 tests, 642 of them inside the real Workers runtime against D1, R2 and KV emulation with
-no mocked storage. `npm run verify` is the gate, and CI runs the same command.
+The suite is 851 TypeScript tests, 651 of them inside the real Workers runtime against D1, R2 and KV
+emulation with no mocked storage, plus 27 native tests under `swift test`. `npm run verify` is the
+TypeScript gate and CI runs exactly it; `npm run verify:native` is the separate Swift gate.
 
 ### Added
+
+- **`gmail-mcp-companion debt`.** A save that loses the exclusive rename holds its 25 MiB reservation
+  until the helper collects the leftover temporary, and when the collector cannot verify what it would
+  remove the charge stays and every later save answers `spool_budget`. The command lists what is charged
+  with the remedy that fits it, and `debt --scope SCOPE --release HANDLE` clears a charge in the single
+  state where a human safely can: a `publication_unknown` receipt whose temporary is provably absent,
+  ENOENT being the only outcome accepted as proof. Releasing repairs accounting and leaves the receipt
+  saying `publication_unknown`, because dropping a charge learns nothing about the destination.
+
+### Fixed
+
+- **The owner console refused every form post it served.** The pages sent `Referrer-Policy: no-referrer`,
+  under which a browser serialises the `Origin` of its own same-origin POST as the string `null`, and the
+  origin check refused it. Approve, deny, revoke, policy edits, the registration window, logout and
+  consent were all affected. The policy is `same-origin`, which still sends no referrer off this origin.
+  No test saw it, because a test builds its own request and sets a correct `Origin`.
+- **A mistyped tool argument was dropped in silence.** No input schema called `.strict()`, so zod
+  stripped unknown keys and a `send_message` carrying `text` rather than `body` was accepted, hashed and
+  queued with no body. Inputs are strict now.
+- **`save_attachment` answered `download_metadata` against the deployment.** Cloudflare recomputes
+  framing for a streamed R2 body and drops `content-length`, so the Worker also sends `x-size`, which the
+  edge leaves alone, and the companion reads whichever arrives.
+- **`reply` refused on a self-sent message** with `invalid_address`, because the only recipient was the
+  account itself.
+- A companion CLI test timed a cold Node start against `expect.poll`'s one-second default. Reproduced at
+  one run in forty under load, then given a budget that reflects a process start.
+
+### Changed
+
+- Tool results carry `structuredContent` rather than JSON embedded in prose.
+- `send_message` and `reply` accept `attach_from_message`, so a send can carry a file the mailbox already
+  has without a download and re-upload.
+- Sections 4.7 and 4.8 of the design spec were rewritten from source: 4.7 describes how the system is
+  verified and names both gates, and 4.8 describes the qualification architecture, the evidence graph and
+  the five external gates.
+
+### Earlier in this cycle
 
 - The 38 remote tools. Reads, drafts, sends, labels, spam and trash all run through one gate that
   applies the policy engine, stores an `ask` as a canonical payload, and journals every external

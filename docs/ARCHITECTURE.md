@@ -139,6 +139,12 @@ Executors are registered by tool name and version and receive nothing but the st
 account, so a later request holding only the row can execute it, and never under code the payload was not
 approved for.
 
+`ToolSpec.journal` governs the direct path only. An approval always opens an operation, because the
+atomic claim needs one to be once-only, so a tool that does not journal still has an operation when it
+is reached through `execute_pending` and its executor must move that operation to `executing` before the
+first mutating request. `JOURNALED_ACTIONS` is documentation; no code reads it, and it is not
+authoritative for whether an operation exists.
+
 ### The send pipeline
 
 `worker/src/mime/`, `worker/src/operations/send.ts`
@@ -221,13 +227,41 @@ Session ciphertext expires at the 24-hour observation horizon or on disable/revo
 
 Every mutation ingress, network admission and protocol-2 settlement checks the installation's external restore generation. Time Travel remains quarantined because an older snapshot may have lost sent operations and keys. Restoring an active flag does not authorize resuming service.
 
+Materialization exclusivity is bounded by a lease rather than by process lifetime. Admission tests
+`lease_until > now`, so at most one materializer is admitted while a lease is valid, and a holder stalled
+past the lease stops excluding anyone even if its cleanup never ran. Two materializers can overlap in
+exactly that window. That is the deliberate price of not letting one dead process wedge every later job,
+and the cron deletes the abandoned row. It is not absolute mutual exclusion and should not be described
+as one.
+
 ## Local companion
 
 `companion/src/` contains the stdio tools, HTTPS adapter and loopback PKCE login. `companion/native/` contains the Swift helper with Darwin filesystem calls, SQLite and Security.framework.
 
 The helper reads owner-only configuration and holds a permanent process lock during each transaction. Tool arguments name logical root IDs and relative paths. Snapshots precede remote intent creation, and request keys include the authenticated Worker owner, origin and client ID. Repeated calls recover the original snapshot and result. A new explicit idempotency key requests a fresh snapshot.
 
-For saves, the helper records the temporary path and inode before publication. Exclusive rename prevents replacement. Recovery verifies the destination identity and hash before ACK; missing or changed evidence produces `publication_unknown`. The journal reserves snapshot and save capacity across helper processes. Logout persists an epoch change before deleting the Keychain item.
+For saves, the helper records the temporary path and inode before publication. Exclusive rename prevents
+replacement. Recovery verifies the destination identity and hash before ACK; missing or changed evidence
+produces `publication_unknown`. The journal reserves snapshot and save capacity across helper processes.
+Logout persists an epoch change before deleting the Keychain item.
+
+The receipt says `verified` before the rename and `published` only after it, which is a liveness
+decision rather than a safety one: a failure in between recovers as retryable, where claiming
+`published` early would strand the transfer as `publication_unknown` permanently.
+
+A charge released only on proof needs a way out when the proof can never arrive.
+`recoverStartup` collects a leftover temporary on every helper start by checking the device and inode it
+recorded; when it cannot, the receipt becomes `publication_unknown` and the reservation stays charged
+against the 25 MiB save budget until a human acts. `gmail-mcp-companion debt` is that action. It lists
+what is charged, and `debt --scope SCOPE --release HANDLE` clears a charge in exactly one state: a
+`publication_unknown` receipt whose temporary is provably absent, where ENOENT is the only outcome
+accepted as proof and a permission error or a lost root answers `unknown` and refuses. Releasing repairs
+accounting and leaves publication truth alone. The scope is required because a reservation id is
+`sha256(scope + NUL + handle)` and cannot be inverted.
+
+Two consequences follow from `recoverStartup` running before the command loop. A collectable temporary
+never reaches a listing, because answering `debt` is itself a helper start. And a row that does survive
+with its temporary present is one the collector refused, which no restart will fix.
 
 ## Technology choices
 
@@ -242,10 +276,32 @@ For saves, the helper records the temporary path and inode before publication. E
 The Workers Paid plan is assumed: the free plan's 10 ms CPU limit is not enough to hash a 25 MB
 attachment.
 
+## How to read a claim in this repository
+
+The documentation distinguishes several things that are easy to collapse into "tested", and the
+distinction is load-bearing when the subject is a security guarantee.
+
+| Term                   | What it means                                                                                       |
+| ---------------------- | --------------------------------------------------------------------------------------------------- |
+| Locally verified       | a test proves it inside the real Workers runtime or the native suite                                |
+| Mutation-confirmed     | neutralising the named predicate turns a specific test red, and the edit was checked                |
+| Live                   | it additionally ran against the deployed Worker and real Google infrastructure                      |
+| Holds by construction  | true because the code that could break it does not exist yet, and owes requalification when it does |
+| Refusal path tested    | the system refuses without evidence; this is not the evidence                                       |
+| Defence in depth       | a guard that is real but redundant, because another condition catches the same case                 |
+| Load-bearing predicate | mutation testing showed this single clause is the only thing preventing the failure                 |
+| `not_run`              | no evidence exists, which is a status rather than a failure                                         |
+
+Never read a refusal path as the underlying guarantee, and never read `not_run` as `pass`.
+
 ## Where to read next
 
 - [The design spec](superpowers/specs/2026-09-09-gmail-mcp-design.md) holds every decision, the fact each
-  one rests on, and the threat model.
-- [Plan 1](superpowers/plans/2026-09-09-gmail-mcp-plan-1-worker-foundations.md) walks the implemented
-  foundations task by task, with the tests.
+  one rests on, the threat model, how the system is verified (4.7) and the qualification architecture
+  with the five external gates (4.8).
+- [The full-project gauntlet](superpowers/reviews/2026-09-17-full-project-gauntlet.md) is canonical for
+  the invariant matrix with its proof types, the load-bearing predicate table and the findings.
 - [SECURITY.md](../SECURITY.md) puts the threat model in a table and says what the design does not cover.
+- [The runbooks](runbooks/) cover Google Cloud setup, the companion, release and release qualification.
+- The plans and reviews under `superpowers/` are the development record. They describe what was true when
+  they were written, not necessarily what is true now; this document and the spec are the present tense.

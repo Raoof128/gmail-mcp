@@ -37,20 +37,22 @@ Neither the model, nor the MCP client, nor the tool annotations are trusted to e
 
 The design is built to withstand these. A report showing any of them succeeding is a vulnerability.
 
-| Threat                                                    | The control that should stop it                                                                                        |
-| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Prompt injection in email content driving a mailbox write | Every mutation resolves through the policy engine; `ask` requires an out-of-band human approval                        |
-| A model fabricating or relaying an approval               | Approval is bound to a browser session or MCP URL-mode elicitation. A code relayed through the model is never accepted |
-| Substituting a different attachment after approval        | Reserved handles are read out of the approved, hashed payload, never from a caller argument                            |
-| Replaying an approved action                              | The claim is a single atomic transition; a second attempt finds nothing to claim                                       |
-| Duplicate sends after a crash or timeout                  | Every external side effect is journaled; ambiguous outcomes become `delivery_unknown` and are never auto-retried       |
-| Reaching another account's data                           | Ownership is enforced by composite foreign keys in the schema, not by remembering to filter                            |
-| A stolen approval URL                                     | The approval page requires a session whose identity matches the pending action's owner                                 |
-| A stolen bearer token used on the wrong surface           | Tokens are scoped: an `mcp` token cannot reach staging routes, and a `staging` token cannot reach the MCP endpoint     |
-| Path traversal or symlink escape when saving a file       | The companion uses logical roots, validates relative components and refuses traversal and symlink escape               |
-| A hostile filename hiding its extension                   | Filenames are normalised, control and bidirectional-override characters are replaced, and truncation is UTF-8 safe     |
-| Header injection through a subject or recipient           | Carriage return, line feed and NUL are refused in every header value                                                   |
-| Permanent, unrecoverable deletion                         | No tool exposes it, and the requested Google scope cannot perform it                                                   |
+| Threat                                                     | The control that should stop it                                                                                          |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Prompt injection in email content driving a mailbox write  | Every mutation resolves through the policy engine; `ask` requires an out-of-band human approval                          |
+| A model fabricating or relaying an approval                | Approval is bound to a browser session or MCP URL-mode elicitation. A code relayed through the model is never accepted   |
+| Substituting a different attachment after approval         | Reserved handles are read out of the approved, hashed payload, never from a caller argument                              |
+| Replaying an approved action                               | The claim is a single atomic transition; a second attempt finds nothing to claim                                         |
+| Duplicate sends after a crash or timeout                   | Every external side effect is journaled; ambiguous outcomes become `delivery_unknown` and are never auto-retried         |
+| Reaching another account's data                            | Ownership is enforced by composite foreign keys in the schema, not by remembering to filter                              |
+| A stolen approval URL                                      | The approval page requires a session whose identity matches the pending action's owner                                   |
+| A stolen bearer token used on the wrong surface            | Tokens are scoped: an `mcp` token cannot reach staging routes, and a `staging` token cannot reach the MCP endpoint       |
+| Path traversal or symlink escape when saving a file        | The companion uses logical roots, validates relative components and refuses traversal and symlink escape                 |
+| A hostile filename hiding its extension                    | Filenames are normalised, control and bidirectional-override characters are replaced, and truncation is UTF-8 safe       |
+| Header injection through a subject or recipient            | Carriage return, line feed and NUL are refused in every header value                                                     |
+| Permanent, unrecoverable deletion                          | No tool exposes it, and the requested Google scope cannot perform it                                                     |
+| A silently mistyped tool argument changing what is sent    | Every tool input schema is strict, so an unrecognised key is refused rather than dropped                                 |
+| A recovery settling against a grant that has been replaced | A recovery records the `credential_version` it was admitted under, and settlement requires the account still to match it |
 
 ### Out of scope
 
@@ -75,11 +77,36 @@ someone who already controls the owner's browser session.
 Attachment type checking works on the filename, and applies to outbound uploads. Archives are not
 inspected. Gmail's own scanner is the authoritative check, and its rejection reaches the caller.
 
-The project is pre-release. Local verification covers synthetic OAuth/Gmail traffic and native filesystem recovery. It does not establish deployment readiness, power-loss durability on every volume, or successful login in installed Claude clients.
+The project is pre-release. Local verification covers synthetic OAuth and Gmail traffic and native
+filesystem recovery, and a deployed Worker has since completed the whole chain against a real mailbox.
+That run is worth what it is and no more: it demonstrates that the controls behave against real Google
+infrastructure, and it establishes nothing about power-loss durability on every volume, peak isolate
+memory, or the external gates below.
+
+Five guarantees sit outside this repository and are recorded as `not_run`: peak isolate memory, restore
+execution and reconciliation, authoritative writer quiescence, cross-host deployment exclusion, and the
+provider commit barrier. Each has a tested refusal path, and a tested refusal proves only that the system
+refuses without evidence. It does not produce the evidence. None of them may be closed with an operator
+boolean, an elapsed timeout, a successful request, Node RSS or a mocked receipt. Release authority is
+unreachable while they stand, and the served build identity is `unqualified`.
 
 The companion uses macOS descriptor-relative operations and exclusive publication. It refuses overwrites, network volumes, hard-linked sources, and private-state overlap. This confines tool-selected paths under owner-configured roots; it is not a sandbox against an arbitrary process running as the same macOS user.
 
-An unknown R2 writer retains its storage charge after lease expiry. A local publication with uncertain identity retains its receipt and save reservation. These states can exhaust capacity until the owner investigates; deleting their evidence to restore capacity can invalidate replay and cleanup guarantees.
+An unknown R2 writer retains its storage charge after lease expiry, and a local publication with
+uncertain identity retains its receipt and save reservation. Both are deliberate: a charge is released
+only on proof, never on a timer or on an absent object. The cost is that these states can exhaust
+capacity until the owner acts, and deleting their evidence by hand to free capacity is the one action
+that turns recoverable debt into a permanent charge.
+
+On the local side there is now a way out that does not require deleting evidence.
+`gmail-mcp-companion debt` lists every charged receipt with the remedy that fits it, and
+`debt --scope SCOPE --release HANDLE` clears a charge in exactly one state: a `publication_unknown`
+receipt whose temporary is provably absent, where ENOENT is the only outcome that counts as proof. A
+release repairs accounting and nothing else, so the receipt still reads `publication_unknown` afterwards.
+One reachable state has no remedy: a receipt whose temporary exists but no longer matches the device and
+inode recorded at creation is refused by both the collector and the release, and its charge stands until
+the owner investigates. That is recorded rather than patched, because widening release authority is a
+change to a permission boundary.
 
 ## Handling secrets
 
