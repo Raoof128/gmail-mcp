@@ -52,6 +52,16 @@ TypeScript gate and CI runs exactly it; `npm run verify:native` is the separate 
   account itself.
 - A companion CLI test timed a cold Node start against `expect.poll`'s one-second default. Reproduced at
   one run in forty under load, then given a budget that reflects a process start.
+- **Discovery listed a scope no client reading it could hold.** The authorization server metadata and
+  both resource documents named `mcp` and `staging`, while `/authorize` refuses a client that asks for
+  more than the single scope it may hold. A client requests what it finds, so Claude Code asked for
+  both and consent failed with `invalid_scope` seconds after the owner opened a registration window,
+  which made the window look like the fault. The server metadata now names `mcp` alone: `staging`
+  belongs to the companion, and `createClient` mints that client out of band, so it never reads
+  discovery. The resource documents name no scopes. The library builds all of them from one shared
+  list, any list it carried was wrong for one of the two resources, and RFC 9728 leaves the field
+  optional. The rule at `/authorize` did not change. A test now pins what nobody had written down,
+  that discovery may only name a scope its reader can be granted.
 
 ### Changed
 

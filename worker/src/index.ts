@@ -56,7 +56,14 @@ function oauthOptions(env: Env, deps: Deps): OAuthProviderOptions<Env> {
         return { description: "client registration is closed; the owner must open a registration window" };
       return undefined;
     },
-    scopesSupported: ["mcp", "staging"],
+    // Only "mcp". A client reads this list and asks for what it finds, and /authorize refuses any
+    // client that asks for more than the single scope it may hold, so listing "staging" here told
+    // every discovering client to request a combination that could not be granted: consent died on
+    // invalid_scope right after the owner opened a registration window. "staging" is real but
+    // unreachable this way, because the only client that holds it is the companion, which createClient
+    // mints out of band and which never reads discovery. A list that names a scope its reader cannot
+    // hold is a trap, not documentation.
+    scopesSupported: ["mcp"],
     // Stated here rather than inherited, because registration being closed changes what an expiry
     // costs. The library defaults are 1 hour, 30 days and 90 days, and the client record is the
     // shortest-lived of the three: when it lapses, the client's only way back is dynamic registration,
@@ -81,12 +88,13 @@ function oauthOptions(env: Env, deps: Deps): OAuthProviderOptions<Env> {
     // No `resource` here on purpose: one configured resource would bind every token to /mcp and the
     // provider would then refuse the same token at /staging. The authorize handler pins the resource
     // per scope instead, and requireScope checks the audience per route.
-    // One metadata object serves both well-known paths; the library derives `resource` from the path
-    // and publishes one scopes list, so both scopes are listed and the authorize handler decides which
-    // one a given client may hold.
+    // One metadata object serves both well-known paths: the library derives `resource` from the path
+    // but publishes a single shared scopes list, so any list here is wrong for one of the two
+    // resources — /mcp refuses a staging token and /staging refuses an mcp one. It therefore claims
+    // no scopes at all, which RFC 9728 permits, and a client that needs to know reads the
+    // authorization server metadata above.
     resourceMetadata: {
       authorization_servers: [origin],
-      scopes_supported: ["mcp", "staging"],
       bearer_methods_supported: ["header"],
       resource_name: "gmail-mcp",
     },

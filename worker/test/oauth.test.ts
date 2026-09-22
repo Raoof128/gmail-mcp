@@ -29,10 +29,26 @@ describe("discovery", () => {
     const prm = (await (await b.get("/.well-known/oauth-protected-resource/mcp")).json()) as any;
     expect(prm.resource).toBe(`${HOST}/mcp`);
     expect(prm.authorization_servers).toEqual([HOST]);
-    expect(prm.scopes_supported).toEqual(["mcp", "staging"]);
+    // The library builds every resource document from one shared list, so any list it carries is
+    // wrong for one of the two resources. It claims nothing instead, which RFC 9728 allows.
+    expect(prm.scopes_supported).toBeUndefined();
     const staging = (await (await b.get("/.well-known/oauth-protected-resource/staging")).json()) as any;
     expect(staging.resource).toBe(`${HOST}/staging`);
     expect(staging.authorization_servers).toEqual([HOST]);
+    expect(staging.scopes_supported).toBeUndefined();
+  });
+
+  it("a client that asks for exactly what discovery advertises is granted it", async () => {
+    // The regression this pins: the metadata offered "mcp staging" while /authorize refuses any
+    // client that asks for both, so a conformant client requesting everything it was offered could
+    // never finish consent, and the failure landed on the owner as invalid_scope after a registration
+    // window they had just opened. Discovery may only name scopes the client reading it can hold;
+    // staging belongs to the companion, which createClient mints out of band and never discovers.
+    const b = new Browser(worker, testEnv());
+    const as = (await (await b.get("/.well-known/oauth-authorization-server")).json()) as any;
+    expect(as.scopes_supported).toEqual(["mcp"]);
+    const t = await mintToken(worker, testEnv(), g, { scope: (as.scopes_supported as string[]).join(" ") });
+    expect(t.accessToken).not.toBe("");
   });
 });
 
