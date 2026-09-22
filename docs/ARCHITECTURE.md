@@ -83,6 +83,13 @@ Google refresh tokens live only in the Worker, encrypted per account with framed
 write that stores or refreshes one carries the `credential_version` read at the start, so a revocation that
 lands mid-refresh wins and the refreshed token is thrown away rather than stored against a revoked account.
 
+`credential_version` is the **grant epoch**, and the distinction matters wherever it is fenced. Reconnecting
+or revoking an account advances it, and `revokeAccount` is the only place that increments it. Refreshing an
+access token does not, which is what the comment above `getAccessTokenPinned` records. A recovery binds the
+epoch it was admitted under, so an ordinary refresh leaves a live recovery alone while a reconnect stops it.
+The field keeps its name in prose because renaming it in documentation only would leave the documentation
+describing a column that does not exist.
+
 One-use OAuth state lives in D1 and is consumed by a single `UPDATE ... RETURNING`. KV holds the provider's
 own records: it is eventually consistent, so a read followed by a delete is not a one-use consume.
 
@@ -227,6 +234,20 @@ Session ciphertext expires at the 24-hour observation horizon or on disable/revo
 
 Every mutation ingress, network admission and protocol-2 settlement checks the installation's external restore generation. Time Travel remains quarantined because an older snapshot may have lost sent operations and keys. Restoring an active flag does not authorize resuming service.
 
+Recovery never resumes MIME, and the mechanism is stronger than a flag. `allowed()` in
+`worker/src/google/recovery-http.ts` refuses any Gmail recovery request whose `init.body` is not null, at
+both the session-status and the search branches, so recovery _cannot_ send bytes rather than recording that
+it did not. The only body it admits is the token refresh: a `POST` to Google's exact token URL carrying a
+`URLSearchParams` body of at most 16 KiB. A `phase_b_verified` field appears in a 2026-09-15 plan and has
+never existed in this codebase.
+
+Three layers can turn a recovery request away and the reason names which one did. `getAccessTokenPinned`
+runs first and answers `suspended` with `account_changed` when the grant epoch has moved. `admitRequest`
+sits inside the fetch and answers `suspended` with `disabled`, or defers on a budget. `recoveryFences`
+decides whether a settlement lands at all. Because the token pin precedes the durable admission gate for a
+Gmail request, an epoch that moved mid-recovery surfaces as `account_changed` rather than `disabled`, and
+predicting the admission reason there is wrong.
+
 Materialization exclusivity is bounded by a lease rather than by process lifetime. Admission tests
 `lease_until > now`, so at most one materializer is admitted while a lease is valid, and a holder stalled
 past the lease stops excluding anyone even if its cleanup never ran. Two materializers can overlap in
@@ -294,14 +315,26 @@ distinction is load-bearing when the subject is a security guarantee.
 
 Never read a refusal path as the underlying guarantee, and never read `not_run` as `pass`.
 
+Two counts circulate for the same subject and both are right, so the relationship between them is worth
+stating. Three open **feasibility decisions** are recorded in
+[Plan 6 feasibility](superpowers/reviews/2026-09-16-plan-6-feasibility.md): the provider commit barrier,
+writer quiescence together with deployment exclusion, and peak isolate memory. Those three cover four
+guarantees, since quiescence and exclusion are decided together and refused separately as
+`quiescence_unavailable` and `deployment_exclusion_unavailable`. Restore execution and reconciliation is a
+fifth external gate, and it is a missing controller rather than a feasibility question.
+
 ## Where to read next
 
+- [INVARIANTS.md](INVARIANTS.md) is the canonical list of what this system guarantees, with the
+  implementation site behind each one and the two that hold only by construction.
 - [The design spec](superpowers/specs/2026-09-09-gmail-mcp-design.md) holds every decision, the fact each
   one rests on, the threat model, how the system is verified (4.7) and the qualification architecture
   with the five external gates (4.8).
-- [The full-project gauntlet](superpowers/reviews/2026-09-17-full-project-gauntlet.md) is canonical for
-  the invariant matrix with its proof types, the load-bearing predicate table and the findings.
+- [The full-project gauntlet](superpowers/reviews/2026-09-17-full-project-gauntlet.md) is canonical for the
+  proof type behind each invariant as of 2026-09-18, the load-bearing predicate table, the source-derived
+  tool matrix and the findings. Its invariant matrix covers twenty-one, which is what existed then.
 - [SECURITY.md](../SECURITY.md) puts the threat model in a table and says what the design does not cover.
 - [The runbooks](runbooks/) cover Google Cloud setup, the companion, release and release qualification.
+- [docs/README.md](README.md) maps everything else and says which documents are dated records.
 - The plans and reviews under `superpowers/` are the development record. They describe what was true when
   they were written, not necessarily what is true now; this document and the spec are the present tense.
