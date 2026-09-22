@@ -1100,3 +1100,53 @@ CI green on `main`.
 - `senderFor` resolves an explicit `from` against the account address and its verified send-as list.
 - Every `_assert` condition is a literal fragment with bound values, and the one interpolated column
   list is a module constant.
+
+## Appended 2026-09-22: what has changed since this ledger closed
+
+Appended rather than edited, per this file's own rule. Nothing above is rewritten. Four statements in it
+were true when written and are not true now, and a reader arriving from a current document that cites this
+ledger should know which.
+
+**The live path has run.** The "What this audit did not cover" section says no real message has ever been
+sent, that login does not work because the Google client credentials are placeholders, and that the deployed
+Worker has only ever answered `/healthz`. All three were accurate on 2026-09-18 and none is accurate now. On
+2026-09-19 a registered MCP client completed the whole chain against the deployed Worker: registration
+through an owner-opened window, an authorization code with PKCE, a token scoped `mcp`, `tools/list`
+returning all 38 tools, live reads, and a `send_message` that refused until the owner approved it and then
+sent Gmail message `1a0b72425f493ccd`. A 478,744-byte PDF was staged out of Gmail and saved to disk, and the
+same `mcp` token was refused at `/staging` with `Invalid audience`, which is invariant 9 holding against the
+real edge. On 2026-09-22 a second client repeated registration from nothing, which the first run did not
+cover, and found the discovery scope defect on the way through. That run does not close any external gate
+above; it closes the "never spoken to Gmail" caveat and nothing else.
+
+**Three defects were found that this ledger's method structurally could not find**, each living in the gap
+between what a test constructs and what a browser or Google actually sends: the console's own `Origin`
+serialised as the string `null` under `Referrer-Policy: no-referrer`, tool arguments dropped in silence
+because no input schema called `.strict()`, and Gmail re-issuing `attachmentId` on every fetch. The first
+two are fixed; the third is documented in the tool description and the refusal message, and the in-memory
+Gmail still hands back a stable id, so the suite cannot see it.
+
+**The invariant matrix here covers twenty-one.** The current set is thirty-six and lives in
+`docs/INVARIANTS.md`, which is now the canonical list. This file stays canonical for the proof type behind
+each of its twenty-one, for the load-bearing predicate table and for the findings. Both are true; neither
+replaces the other.
+
+**The gate counts.** The three-feasibility-gates table above lists writer quiescence, cross-host exclusion
+and peak isolate memory, which are the three that have or lack a refusal path. That is a narrower set than
+the five external guarantees in the final report and narrower again than the three feasibility _decisions_
+in `2026-09-16-plan-6-feasibility.md`, where quiescence and exclusion are decided together. The
+relationship, now stated in `README.md` and `docs/ARCHITECTURE.md`: three decisions, four guarantees between
+them, plus restore execution as a fifth gate that is a missing controller rather than a feasibility
+question.
+
+**One finding this ledger did not record.** G-006 says `measurement_unavailable` is declared and emitted by
+nothing. `provider_barrier_unavailable`, three lines above it in the same `Reason` enum, has exactly the same
+shape: the only other references to the string in the repository are two assertions in
+`2026-09-15-plan-6-contract-check.mjs` that the enum parses it. So two of the four reasons reserved for the
+external gates are declared-never-emitted, not one, and the provider barrier is enforced by the absence of a
+measuring path rather than by a refusal anyone can test. Same severity as G-006 and for the same reason:
+nothing overclaims the measurement, but a reviewer reading the enum could reasonably conclude a refusal
+exists. Recorded here rather than fixed, because emitting a reason is a code change that owes its own test.
+
+The baseline figures above (840 tests, 22 native) stand as the record of the `post-gauntlet-2026-09-18`
+anchor. Current counts are in the Unreleased section of `CHANGELOG.md`.
