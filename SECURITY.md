@@ -83,12 +83,36 @@ That run is worth what it is and no more: it demonstrates that the controls beha
 infrastructure, and it establishes nothing about power-loss durability on every volume, peak isolate
 memory, or the external gates below.
 
-Five guarantees sit outside this repository and are recorded as `not_run`: peak isolate memory, restore
-execution and reconciliation, authoritative writer quiescence, cross-host deployment exclusion, and the
-provider commit barrier. Each has a tested refusal path, and a tested refusal proves only that the system
-refuses without evidence. It does not produce the evidence. None of them may be closed with an operator
-boolean, an elapsed timeout, a successful request, Node RSS or a mocked receipt. Release authority is
-unreachable while they stand, and the served build identity is `unqualified`.
+Five guarantees sit outside this repository and are recorded as `not_run`.
+
+| Guarantee                            | Refusal path     | Why it is open                                                 |
+| ------------------------------------ | ---------------- | -------------------------------------------------------------- |
+| Authoritative writer quiescence      | tested           | feasibility decision, `quiescence_unavailable`                 |
+| Cross-host deployment exclusion      | tested           | same decision, `deployment_exclusion_unavailable`              |
+| Restore execution and reconciliation | tested           | no restore controller exists, so no request can be issued      |
+| Provider commit barrier              | **none emitted** | the provider does not expose whether a lost response committed |
+| Peak isolate memory                  | **none emitted** | nothing measures, refuses or records peak memory at all        |
+
+Quiescence and exclusion are one feasibility decision refused two ways, so three open feasibility decisions
+account for four of these guarantees; restore is the fifth and is a missing controller rather than an
+unresolved feasibility question. None may be closed with an operator boolean, an elapsed timeout, a
+successful request, Node RSS or a mocked receipt. Release authority is unreachable while they stand, and the
+served build identity is `unqualified`.
+
+A tested refusal proves the system declines to proceed without the evidence. It does not produce the
+evidence. Two of these gates do not even have that. `measurement_unavailable` and
+`provider_barrier_unavailable` are both members of the `Reason` enum that nothing returns, so those two
+gates are enforced by the absence of any code that measures, refuses or records, rather than by a refusal
+anyone can test. A declared enum member is not an implemented refusal.
+
+What holds instead for peak memory sits one step further out. `resources` is a mandatory member of the
+release aggregate, and a missing component makes a pass arithmetically unreachable. Both facts are true and
+neither substitutes for the other: the measurement is unavailable, and its absence still blocks
+qualification.
+
+The guarantees this project _does_ make, each with its implementation site and proof type, are in
+[docs/INVARIANTS.md](docs/INVARIANTS.md). Two of them hold only by construction, and that document says
+which.
 
 The companion uses macOS descriptor-relative operations and exclusive publication. It refuses overwrites, network volumes, hard-linked sources, and private-state overlap. This confines tool-selected paths under owner-configured roots; it is not a sandbox against an arbitrary process running as the same macOS user.
 

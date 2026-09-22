@@ -104,7 +104,8 @@ the filesystem rules only a process on that filesystem can enforce. Gmail never 
 
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) covers this properly. The full design, including the threat
 model and the reasoning behind each decision, is in
-[the design spec](docs/superpowers/specs/2026-09-09-gmail-mcp-design.md).
+[the design spec](docs/superpowers/specs/2026-09-09-gmail-mcp-design.md), and
+[docs/README.md](docs/README.md) maps the rest of the documentation and says which parts are historical.
 
 ## Project status
 
@@ -136,6 +137,14 @@ service. The native suite exercises real files and SQLite; Keychain tests use an
 Five guarantees are external to this repository and remain `not_run`. A tested refusal path proves the
 system refuses without evidence; it does not produce the evidence.
 
+Counting them is easy to get wrong, so the relationship is written out. Three open **feasibility
+decisions** are recorded in
+[Plan 6 feasibility](docs/superpowers/reviews/2026-09-16-plan-6-feasibility.md): the provider commit
+barrier, writer quiescence together with deployment exclusion, and peak isolate memory. Those three
+decisions cover four guarantees, because quiescence and exclusion are decided together and refused
+separately. Restore execution and reconciliation is the fifth, and it is not a feasibility question but a
+missing controller.
+
 | Gate                                 | Why it cannot be closed from here                                           |
 | ------------------------------------ | --------------------------------------------------------------------------- |
 | Peak isolate memory                  | 128 MB is per isolate, shared and reused; sampled metrics cannot bound it   |
@@ -148,6 +157,15 @@ None of these may be closed with an operator boolean, an elapsed timeout, a succ
 or a mocked receipt. The
 [full-project gauntlet](docs/superpowers/reviews/2026-09-17-full-project-gauntlet.md) is canonical for
 their classification and the evidence behind it.
+
+Two further guarantees hold **by construction** rather than by a check, which is stronger while it lasts
+and weaker the moment the code arrives. There is no restore request to be uncertain about, and release
+authority is unreachable because `assessRelease` reports `release` as only `fail` or `not_run` and always
+carries `implementation_incomplete` as a blocker. Both owe requalification on the day a controller appears.
+
+The guarantees that _are_ established, with the implementation site behind each, are in
+[docs/INVARIANTS.md](docs/INVARIANTS.md). Current test counts live in
+[the changelog](CHANGELOG.md#unreleased) and nowhere else, so they cannot drift apart.
 
 ## Getting started
 
@@ -223,8 +241,11 @@ worker/     The Cloudflare Worker: all of the authority
 companion/  TypeScript stdio client
   native/          the Swift helper: Darwin filesystem calls, SQLite, Keychain
 scripts/    qualification: build identity, evidence graph, release assessment
-docs/       Architecture, runbooks, the design spec, and the development history
+docs/       Architecture, the invariant index, runbooks, the design spec, and the development record
 ```
+
+[docs/README.md](docs/README.md) is the map: which documents describe the system now, and which are dated
+records of what was true when they were written.
 
 ## Security
 

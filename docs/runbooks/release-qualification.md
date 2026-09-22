@@ -1,6 +1,6 @@
 # Recovery qualification and rollback
 
-Release remains **pre-release**. Plan 5 implements status-only recovery for new generated-message sends. It never resumes MIME bytes. Existing protocol-1 operations and ambiguous draft sends require manual review. A missing search result or expired session does not establish that mail was not sent.
+Release remains **pre-release**. Recovery for new generated-message sends is status-only and never resumes MIME bytes, which `allowed()` in `worker/src/google/recovery-http.ts` enforces by refusing any Gmail recovery request whose `init.body` is not null rather than by recording a flag. Existing protocol-1 operations and ambiguous draft sends require manual review. A missing search result or an expired session does not establish that mail was not sent: absence of positive evidence is not proof of non-delivery, and an operation stays `delivery_unknown` until authoritative positive evidence resolves it.
 
 ## Local verification
 
@@ -62,7 +62,34 @@ The legacy synthetic registry runs selected workerd regression suites. Native-de
 
 Check deployment, configuration, grant and qualification identity before and after each live case and on each credentialed Worker response. Preserve the first failure and its observations. A retry must not erase an earlier failed or uncertain preparation.
 
-The current sample counts, source requirements and stop rules are in `docs/superpowers/plans/2026-09-15-plan-6-contracts.md`. Resource qualification needs measured peak isolate memory below 128,000,000 bytes and CPU below the actual configured limit. Node RSS and an absence of runtime errors do not establish that measurement. A process kill is not a physical power-loss test. Provider-barrier, writer-quiescence and peak-memory feasibility gates remain open.
+### Release authority is unreachable by construction
+
+`assessRelease` in `scripts/qualification/assess-release.ts` is read-only and returns a verdict rather than granting anything. Three facts about its shape, all of them structural rather than incidental:
+
+- `implementation` is hard-coded to `not_run`, because implementation readiness is code-owned and no manifest may assert it.
+- `implementation_incomplete` is always the first blocker, on every path including the invalid-manifest path.
+- `release` is only ever `fail` or `not_run`. It has no `pass` branch.
+
+`qualification` _can_ read `pass`, when both modes and all nine `CommonCases` verify. Release cannot. This is a current inability rather than an implemented and tested release-authority controller, and writing a release path is a change that must be requalified against the invariants rather than treated as filling in a blank.
+
+A supplied digest, a green local gate or a successful request closes none of this.
+
+The current sample counts, source requirements and stop rules are in `docs/superpowers/plans/2026-09-15-plan-6-contracts.md`. Resource qualification needs measured peak isolate memory below 128,000,000 bytes and CPU below the actual configured limit. Node RSS and an absence of runtime errors do not establish that measurement. A process kill is not a physical power-loss test.
+
+Three feasibility decisions remain open, recorded in [Plan 6 feasibility](../superpowers/reviews/2026-09-16-plan-6-feasibility.md): the provider commit barrier, writer quiescence **together with cross-host deployment exclusion**, and peak isolate memory. The second decision covers two guarantees and refuses them separately, as `quiescence_unavailable` and `deployment_exclusion_unavailable`; naming only one of them would read as though the other were closed.
+
+**A declared reason is not an implemented refusal.** Of the four reasons the `Reason` enum in `contracts.ts` reserves for these gates, two are emitted and two are not.
+
+| Reason                             | Emitted where                                                  | Tested                 |
+| ---------------------------------- | -------------------------------------------------------------- | ---------------------- |
+| `quiescence_unavailable`           | `controllers/quiescence.ts` throws it, `restore.ts` records it | yes, four cases        |
+| `deployment_exclusion_unavailable` | `cli.ts`, at two sites                                         | yes, three cases       |
+| `measurement_unavailable`          | **nowhere**; also listed in `legacy-run.ts`                    | no refusal path exists |
+| `provider_barrier_unavailable`     | **nowhere**                                                    | no refusal path exists |
+
+No code measures, refuses or records anything about peak isolate memory, and no code emits a provider-barrier refusal either. Do not read either enum member as evidence that its refusal is implemented; the gauntlet recorded this for peak memory as finding G-006 and did not record the provider-barrier case, which this pass found by reading the emitters.
+
+What holds instead for peak memory is the aggregate. `resources` is a mandatory member of `CommonCases`, `assessRelease` iterates that list rather than the supplied components, and a missing component adds a `missing_component` blocker without incrementing `verifiedComponents`, so a pass is arithmetically unreachable. The measurement is unavailable **and** its absence blocks qualification; neither fact substitutes for the other. The provider barrier has no equivalent aggregate member of its own, so what blocks it is the live-case requirement rather than a named component.
 
 ## Storage abandonment
 
@@ -72,7 +99,29 @@ The transaction marks selected objects deleting under storage permits. R2 deleti
 
 ## Restore quarantine and compatibility floor
 
-`restore.ts` implements the quarantine orchestration contract through a trusted maintenance/deployment controller. No public endpoint or generic manifest command can bypass its drain proof. Prepare the exact database/bookmark/deployment target, concrete restore authorization and an external private receipt first.
+Three things are commonly collapsed into "restore", and they have three different states.
+
+| Layer                             | State                                   | Where                                                                                            |
+| --------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Preflight and refusal             | implemented, tested, mutation-confirmed | `prepareRestore` validates the manifest, authorization, target equality and expiry, then refuses |
+| The restore request itself        | **not implemented**                     | no transport exists behind `restore-cli.ts`; nothing can issue a restore POST                    |
+| Uncertain-response reconciliation | **not implemented / `not_run`**         | unreachable, because there is no request whose response could be uncertain                       |
+
+`prepareRestore` returns a `not_run` receipt carrying `quiescence_unavailable` when `QuiescenceVerifier`
+refuses, which it always does. If a supported verifier is ever supplied, the next line throws
+`restore_controller_unavailable` rather than proceeding, so adding a working quiescence proof cannot
+silently activate an unreviewed restore implementation. `restore-cli.ts` publishes the receipt and exits 1
+in every case.
+
+The doctrine the future implementation owes, recorded now because it is a required invariant rather than a
+behaviour anything currently exhibits: an uncertain restore response must never be answered by repeating
+the POST. Reconcile with an authoritative read-only pass first. Today "no blind retry" holds only by
+construction, because there is no request to retry, and it owes requalification the day a controller exists.
+
+`restore.ts` re-exports that contract and keeps the v1 entry point as a refusal: `quarantineRestore` throws
+`version_1_restore_retired` whatever a caller supplies, because a `drained` boolean never established writer
+quiescence. No public endpoint or generic manifest command can bypass the drain proof. Prepare the exact
+database/bookmark/deployment target, concrete restore authorization and an external private receipt first.
 
 1. Route only a compatible maintenance build that refuses all mutation ingress and scheduled writes. Rotate `RESTORE_GENERATION` outside D1 and verify every routed version is frozen.
 2. Establish verifiable quiescence of prior database writers. An elapsed timeout, settled promise or Gmail cancellation does not establish it. Refuse Time Travel while this proof is unavailable.

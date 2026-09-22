@@ -1,6 +1,8 @@
 # Private release verification
 
-The project remains pre-release. Local verification and target acceptance are separate requirements. The three open feasibility decisions are recorded in [Plan 6 feasibility](../superpowers/reviews/2026-09-16-plan-6-feasibility.md).
+The project remains pre-release. Local verification and target acceptance are separate requirements.
+
+Three open feasibility decisions are recorded in [Plan 6 feasibility](../superpowers/reviews/2026-09-16-plan-6-feasibility.md): the provider commit barrier, writer quiescence together with cross-host deployment exclusion, and peak isolate memory. They cover four guarantees, because the second decision refuses quiescence and exclusion separately. Restore execution and reconciliation is a fifth external gate and is a missing controller rather than an unresolved feasibility question. Five gates, three decisions. Release authority is unreachable while any of them stands, and separately by construction: see [release qualification](release-qualification.md).
 
 ## Supported native test host
 
