@@ -11,7 +11,7 @@ so the sentence that stood here, that nothing had sent an email, is no longer tr
 qualification gates remain `not_run`, release authority is unreachable by construction, and the served
 build identity is `unqualified`.
 
-The suite is 860 TypeScript tests (shared 11, worker 660, companion 24, qualification 165), the 660
+The suite is 862 TypeScript tests (shared 11, worker 662, companion 24, qualification 165), the 662
 worker tests running inside the real Workers runtime against D1, R2 and KV emulation with no mocked
 storage, plus 27 native tests under `swift test`. `npm run verify` is the TypeScript gate and CI runs
 exactly it; `npm run verify:native` is the separate Swift gate. This section is the one place current
@@ -22,7 +22,11 @@ counts are stated; other documents link here rather than repeating them.
 - **One grant instead of an approval per call.** An `allow` the owner saves on the policy page is now
   final: modifiers (`+attachment`, `+external`, `+bulk`, `+sensitive`) are recorded but raise only the
   built-in defaults. The policy page gains an "Allow everything" button that sets every action to `allow`
-  on every account in one audited edit behind a fresh login. Invariant 4 is amended to match.
+  on every account in one audited edit behind a fresh login. Invariant 4 is amended to match, and
+  SECURITY.md now names what an owner gives up by allowing an action: the out-of-band approval
+  that stops a prompt-injected send. `deny`, no permanent delete, the audit log and the caps still hold.
+  Verified live: all 38 Worker tools and the three companion tools ran against a real mailbox under the
+  owner's grant, including sends with attachments, system labels, spam and trash, and none prompted.
 
 - **`gmail-mcp-companion debt`.** A save that loses the exclusive rename holds its 25 MiB reservation
   until the helper collects the leftover temporary, and when the collector cannot verify what it would
@@ -33,6 +37,11 @@ counts are stated; other documents link here rather than repeating them.
   saying `publication_unknown`, because dropping a charge learns nothing about the destination.
 
 ### Fixed
+
+- **The ledger table's header covered its first row on every console page.** `overflow: hidden` on
+  `table` made the table the scroll container for its sticky `th`, so the header was offset from the
+  table's own edge. `overflow: clip` keeps the rounded corners without it. The Allow everything note on
+  the policy page also gets its own line.
 
 - **Every resumable upload was refused before a byte moved, so any message over 5 MiB failed.**
   `validateSessionUrl` required the session URL to carry exactly `uploadType` and `upload_id`. Google's
@@ -91,6 +100,8 @@ counts are stated; other documents link here rather than repeating them.
 
 ### Changed
 
+- Dependencies: `agents` 0.24.0, `wrangler` 4.135.0, `@types/node` 26.6.2, and the dev-tooling group
+  (`eslint`, `prettier`, `@cloudflare/vitest-plugin`), each merged with CI green.
 - Tool results carry `structuredContent` rather than JSON embedded in prose.
 - `send_message` and `reply` accept `attach_from_message`, so a send can carry a file the mailbox already
   has without a download and re-upload.

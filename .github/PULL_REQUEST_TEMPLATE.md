@@ -16,7 +16,8 @@
 - [ ] Touches approvals: attachments still come only from the approved payload, and a pending action is
       still claimable exactly once
 - [ ] Touches the operation journal: idempotency keys are still bound to one action and payload hash
-- [ ] Touches policy: modifiers still only raise a level, and account ownership is still checked first
+- [ ] Touches policy: modifiers still only raise a default level (never lower anything, never override an
+      owner's saved choice), and account ownership is still checked first
 - [ ] Touches migrations: added a new numbered file rather than editing an applied one
 
 ## Anything left undone

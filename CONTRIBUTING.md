@@ -130,8 +130,9 @@ and a pending action must be claimable once.
 In `worker/src/operations/journal.ts`, an idempotency key binds to one action and one payload hash.
 Reusing a key with different content is a conflict, and never a quiet replay of the old result.
 
-In `worker/src/policy/`, modifiers may only raise a permission level, and account ownership is checked
-before any policy decision.
+In `worker/src/policy/`, modifiers may only raise a level that came from the built-in defaults, never
+one the owner saved, and nothing may lower a level. Account ownership is checked before any policy
+decision.
 
 In `worker/migrations/`, ownership is enforced by composite foreign keys. Migrations are append-only, so
 add a new numbered file rather than editing one that has already been applied.
