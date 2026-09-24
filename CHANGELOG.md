@@ -25,8 +25,10 @@ counts are stated; other documents link here rather than repeating them.
   on every account in one audited edit behind a fresh login. Invariant 4 is amended to match, and
   SECURITY.md now names what an owner gives up by allowing an action: the out-of-band approval
   that stops a prompt-injected send. `deny`, no permanent delete, the audit log and the caps still hold.
-  Verified live: all 38 Worker tools and the three companion tools ran against a real mailbox under the
-  owner's grant, including sends with attachments, system labels, spam and trash, and none prompted.
+  Verified live twice on 2026-09-24: all 38 Worker tools and the three companion tools ran against a real
+  mailbox under the owner's grant, including sends with attachments, system labels, spam and trash, and
+  none prompted. The second run was against the redeployed build with the dependency updates, and neither
+  run created a pending action.
 
 - **`gmail-mcp-companion debt`.** A save that loses the exclusive rename holds its 25 MiB reservation
   until the helper collects the leftover temporary, and when the collector cannot verify what it would
