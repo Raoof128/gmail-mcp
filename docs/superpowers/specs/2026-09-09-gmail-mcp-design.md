@@ -21,7 +21,7 @@ Goals:
 2. Downloads attachments to the owner's disk and attaches files from disk through a thin local companion.
 3. Several Google accounts for one owner.
 4. Tool parity with the hosted connector baseline captured in Appendix A, plus attachment and control tools.
-5. Every Gmail mutation sits behind an editable, action-based `allow | ask | deny` policy that the server enforces. `ask` produces a human approval that no model can forge.
+5. Every Gmail mutation sits behind an editable, action-based `allow | ask | deny` policy that the server enforces. `ask` produces a human approval that no model can forge. Amended 2026-09-24: an `allow` the owner saves is final, so an owner who grants "Allow everything" once is not asked again; the guarantee is that no model can change the policy, not that every mutation asks.
 
 Non-goals for v1: multi-user tenancy, Google app verification and CASA, archive content scanning, Gmail permanent delete, downloading individual attachments larger than 25 MB, batch label or trash tools.
 

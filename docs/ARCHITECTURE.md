@@ -10,7 +10,9 @@ one rests on, is in [the design spec](superpowers/specs/2026-09-09-gmail-mcp-des
 > authority. The authenticated server-side policy engine is the authority.
 
 Everything below follows from that sentence. The model proposes; the server decides; a human approves
-anything consequential.
+anything the owner's policy says to ask about. By default that is every consequential action. An owner
+may decide once, on the policy page, to allow them instead, and the server then honours that decision
+without asking again.
 
 ## Two halves, deliberately unequal
 
