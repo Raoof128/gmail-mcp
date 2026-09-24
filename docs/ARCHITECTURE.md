@@ -40,7 +40,7 @@ tool call
    ├─ resolve the account          explicit for writes; never guessed
    ├─ validate arguments           caps on recipients, subject, body, payload size
    ├─ compute modifiers            +external, +attachment, +bulk, +sensitive
-   ├─ policy decision              allow | ask | deny  (modifiers only raise)
+   ├─ policy decision              allow | ask | deny  (modifiers raise defaults only)
    │
    ├── deny  ──▶ refused and audited
    │
@@ -103,8 +103,10 @@ account override, then owner-wide setting, then the built-in default.
 
 Modifiers are the interesting part. `+external`, `+attachment`, `+bulk` and `+sensitive` describe risk in
 the specific call, and they can only raise a level. There is no path by which a modifier makes something
-more permitted. A send that is `allow` for your own address becomes `ask` the moment a stranger is on the
-recipient list.
+more permitted. Under the built-in defaults, a send that is `allow` for your own address becomes `ask` the
+moment a stranger is on the recipient list. A level the owner saved on the policy page is different: it is
+final, and the modifiers are recorded without raising it. The policy page's "Allow everything" button is
+that one decision for every action.
 
 `recipients.ts` decides what "stranger" means. It uses a deliberately restricted address grammar, because
 this is a permission boundary where a false negative is an inconvenience and a false positive is an

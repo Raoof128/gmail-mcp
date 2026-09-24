@@ -13,12 +13,13 @@ export async function assertAccount(db: D1Database, userId: string, accountId: s
   if (!row) throw new GmailMcpError("account_not_found", "account_not_found");
 }
 
-export async function effectiveLevel(
+/** The level in force, and whether the owner chose it (a policy row) or it is the built-in default. */
+async function resolveLevel(
   db: D1Database,
   userId: string,
   accountId: string,
   action: Action,
-): Promise<Level> {
+): Promise<{ level: Level; chosen: boolean }> {
   const def = DEFAULT_POLICY[action];
   if (def === "browser") throw new Error(`action ${action} is browser-only`);
   await assertAccount(db, userId, accountId);
@@ -29,15 +30,31 @@ export async function effectiveLevel(
     )
     .bind(userId, action, accountId)
     .first<{ level: Level }>();
-  return row?.level ?? def;
+  return row ? { level: row.level, chosen: true } : { level: def, chosen: false };
 }
 
+export async function effectiveLevel(
+  db: D1Database,
+  userId: string,
+  accountId: string,
+  action: Action,
+): Promise<Level> {
+  return (await resolveLevel(db, userId, accountId, action)).level;
+}
+
+/**
+ * Modifiers raise the built-in defaults only. An allow the owner saved on the policy page, behind a
+ * fresh login and an audit row, is final: the owner asked for no per-call approvals, and a modifier
+ * re-imposing one on every attachment or outside recipient made that choice impossible to express.
+ * The modifiers are still returned, so the audit row records them either way.
+ */
 export async function decide(
   db: D1Database,
   o: { userId: string; accountId: string; action: Action; modifiers: Modifier[] },
 ): Promise<Decision> {
-  const base = await effectiveLevel(db, o.userId, o.accountId, o.action);
-  return { base, level: o.modifiers.length > 0 ? raise(base) : base, modifiers: [...o.modifiers] };
+  const { level: base, chosen } = await resolveLevel(db, o.userId, o.accountId, o.action);
+  const level = o.modifiers.length > 0 && !chosen ? raise(base) : base;
+  return { base, level, modifiers: [...o.modifiers] };
 }
 
 export async function setPolicy(

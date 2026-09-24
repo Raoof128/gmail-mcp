@@ -40,7 +40,9 @@ Several Google accounts sit under one owner, each with its own alias, policy and
 names its account. The model never guesses which mailbox you meant.
 
 Every action resolves to `allow`, `ask` or `deny`, and the server decides. Modifiers such as `+external`
-and `+attachment` describe the risk in a specific call, and they can only raise the level.
+and `+attachment` describe the risk in a specific call, and they raise a built-in default. A level you
+save on the policy page is final. "Allow everything" there is one grant that replaces an approval per
+call; you can set any action back to `ask` or `deny` later.
 
 `ask` means a person approves. The call creates a pending action and returns without touching Gmail. The
 payload is held server-side and hashed, so what you approve is what executes. You approve in your browser,

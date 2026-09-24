@@ -19,6 +19,11 @@ counts are stated; other documents link here rather than repeating them.
 
 ### Added
 
+- **One grant instead of an approval per call.** An `allow` the owner saves on the policy page is now
+  final: modifiers (`+attachment`, `+external`, `+bulk`, `+sensitive`) are recorded but raise only the
+  built-in defaults. The policy page gains an "Allow everything" button that sets every action to `allow`
+  on every account in one audited edit behind a fresh login. Invariant 4 is amended to match.
+
 - **`gmail-mcp-companion debt`.** A save that loses the exclusive rename holds its 25 MiB reservation
   until the helper collects the leftover temporary, and when the collector cannot verify what it would
   remove the charge stays and every later save answers `spool_budget`. The command lists what is charged

@@ -1,3 +1,4 @@
+import type { Modifier } from "@gmail-mcp/shared/actions";
 import { env } from "cloudflare:test";
 import { describe, it, expect, beforeAll } from "vitest";
 import { seedUserAndAccount } from "./fixtures";
@@ -93,17 +94,28 @@ describe("owner and account isolation", () => {
   });
 
   it("no modifier combination lowers a level for any owner", async () => {
-    await setPolicy(env.DB, { userId: A, accountId: "acc-a2", action: "label.apply", level: "allow" });
-    const plain = await decide(env.DB, { userId: A, accountId: "acc-a2", action: "label.apply", modifiers: [] });
-    const raised = await decide(env.DB, {
-      userId: A,
-      accountId: "acc-a2",
-      action: "label.apply",
-      modifiers: ["+sensitive"],
-    });
-    expect(plain.level).toBe("allow");
-    expect(raised.level).toBe("ask");
-    expect(raised.base).toBe("allow");
+    const ms = ["+attachment", "+external", "+bulk", "+sensitive"] as const;
+    const combos = [[], ...ms.map((m) => [m]), [...ms]] as Modifier[][];
+    const rank = { allow: 0, ask: 1, deny: 2 } as const;
+    let checked = 0;
+    // A default: modifiers raise label.apply's allow to ask.
+    for (const modifiers of combos) {
+      const d = await decide(env.DB, { userId: A, accountId: "acc-a2", action: "label.apply", modifiers });
+      expect(d.level).toBe(modifiers.length > 0 ? "ask" : "allow");
+      checked++;
+    }
+    // An owner's choice: final, and never lowered.
+    for (const level of ["allow", "ask", "deny"] as const) {
+      await setPolicy(env.DB, { userId: A, accountId: "acc-a2", action: "label.apply", level });
+      for (const modifiers of combos) {
+        const d = await decide(env.DB, { userId: A, accountId: "acc-a2", action: "label.apply", modifiers });
+        expect(d.base).toBe(level);
+        expect(rank[d.level]).toBeGreaterThanOrEqual(rank[level]);
+        expect(d.level).toBe(level);
+        checked++;
+      }
+    }
+    expect(checked).toBe(combos.length * 4);
   });
 
   it("cancel_pending cannot withdraw another owner's pending action", async () => {

@@ -48,9 +48,12 @@ need both it and a behavioural proof.
    Acquisition is `INSERT OR IGNORE` then a read, so the unique index arbitrates rather than a
    check-then-insert race.
 
-4. **Modifiers only raise.** `raise` in `shared/src/actions.ts` returns `ask` for `allow` and everything
-   else unchanged, and `decide` in `worker/src/policy/engine.ts` applies it once. Nothing moves a level the
-   other way. Type-enforced and unit-tested.
+4. **Modifiers only raise, and only a default.** `raise` in `shared/src/actions.ts` returns `ask` for
+   `allow` and everything else unchanged, and `decide` in `worker/src/policy/engine.ts` applies it once, to
+   a level that came from `DEFAULT_POLICY`. A level the owner saved as a policy row is final: an explicit
+   `allow` stays `allow` whatever the modifiers, and the modifiers are still recorded in the audit row.
+   Nothing moves a level down. Amended 2026-09-24 at the owner's request, so that one decision on the
+   policy page ("Allow everything") replaces an approval per call. Unit-tested in `engine.test.ts`.
 
 5. **The approval page never renders a payload it does not understand.** `approvalView` in
    `worker/src/approval/view.ts` returns a typed view per action family and `raw` otherwise, and the page
