@@ -36,9 +36,10 @@ async function render(env: Env, s: Session): Promise<Response> {
         .join("")}</tr>`,
   );
   rows.push(`<tr><td>policy.edit</td><td colspan="${2 + accounts.length}">browser only</td></tr>`);
-  const body = `<form method="post" action="/policy"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}">
+  const body = `<form method="post" action="/policy" class="grant"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}">
 <input type="hidden" name="preset" value="allow_all">
-<p><button>Allow everything</button> <span class="muted">One decision instead of an approval per call: every action below becomes allow on every account, and per-account overrides are cleared. Permanent delete stays impossible, every call is still audited, and you can set anything back to ask or deny here.</span></p></form>
+<p><button>Allow everything</button></p>
+<p class="muted">One decision instead of an approval per call: every action below becomes allow on every account, and per-account overrides are cleared. Permanent delete stays impossible, every call is still audited, and you can set anything back to ask or deny here.</p></form>
 <p>Effective level is the account column, else the all-accounts column, else the default. Modifiers (attachments, outside recipients, 10+ recipients, system labels) raise a default allow to ask, but never an allow you chose here. Saving signs out every other browser session.</p>
 <form method="post" action="/policy"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}">
 <table>${head}${rows.join("")}</table>

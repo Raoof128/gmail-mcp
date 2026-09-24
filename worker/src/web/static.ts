@@ -275,6 +275,8 @@ section[data-account] li form { margin-left: auto; }
 /* ---------- forms ---------- */
 
 form { margin: 0.55rem 0; }
+form.grant { margin: 1rem 0 1.5rem; }
+form.grant p { margin: 0.4rem 0; max-width: 62ch; }
 form.inline { display: inline-block; margin: 0.2rem 0.35rem 0.2rem 0; }
 
 label {
@@ -373,7 +375,9 @@ table {
   border-spacing: 0;
   border: 1px solid var(--rule);
   border-radius: var(--radius);
-  overflow: hidden;
+  /* clip, not hidden: hidden makes the table the scroll container for its sticky th, so top: 3.1rem
+     was measured from the table's own edge and the header row sat over the first data row. */
+  overflow: clip;
   font-family: var(--mono);
   font-size: 0.8rem;
   font-variant-numeric: tabular-nums;
