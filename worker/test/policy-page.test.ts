@@ -116,4 +116,49 @@ describe("policy page", () => {
     ).toBe(before);
     expect((await other.get("/policy")).status).toBe(200);
   });
+
+  it("allow everything is one owner decision: every action allowed, account overrides cleared, audited", async () => {
+    const b = await owner();
+    const html = await (await b.get("/policy")).text();
+    expect(html).toContain('name="preset" value="allow_all"');
+    const csrf = csrfFrom(html, "/policy");
+    await env.DB.prepare("UPDATE web_sessions SET authenticated_at = ? WHERE user_id = 'owner-sub'")
+      .bind(Date.now())
+      .run();
+    expect((await b.post("/policy", { csrf, "a:pp2:trash.move": "deny" })).status).toBe(303);
+    expect(await effectiveLevel(env.DB, "owner-sub", "pp2", "trash.move")).toBe("deny");
+
+    await env.DB.prepare("UPDATE web_sessions SET authenticated_at = 1 WHERE user_id = 'owner-sub'").run();
+    expect((await b.post("/policy", { csrf, preset: "allow_all" })).status).toBe(403);
+    expect(await effectiveLevel(env.DB, "owner-sub", "pp1", "send.message")).toBe("ask");
+    await env.DB.prepare("UPDATE web_sessions SET authenticated_at = ? WHERE user_id = 'owner-sub'")
+      .bind(Date.now())
+      .run();
+
+    expect((await b.post("/policy", { csrf, preset: "allow_all" })).status).toBe(303);
+    for (const acc of ["pp1", "pp2"])
+      for (const a of [
+        "send.message",
+        "send.draft",
+        "send.forward",
+        "label.manage",
+        "label.apply",
+        "spam.mark",
+        "trash.move",
+        "attachment.stage_upload",
+      ] as const)
+        expect(await effectiveLevel(env.DB, "owner-sub", acc, a)).toBe("allow");
+    expect(
+      (await env.DB.prepare(
+        "SELECT count(*) AS n FROM policies WHERE user_id = 'owner-sub' AND account_id IS NOT NULL",
+      ).first<{ n: number }>())!.n,
+    ).toBe(0);
+    expect(await effectiveLevel(env.DB, "other-owner", "pp3", "send.message")).toBe("ask");
+    const audit = await env.DB.prepare(
+      "SELECT decision, summary FROM audit_log WHERE user_id = 'owner-sub' AND action = 'policy.edit' ORDER BY id DESC LIMIT 1",
+    ).first<any>();
+    expect(audit.decision).toBe("edited");
+    expect(audit.summary).toMatch(/^ids=preset:allow_all,a:pp2:trash.move,g:/);
+    expect((await b.post("/policy", { csrf, preset: "bogus" })).status).toBe(400);
+  });
 });

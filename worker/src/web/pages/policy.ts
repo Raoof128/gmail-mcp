@@ -36,7 +36,10 @@ async function render(env: Env, s: Session): Promise<Response> {
         .join("")}</tr>`,
   );
   rows.push(`<tr><td>policy.edit</td><td colspan="${2 + accounts.length}">browser only</td></tr>`);
-  const body = `<p>Effective level is the account column, else the all-accounts column, else the default. Modifiers can only raise a level. Saving signs out every other browser session.</p>
+  const body = `<form method="post" action="/policy"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}">
+<input type="hidden" name="preset" value="allow_all">
+<p><button>Allow everything</button> <span class="muted">One decision instead of an approval per call: every action below becomes allow on every account, and per-account overrides are cleared. Permanent delete stays impossible, every call is still audited, and you can set anything back to ask or deny here.</span></p></form>
+<p>Effective level is the account column, else the all-accounts column, else the default. Modifiers (attachments, outside recipients, 10+ recipients, system labels) raise a default allow to ask, but never an allow you chose here. Saving signs out every other browser session.</p>
 <form method="post" action="/policy"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}">
 <table>${head}${rows.join("")}</table>
 <p><button>Save policy</button></p></form>
@@ -86,18 +89,33 @@ export const policyRoutes: Route[] = [
 
       // Validate everything before writing anything: a bad level anywhere means no change at all.
       const changes: (PolicyChange & { field: string })[] = [];
-      for (const [field, value] of form.entries()) {
-        const m = /^(g|a):(?:([^:]+):)?([a-z_.]+)$/.exec(field);
-        if (!m) continue;
-        const accountId = m[1] === "a" ? m[2]! : null;
-        const action = m[3]!;
-        if (!(EDITABLE as readonly string[]).includes(action)) continue;
-        if (accountId !== null && !accounts.has(accountId)) continue;
-        if (!(OPTIONS as readonly string[]).includes(value))
-          return page(env, s, "Not saved", `<p>Unknown level for ${escapeHtml(field)}.</p>`, 400);
-        if (value === current(accountId, action)) continue;
-        changes.push({ accountId, action: action as Action, level: value as Level | "inherit", field });
-      }
+      const preset = form.get("preset");
+      if (preset !== null) {
+        if (preset !== "allow_all") return page(env, s, "Not saved", "<p>Unknown preset.</p>", 400);
+        for (const o of overrides)
+          if (o.account_id !== null && (EDITABLE as readonly string[]).includes(o.action))
+            changes.push({
+              accountId: o.account_id,
+              action: o.action as Action,
+              level: "inherit",
+              field: `a:${o.account_id}:${o.action}`,
+            });
+        for (const action of EDITABLE)
+          if (current(null, action) !== "allow")
+            changes.push({ accountId: null, action, level: "allow", field: `g:${action}` });
+      } else
+        for (const [field, value] of form.entries()) {
+          const m = /^(g|a):(?:([^:]+):)?([a-z_.]+)$/.exec(field);
+          if (!m) continue;
+          const accountId = m[1] === "a" ? m[2]! : null;
+          const action = m[3]!;
+          if (!(EDITABLE as readonly string[]).includes(action)) continue;
+          if (accountId !== null && !accounts.has(accountId)) continue;
+          if (!(OPTIONS as readonly string[]).includes(value))
+            return page(env, s, "Not saved", `<p>Unknown level for ${escapeHtml(field)}.</p>`, 400);
+          if (value === current(accountId, action)) continue;
+          changes.push({ accountId, action: action as Action, level: value as Level | "inherit", field });
+        }
       await applyPolicyEdit(env.DB, {
         userId: s.userId,
         sessionIdHash: s.idHash,
@@ -109,7 +127,9 @@ export const policyRoutes: Route[] = [
           action: "policy.edit",
           modifiers: [],
           decision: "edited",
-          facts: { ids: changes.map((c) => c.field) },
+          // The audit renderer keeps ten ids, fewer than a preset touches, so the preset names itself first
+          // and the cleared overrides follow it: those are what a reader needs to reconstruct the edit.
+          facts: { ids: [...(preset === null ? [] : [`preset:${preset}`]), ...changes.map((c) => c.field)] },
         },
       });
       return redirect("/policy");

@@ -49,7 +49,7 @@ export const DEFAULT_POLICY: Record<Action, Level | "browser"> = {
   "policy.edit": "browser",
 };
 
-/** Modifiers only raise. allow -> ask; ask and deny unchanged. */
+/** Modifiers only raise. allow -> ask; ask and deny unchanged. `decide` applies this to defaults only. */
 export function raise(level: Level): Level {
   return level === "allow" ? "ask" : level;
 }

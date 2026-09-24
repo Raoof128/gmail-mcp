@@ -147,11 +147,9 @@ describe("send_message", () => {
       attachments: [h],
       idempotency_key: "send-1",
     };
-    // An attachment raises allow to ask (invariant 4), so the send still goes through an approval.
-    const asked = await call("send_message", args);
-    expect(asked.result.status).toBe("pending_approval");
-    await approvePending(env.DB, { id: asked.result.action_id, userId: "owner-sub", via: "browser" });
-    const r = await call("execute_pending", { action_id: asked.result.action_id });
+    // The owner chose allow, so the attachment is recorded but does not raise it (invariant 4): the send
+    // executes on the first call with no approval.
+    const r = await call("send_message", args);
     expect(r.result).toMatchObject({
       status: "executed",
       account: "uni",
@@ -209,12 +207,8 @@ describe("send_message", () => {
       idempotency_key: "inline-1",
     };
     const before = await stagingCount();
-    // Inline bytes are an attachment, so they raise allow to ask; they are staged once, at build time.
-    const asked = await call("send_message", args);
-    expect(asked.result.status).toBe("pending_approval");
-    expect(await stagingCount()).toBe(before + 1);
-    await approvePending(env.DB, { id: asked.result.action_id, userId: "owner-sub", via: "browser" });
-    const a = await call("execute_pending", { action_id: asked.result.action_id });
+    // Inline bytes are an attachment, which does not raise an owner's allow; they are staged once, at build time.
+    const a = await call("send_message", args);
     expect(a.result.status).toBe("executed");
     expect(await stagingCount()).toBe(before + 1);
     const b = await call("send_message", args);
@@ -383,17 +377,15 @@ describe("forward", () => {
     });
     expect(inc.result.modifiers).toEqual(["+attachment"]);
     expect(inc.result.summary).toContain("1 attachment (slides.pdf, 1.5 KB)");
-    // Carrying the original attachments is +attachment, which raises allow to ask, so the send that
-    // proves the bytes are streamed goes through an approval.
+    // Carrying the original attachments is +attachment, which does not raise an allow the owner chose,
+    // so the send that proves the bytes are streamed executes directly.
     await setPolicy(env.DB, { userId: "owner-sub", accountId: "sa", action: "send.forward", level: "allow" });
-    const asked = await call("forward", {
+    const sent = await call("forward", {
       account: "uni",
       message_id: t.id,
       to: ["friend@example.test"],
       include_original_attachments: true,
     });
-    await approvePending(env.DB, { id: asked.result.action_id, userId: "owner-sub", via: "browser" });
-    const sent = await call("execute_pending", { action_id: asked.result.action_id });
     expect(sent.result.status).toBe("executed");
     expect(lastRaw()).toContain('filename="slides.pdf"');
     expect(lastRaw()).toContain("Subject: Fwd: Slides");

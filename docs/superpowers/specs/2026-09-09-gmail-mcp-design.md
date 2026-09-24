@@ -153,7 +153,7 @@ Effective level: account override, else owner global, else default above.
 
 ### 2.2 Modifiers
 
-Each modifier raises the effective level one step: `allow` becomes `ask`; `ask` and `deny` are unchanged. Modifiers never lower a level.
+Each modifier raises the effective level one step: `allow` becomes `ask`; `ask` and `deny` are unchanged. Modifiers never lower a level. Amended 2026-09-24: modifiers raise only a level that comes from the built-in defaults. A level the owner saved as a policy row is final, and the modifiers are still recorded in the audit row. The policy page offers "Allow everything" as one owner decision that replaces per-call approvals.
 
 | Modifier      | Applies to    | Trigger                                                                                     |
 | ------------- | ------------- | ------------------------------------------------------------------------------------------- |
