@@ -51,7 +51,9 @@ statement about the code today.
   4 staging and the companion, 5 recovery, 6 qualification closure (in progress), 7 owner repair and
   documentation reconciliation.
 - `superpowers/specs/` holds the design spec plus the per-plan design inputs for recovery, closure and the
-  follow-on features.
+  follow-on features, and the [Outlook provider design](superpowers/specs/2026-10-05-outlook-provider-design.md),
+  a draft with no implementation acceptance whose review is the
+  [Outlook spec gauntlet](superpowers/reviews/2026-10-05-outlook-spec-gauntlet.md).
 - `superpowers/reviews/` holds the gauntlets and their resolutions. Two matter most:
   - [The full-project gauntlet](superpowers/reviews/2026-09-17-full-project-gauntlet.md) is canonical for
     the proof type behind each invariant as of 2026-09-18, the load-bearing predicate table, the
