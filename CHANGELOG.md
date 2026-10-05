@@ -11,13 +11,32 @@ so the sentence that stood here, that nothing had sent an email, is no longer tr
 qualification gates remain `not_run`, release authority is unreachable by construction, and the served
 build identity is `unqualified`.
 
-The suite is 862 TypeScript tests (shared 11, worker 662, companion 24, qualification 165), the 662
+The suite is 892 TypeScript tests (shared 11, worker 662, companion 24, qualification 165, outlook-probes
+30), the 662
 worker tests running inside the real Workers runtime against D1, R2 and KV emulation with no mocked
 storage, plus 27 native tests under `swift test`. `npm run verify` is the TypeScript gate and CI runs
 exactly it; `npm run verify:native` is the separate Swift gate. This section is the one place current
 counts are stated; other documents link here rather than repeating them.
 
 ### Added
+
+- **An Outlook provider, designed but not built.** The
+  [Outlook provider design](docs/superpowers/specs/2026-10-05-outlook-provider-design.md) covers the whole
+  Microsoft Graph v1.0 mail surface: every endpoint is offered, internal or refused, all 38 tools are
+  specified for Outlook, and 25 Outlook tools are added. Its
+  [gauntlet](docs/superpowers/reviews/2026-10-05-outlook-spec-gauntlet.md) records 46 findings from
+  verbatim reads of the Microsoft documentation, including two Microsoft pages that contradict each other
+  on whether a sent draft keeps its id. A [Gmail follow-on](docs/superpowers/specs/2026-10-05-gmail-settings-follow-on.md)
+  maps the new tools back onto Gmail. Nothing here has implementation acceptance, and no Graph or Entra
+  request has been made.
+
+- **`scripts/outlook-probes`, the Phase 0 harness.** A CLI the owner runs against a throwaway Microsoft
+  mailbox to settle what the documentation cannot: draft ids across send, DELETE semantics, upload-session
+  shape, throttling, id alphabet, category and delta behaviour. It never sends `permanentDelete`, never
+  leaves `/me`, never batches, gates every mailbox change behind a flag and a typed confirmation of the
+  mailbox address, and writes only a redacted evidence file. Its 30 tests run against a synthetic Graph,
+  and two of them were mutation-checked: removing the `permanentDelete` refusal, or attaching the token to
+  an upload chunk, turns the suite red. See [the probe runbook](docs/runbooks/outlook-probes.md).
 
 - **One grant instead of an approval per call.** An `allow` the owner saves on the policy page is now
   final: modifiers (`+attachment`, `+external`, `+bulk`, `+sensitive`) are recorded but raise only the

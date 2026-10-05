@@ -243,6 +243,7 @@ worker/     The Cloudflare Worker: all of the authority
 companion/  TypeScript stdio client
   native/          the Swift helper: Darwin filesystem calls, SQLite, Keychain
 scripts/    qualification: build identity, evidence graph, release assessment
+            outlook-probes: the Phase 0 harness for the proposed Outlook provider
 docs/       Architecture, the invariant index, runbooks, the design spec, and the development record
 ```
 

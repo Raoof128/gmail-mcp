@@ -504,10 +504,11 @@ All 38 are supported. Differences from Gmail:
 
 ### 9.2 New tools (25)
 
-On a Gmail account each returns `unsupported_for_provider` until a Gmail follow-on adds it (Gmail filters,
-vacation responder and forwarding need the `gmail.settings.basic` and `gmail.settings.sharing` scopes,
-which the Gmail grant does not request today). Every refusal happens before policy evaluation, so it never
-creates a pending action.
+On a Gmail account each returns `unsupported_for_provider` until [the Gmail
+follow-on](2026-10-05-gmail-settings-follow-on.md) adds it. Most have a Gmail equivalent under the existing
+`gmail.modify` grant; filters, the vacation responder and language need `gmail.settings.basic`; forwarding
+writes are impossible for an owner's OAuth grant. Every refusal happens before policy evaluation, so it
+never creates a pending action.
 
 | Tool                      | Action           | Graph                                     | Notes                                                            |
 | ------------------------- | ---------------- | ----------------------------------------- | ---------------------------------------------------------------- |
@@ -575,7 +576,7 @@ Additive only, because the CI legacy writer baseline and the protocol-2 triggers
 | Phase | What                                                                                                 | Gate                                                                     |
 | ----- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | 0     | Probes P1 to P18 on a throwaway personal account and an owned developer tenant                       | Evidence in the Plan 6 feasibility format, each with its falsifier       |
-| 1     | Provider seam, migration, `ProviderId`, `classifyTarget`, both transports, allowlist, limiter design | 862 TypeScript tests and the CI legacy corpus unchanged and green        |
+| 1     | Provider seam, migration, `ProviderId`, `classifyTarget`, both transports, allowlist, limiter design | The full TypeScript suite and the CI legacy corpus unchanged and green   |
 | 2     | Connect and read: every read tool in 9.1 and 9.2                                                     | A live read on a real mailbox the owner controls                         |
 | 3     | Organise: labels, categories, folders, moves, message state, thread loops                            | Classifier matrix, allowlist mutation tests, `P6-BATCH` acceptance tests |
 | 4     | Send: draft-first sends, `update_draft`, MailTips, observation                                       | O2 proven live. O1 stays `not_run`                                       |
@@ -588,26 +589,44 @@ controls, and probes that change a real mailbox need explicit authorization firs
 
 ## 13. Phase 0 probes
 
-P1 to P13 are as in the gauntlet, amended by revision 2. Revision 3 adds:
+This table is complete and supersedes the gauntlet's probe list. `scripts/outlook-probes` implements every
+probe marked "harness"; the [probe runbook](../../runbooks/outlook-probes.md) covers the rest and says how a
+run becomes evidence. A synthetic run of the harness is never evidence (G16).
 
-| ID  | Measure                                                                                                   | Falsifier                                                       |
-| --- | --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| P1  | (amended) Draft id after send, on personal and work, against the two conflicting Microsoft pages          | The id resolves to a different item, or never resolves          |
-| P14 | Error bodies when the certificate has expired or the tenant blocks the credential type                    | A body the taxonomy cannot place                                |
-| P15 | A forwarding rule to an external address on personal and work; whether an NDR comes back                  | A forward that leaves silently where the docs say it is blocked |
-| P16 | Delta link lifetime and the `syncStateNotFound` and 410 paths                                             | An expired link that returns data instead of an error           |
-| P17 | Subscription validation, renewal, `missed` and `reauthorizationRequired` events against a deployed Worker | A notification the Worker cannot authenticate by `clientState`  |
-| P18 | What happens to items when a master category is deleted, and to a search folder after 45 days             | Mail content lost when a category definition goes               |
+| ID  | Measure                                                                                              | Falsifier                                                              | Where             |
+| --- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ----------------- |
+| P1  | Draft, stamp `internetMessageId`, send, then GET by the draft id: same item, in Sent Items, how long | The id resolves to a different item, or never resolves                 | harness           |
+| P2  | Whether the stamped `Message-ID` reaches the recipient's copy                                        | Informational; decides whether A24's second key is usable              | harness, with P1  |
+| P3  | `$filter=internetMessageId eq` on Sent Items and on all messages                                     | A filter that errors or returns more than one match                    | harness           |
+| P4  | DELETE on a probe draft, then on its Deleted Items copy                                              | Treat as destructive unless a soft delete is observed                  | harness           |
+| P5  | `$search` with `$filter` and `$orderby`; `conversationId` with and without `$orderby`                | A combination the design relies on that the service rejects            | harness           |
+| P6  | Refresh rotation, granted scope, id-token claim shape                                                | A stored token that stops renewing; a missing `oid`                    | harness           |
+| P6e | Token-endpoint bodies for each row of the 5.5 error taxonomy, including any `error_codes` array      | A body the taxonomy cannot place                                       | runbook           |
+| P7  | Consent for the personal and single-tenant registrations, and in a default work tenant               | An unexpected admin-consent requirement, or none where one is expected | runbook           |
+| P8  | Upload URL host, path and query shape, expiry, chunk order, cancel                                   | A URL form the validator cannot describe                               | harness           |
+| P9  | Direct-attachment and upload-session size boundaries                                                 | A 413 below the stated limits                                          | harness           |
+| P10 | Bursts of 4, 8 and 16 concurrent reads; `429` and `Retry-After`                                      | Throttling below the documented figures                                | harness           |
+| P11 | Plain-text preference, attachment kinds, item and reference `$value`                                 | A body the plain-text path cannot represent                            | harness           |
+| P12 | Id character set across messages, folders and attachments; id stability across moves                 | An id outside `ProviderId`, or one that changes despite the header     | harness           |
+| P13 | Category names, long names, `If-Match` on category writes, rename                                    | A category name the schema rejects; `If-Match` ignored                 | harness           |
+| P14 | Expired certificate and blocked credential types on the confidential client                          | A body the taxonomy cannot place                                       | runbook, Phase 2  |
+| P15 | A forwarding rule to an external address the owner controls: delivered, bounced or silent            | A forward that leaves silently where the docs say it is blocked        | harness           |
+| P16 | Delta paging, `@removed`, re-use of a delta link, a tampered token                                   | An expired or tampered link that returns data instead of an error      | harness           |
+| P17 | Subscription validation, renewal, `missed` and `reauthorizationRequired`                             | A notification the Worker cannot authenticate by `clientState`         | Phase 6           |
+| P18 | What deleting a master category does to items carrying it; search folders after 45 days              | Mail content lost when a category definition goes                      | harness, with P13 |
+
+Not performed: sending an upload chunk with the Graph token attached. The documentation says not to, and
+the design does not depend on what happens if one does.
 
 ## 14. Decisions
 
-| ID  | Question                           | Recommendation, and what v2 assumes                                                                                                |
-| --- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| D1  | Which accounts can connect         | Personal accounts, and a single-tenant app in a tenant the owner administers. Other work tenants once their administrator consents |
-| D2  | `update_draft`                     | Supported. Attachment changes replace the draft and return a new id (8.3). Reversed from v1                                        |
-| D3  | Label administration               | Supported, with `MailboxSettings.ReadWrite`. Reversed from v1, because full coverage needs the scope anyway                        |
-| D4  | Client credential                  | A certificate and `private_key_jwt`, rotated yearly                                                                                |
-| D5  | Gmail equivalents of the new tools | A separate follow-on spec. It needs new Google scopes and its own review                                                           |
+| ID  | Question                           | Recommendation, and what v2 assumes                                                                                                                                  |
+| --- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | Which accounts can connect         | Personal accounts, and a single-tenant app in a tenant the owner administers. Other work tenants once their administrator consents                                   |
+| D2  | `update_draft`                     | Supported. Attachment changes replace the draft and return a new id (8.3). Reversed from v1                                                                          |
+| D3  | Label administration               | Supported, with `MailboxSettings.ReadWrite`. Reversed from v1, because full coverage needs the scope anyway                                                          |
+| D4  | Client credential                  | A certificate and `private_key_jwt`, rotated yearly                                                                                                                  |
+| D5  | Gmail equivalents of the new tools | A separate spec: [the Gmail follow-on](2026-10-05-gmail-settings-follow-on.md). Most need no new scope; rules, auto-replies and language need `gmail.settings.basic` |
 
 ## 15. Open questions
 

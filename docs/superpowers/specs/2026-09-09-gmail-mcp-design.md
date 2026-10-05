@@ -708,6 +708,8 @@ gmail/
     test/
   scripts/qualification/   build identity, evidence graph, controllers, release assessment
     test/
+  scripts/outlook-probes/  Phase 0 probe harness for the proposed Outlook provider
+    test/
   docs/ARCHITECTURE.md                                     orientation and trust boundaries
   docs/INVARIANTS.md                                       the canonical invariant index
   docs/runbooks/                                           Google Cloud, companion, release, qualification
@@ -715,8 +717,10 @@ gmail/
   docs/parity/hosted-2026-09-09.json                       (Appendix A schemas, captured in plan task 0)
 ```
 
-`shared`, `worker`, `companion` and `scripts/qualification` are the four npm workspaces the root gate
-runs across. Section 1.1 names neither the native helper nor the qualification harness, because both
+`shared`, `worker`, `companion`, `scripts/qualification` and `scripts/outlook-probes` are the five npm
+workspaces the root gate runs across. The last arrived with the Outlook provider proposal and holds no
+production code: it is a harness the owner runs against a throwaway mailbox (see
+[the probe runbook](../../runbooks/outlook-probes.md)). Section 1.1 names neither the native helper nor the qualification harness, because both
 arrived after it was written and both are now load-bearing: the helper is the authority for the save
 receipt state machine, and the harness is where build identity and the evidence graph live.
 

@@ -16,3 +16,6 @@ CLAUDE.md
 
 # Private effective deployment configuration (real account topology)
 wrangler.prod.jsonc
+
+# Outlook probe evidence: redacted, but it describes a private mailbox
+probe-evidence/
