@@ -265,6 +265,35 @@ only for the message shown to the owner.
 | `invalid_client`       | 7000215, 7000222 (credential invalid or expired) | Operator fault. Every account on that registration is held and the owner is told to rotate the certificate. Never `internal`, never per account |
 | other, or 5xx          |                                                  | `internal`, transient                                                                                                                           |
 
+### 5.6 One grant at install time (A25, D6)
+
+The owner's requirement: permission for Gmail and Outlook is given once, when an account is installed,
+and holds from then on. No incremental consent, no per-call approval, no second consent screen when a
+later phase ships a tool. Two grants make that up, and both are taken during connect.
+
+**The provider grant.** Connect requests the complete scope set in 5.2 on the first consent screen, even
+though Phase 2 only reads. Asking later would mean a second consent screen per account when Phase 3 or 5
+ships, which is the thing the owner ruled out. The set never grows silently: a code change that adds a
+scope fails the scope-set test, and an account whose stored scopes lack one is `needs_reconnect`, never
+partially working.
+
+**The policy grant.** The connect page ends with the policy choice for the new account, with "Allow
+everything" offered and explained there. Section 7.7 makes that grant cover actions added in later
+releases, so it is given once.
+
+**Keeping the grant alive.** A refresh token is long-lived but not unconditional, so the Worker keeps it
+in use:
+
+| Provider  | Ends a refresh token                                                                                                                                                 | Grade | Keep-alive                                                                                              |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------- |
+| Microsoft | 90 days without use, sliding with each refresh; revocation by the user or an administrator; an administrator's password reset                                        | V     | the cron refreshes any account idle for 30 days and stores the rotated token                            |
+| Google    | Revocation; six months without use; a password change when the token carries Gmail scopes; more than 100 live tokens per account per client; Testing status (7 days) | V     | the same cron refresh; the personal project stays In production, as the Google runbook already requires |
+
+The keep-alive is a refresh only. It never reads mail, so it creates no audit noise and needs no policy.
+Everything the table lists as ending a token is an act of the owner, their administrator or Microsoft and
+Google policy, and no design can outlive it. When one happens the account becomes `needs_reconnect`, and
+one reconnect restores both grants. That is the only time the owner sees a consent screen again.
+
 ## 6. Graph transport (A6, A7, A10, A14, A15, A17)
 
 ### 6.1 Two transports
@@ -386,6 +415,28 @@ Rules run on the server after this service is gone, so they get the strictest po
 - `update_mailbox_settings` changing `delegateMeetingMessageDeliveryOptions` is `+sensitive`.
 - `set_focus_override` with `classifyAs: other` is `+sensitive`. Creating an override for an address that
   already has one overwrites it (V), so the summary shows the old value.
+
+### 7.7 "Allow everything" covers later actions (A25)
+
+Today the preset writes one global `allow` row per action that exists at that moment
+(`worker/src/web/pages/policy.ts`). The four actions in 7.1 would therefore arrive at their `ask` defaults,
+and an owner who had allowed everything would start seeing approvals again. That breaks 5.6.
+
+Amendment: the preset also records a standing grant, one row per owner, with the time it was given and the
+action list it was shown. When the policy engine finds no row for an action and the standing grant exists,
+the level is `allow`. Any explicit row still wins, so a `deny` or `ask` the owner saved stays exactly as
+saved, and editing any single action leaves the standing grant in place. Removing it is one button on the
+policy page behind a fresh login, like every policy edit.
+
+What the standing grant cannot do:
+
+- It cannot reach anything 6.2 refuses: no permanent delete, no rule with a `permanentDelete` action, no
+  move into `recoverableitemsdeletions`. Those are code, not policy.
+- It cannot widen a provider grant. A tool whose scope the account lacks still fails at connect checks.
+- It changes nothing the audit log records. Every call is audited with its modifiers as today.
+
+Consequence for invariant 4, to be amended when this ships: the levels that are final are the rows the
+owner saved and the standing grant, and the built-in defaults now apply only where neither exists.
 
 ## 8. Tool semantics on Outlook
 
@@ -626,6 +677,7 @@ the design does not depend on what happens if one does.
 | D2  | `update_draft`                     | Supported. Attachment changes replace the draft and return a new id (8.3). Reversed from v1                                                                          |
 | D3  | Label administration               | Supported, with `MailboxSettings.ReadWrite`. Reversed from v1, because full coverage needs the scope anyway                                                          |
 | D4  | Client credential                  | A certificate and `private_key_jwt`, rotated yearly                                                                                                                  |
+| D6  | When permission is given           | Once per account, at install: the full scope set on the first consent screen and a standing policy grant (5.6, 7.7). Decided by the owner on 2026-10-05              |
 | D5  | Gmail equivalents of the new tools | A separate spec: [the Gmail follow-on](2026-10-05-gmail-settings-follow-on.md). Most need no new scope; rules, auto-replies and language need `gmail.settings.basic` |
 
 ## 15. Open questions

@@ -97,14 +97,20 @@ correction to a current document, so it is tracked as its own change rather than
 
 ## 6. Scope rollout
 
-Requesting a new scope invalidates nothing, but a grant without it cannot use the tools in section 2.
+The owner decided on 2026-10-05 that permission for both providers is given once, at install, and holds
+from then on (Outlook design 5.6 and 7.7, decision D6). So there is no opt-in phase and no incremental
+consent:
 
-- Phase A ships section 1 under the existing grant. No reconnect, no new consent.
-- Phase B adds `gmail.settings.basic` as an opt-in per account. `accounts.scopes` already records what each
-  grant carries, so a tool in section 2 on an account without the scope returns `needs_scope` with the
-  connect link instead of failing at Google. The connect check that refuses a grant without
-  `gmail.modify`, and never requests `https://mail.google.com/`, is unchanged; a second check refuses
-  `gmail.settings.sharing`.
+- Connect requests `gmail.modify gmail.settings.basic openid email`, which is today's `CONNECT_SCOPES` plus
+  one, on the first consent screen for every new account, from the release that ships this spec.
+- Accounts connected before that release hold only `gmail.modify`. Google cannot add a scope without a
+  consent screen, so each of them is asked to reconnect exactly once, when the release ships. Until then
+  the section 1 tools work and the section 2 tools return `needs_reconnect`, never a partial result.
+- The connect check that refuses a grant without `gmail.modify`, and never requests
+  `https://mail.google.com/`, is unchanged. It also refuses a grant missing `gmail.settings.basic`, and one
+  carrying `gmail.settings.sharing`.
+- The keep-alive refresh in Outlook design 5.6 applies to Gmail accounts too: six months without use ends a
+  Google refresh token (V), so the cron refreshes any account idle for 30 days.
 
 ## 7. Quota
 
