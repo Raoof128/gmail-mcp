@@ -1,366 +1,624 @@
-# Outlook provider design (spec v1)
+# Outlook provider design (spec v2)
 
 Status: design draft. Nothing here has implementation acceptance, and nothing here changes a current
 guarantee. [INVARIANTS.md](../../INVARIANTS.md), [SECURITY.md](../../../SECURITY.md) and the README describe
 the system as it is, so they are amended in the same change that ships the code each amendment describes,
 and not before.
 
-This spec supersedes v0, which was stated in chat on 2026-10-05 and never committed. Every change from v0
-traces to a finding in [the Outlook spec gauntlet](../reviews/2026-10-05-outlook-spec-gauntlet.md) (G1 to
-G28) and to an amendment below (A1 to A16). Claims about Microsoft behaviour carry the gauntlet's grades:
-V (stated on a primary page as of October 2026), S (secondary), M (memory) and P (needs a live probe).
-Nothing in this spec is live evidence.
+Revision history:
 
-## Goal and non-goals
+- v0, 2026-10-05, stated in chat and never committed.
+- v1, 2026-10-05, the Gmail-parity subset: 27 of 38 tools, 11 refused.
+- v2, 2026-10-05, this document. The owner asked for coverage of everything the Microsoft Graph mail API
+  exposes, not a parity subset. v2 inventories the whole v1.0 mail surface, gives every endpoint a
+  disposition, supports all 38 existing tools on Outlook, and adds 25 Outlook tools.
 
-Goal: connect an owner's Outlook mailbox through Microsoft Graph as a second provider behind the same
-policy, approval, audit, journal, staging and companion machinery, with no guarantee weakened silently.
-Where a guarantee is weaker for Outlook, the spec says so and says which proof type replaces it.
+Every change traces to a finding in [the Outlook spec gauntlet](../reviews/2026-10-05-outlook-spec-gauntlet.md)
+(G1 to G46) and to an amendment (A1 to A24). Claims about Microsoft behaviour carry the gauntlet's grades:
+V (verbatim on a primary Microsoft Learn page, October 2026), S (secondary), U (the documentation is
+silent) and P (needs a live probe). Nothing in this spec is live evidence. No request was made to Graph or
+Entra while writing it.
 
-Not in scope for v1:
+## 1. Goal and non-goals
 
-- Multi-tenant distribution, publisher verification and other owners (`P6-MULTI-USER`).
-- Shared mailboxes, delegation, send-as aliases and send-on-behalf (G13).
-- Thread-level batch mutations (`P6-BATCH`, G7).
-- EWS, IMAP and SMTP. EWS in Exchange Online is disabled from October 2026 and fully off in April 2027
-  (V), so Graph is the only path.
-- Any `Mail-Advanced.*` permission (G4).
-- Changing the Google owner login. The owner signs in with Google. Microsoft identity is only ever an
-  account being connected.
+Goal: connect an owner's Outlook mailbox through Microsoft Graph v1.0 behind the same policy, approval,
+audit, journal, staging and companion machinery, and expose every part of the Graph mail API that can be
+offered without breaking an invariant. Where a guarantee is weaker for Outlook, this spec says so and
+names the proof type that replaces it. Where an endpoint is not offered, section 4 says why.
 
-## What is reused, and what is not
+Not in scope:
 
-v0 claimed six subsystems were reusable unchanged (S1). That is true of the policy engine, approval, audit,
-idempotency and the companion. It is not true of these, each of which gets a provider seam:
+- Multi-tenant distribution and other owners (`P6-MULTI-USER`).
+- Shared mailboxes, delegation, send-as aliases, send-on-behalf and every `*.Shared` scope.
+- Administrator APIs under `/admin/exchange`: mailbox export and import, `mailboxItem` delete, message
+  trace. They need administrator-consented scopes, do not work for personal accounts, and one of them
+  hard-deletes (V).
+- Beta endpoints. Section 4 lists the ones that matter and why each stays out.
+- Calendar, contacts and tasks, though they share the Outlook mailbox.
+- EWS, IMAP and SMTP. EWS in Exchange Online is disabled from October 2026 and fully off in April 2027 (V).
+- Any `Mail-Advanced.*` permission. From 31 December 2026 it gates changes to sensitive properties of
+  non-draft messages; drafts are unaffected (V). Nothing here edits a sent or received message's
+  sensitive properties.
+- Changing the Google owner login. Microsoft identity is only ever an account being connected.
 
-| Area                      | Gmail today                                                 | Why it cannot be shared as is                                               |
-| ------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Identity verification     | `worker/src/google/oidc.ts` `verifyIdToken`                 | Requires `email_verified` and a Google issuer (G2)                          |
-| Token refresh             | `RefreshResponse` drops `refresh_token`                     | Entra rotates refresh tokens on every use (G3)                              |
-| Recovery egress allowlist | `recovery-http.ts` `allowed()` hard-codes `GOOGLE.tokenUrl` | Needs the Entra token URL and the Graph send route (G3)                     |
-| Id schema                 | `GmailId`, `[A-Za-z0-9_-]`                                  | Graph ids carry `=` padding (G21)                                           |
-| Sensitivity classifier    | `isSystemLabel`, `/^[A-Z][A-Z0-9_]*$/`                      | Outlook folders and categories never match it, so `+sensitive` is lost (G8) |
-| Send pipeline             | MIME build, resumable upload, `GMAIL_SEND_MAX`              | Graph sends JSON drafts with attachment sessions (G10)                      |
-| Concurrency               | None                                                        | Graph caps four concurrent requests per mailbox (G6)                        |
+## 2. Pinned facts
 
-## Amendments added after the gauntlet
+The Gmail design pins every platform choice to a fact and a source (its 1.2). This table does the same for
+Graph. The full citations are in the gauntlet's references.
 
-A1 to A13 are defined in the gauntlet. Revision 2 of the gauntlet adds three, and refines two.
+| Choice                                              | Fact it rests on                                                                                                                                                      | Grade          | Source                                                              |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- | ------------------------------------------------------------------- |
+| Graph v1.0 only                                     | Beta APIs "are subject to change" and are not supported for production use                                                                                            | V              | each beta page's banner                                             |
+| `Prefer: IdType="ImmutableId"` on every request     | "This header only applies to the request it is included with"                                                                                                         | V              | graph/outlook-immutable-id                                          |
+| Folder ids are stable without the header            | "Container types (mailFolder, calendar, etc.) don't support immutable ID, but their regular IDs were already constant"                                                | V              | graph/outlook-immutable-id                                          |
+| The draft id may or may not survive send            | The immutable-id page tells you to fetch the Sent copy with the draft's id. The mail overview says immutable ids hold "with the exception of sending a draft message" | V, conflicting | graph/outlook-immutable-id, resources/mail-api-overview             |
+| `internetMessageId` can be stamped on a draft       | "Updatable only if isDraft = true"                                                                                                                                    | V              | api/message-update                                                  |
+| No scope separates drafting from deleting           | `Mail.ReadWrite` is the only permission for message and folder `permanentDelete`; nothing narrower exists                                                             | V              | api/message-permanentdelete, api/mailfolder-permanentdelete         |
+| DELETE on a message or folder is not offered        | Neither page says whether the item goes to Deleted Items                                                                                                              | U              | api/message-delete, api/mailfolder-delete                           |
+| Trash is a move                                     | The move page's own example moves to `deleteditems`                                                                                                                   | V              | api/message-move                                                    |
+| Every send is draft-first                           | `sendMail`, `send`, `reply`, `replyAll` and `forward` all return 202 with no body and no id                                                                           | V              | api/user-sendmail, api/message-send, api/message-reply              |
+| Draft creation returns the id                       | `POST messages`, `createReply`, `createReplyAll`, `createForward` return 201 with the message                                                                         | V              | api/user-post-messages, api/message-createreply                     |
+| Attachments: under 3 MB direct, 3 to 150 MB session | A session for a file under 3 MB fails with `ErrorAttachmentSizeShouldNotBeLessThanMinimumSize`; bytes go in order, chunks under 4 MB recommended                      | V              | graph/outlook-large-attachments                                     |
+| Upload chunks carry no bearer token                 | "Do not specify an Authorization request header. The PUT query uses a pre-authenticated URL"                                                                          | V              | graph/outlook-large-attachments                                     |
+| Mailbox concurrency                                 | Per app per mailbox: 10,000 requests per 10 minutes, four concurrent, 150 MB uploaded per 5 minutes                                                                   | V              | graph/throttling-limits                                             |
+| `$batch` is no escape from the limits               | At most 20 requests; Outlook runs at most four of them at a time; each is throttled individually                                                                      | V              | graph/json-batching                                                 |
+| Search                                              | `$search` is KQL, returns at most 1,000 results ordered by sent date                                                                                                  | V              | graph/search-query-parameter                                        |
+| `$search` with `$filter`                            | Rejected on `/messages` with `SearchWithFilter`                                                                                                                       | S              | Microsoft Q&A                                                       |
+| `$filter` with `$orderby`                           | Order properties must appear in the filter, first and in the same order, or `InefficientFilter`                                                                       | V              | api/user-list-messages                                              |
+| Delta is per folder                                 | Supports `@removed`; filter only `receivedDateTime ge/gt`, capped at 5,000 messages; token lifetime "isn't fixed"                                                     | V              | graph/delta-query-messages, graph/delta-query-overview              |
+| Plain-text bodies                                   | `Prefer: outlook.body-content-type="text"`, confirmed by `Preference-Applied`                                                                                         | V              | api/message-get                                                     |
+| Never request unsafe HTML                           | `Prefer: outlook.allow-unsafe-html` returns unsanitised HTML                                                                                                          | V              | graph/outlook-create-send-messages                                  |
+| Category names are immutable                        | "You can't modify the displayName property once you have created the category"; names are unique per mailbox                                                          | V              | api/outlookcategory-update                                          |
+| Inbox rules can forward and destroy                 | Rule actions include `forwardTo`, `redirectTo`, `forwardAsAttachmentTo`, `delete` and `permanentDelete`                                                               | V              | resources/messageruleactions                                        |
+| Change notifications                                | Message subscriptions last at most 10,080 minutes, or 1,440 with resource data; 1,000 per mailbox; validation reply within 10 seconds; folders are not subscribable   | V              | resources/subscription, graph/outlook-change-notifications-overview |
+| Limits                                              | 500 recipients; 30 messages a minute; 10,000 recipients a day; 35 MB default message size, configurable to 150 MB; 250 attachments; 256 KB of headers                 | V              | resources/message, Exchange Online limits                           |
+| Consent                                             | The default tenant policy blocks user consent to `Mail.*` and `MailboxSettings.*`. Personal accounts can consent to both                                              | V              | manage-app-consent-policies, permissions-reference                  |
+| Identity                                            | Key on `tid` and `oid`; `oid` needs the `profile` scope; `email` is mutable; personal `tid` is `9188040d-6c67-4c5b-b112-36a304b66dad`                                 | V              | claims-validation, id-token-claims-reference                        |
+| Refresh tokens rotate                               | A new one on every use, the old one not revoked, 90 days by default                                                                                                   | V              | refresh-tokens                                                      |
+| Client credential                                   | Secrets capped at 24 months; certificates or federated credentials recommended for production                                                                         | V              | how-to-add-credentials                                              |
 
-| ID  | Amendment                                                                                                           | From    |
-| --- | ------------------------------------------------------------------------------------------------------------------- | ------- |
-| A14 | A per-provider `ProviderId` schema. Graph ids are URL-safe base64 with `=` padding                                  | G21     |
-| A15 | Two transports: an authenticated one for `graph.microsoft.com` only, and an unauthenticated one for upload sessions | G22     |
-| A16 | Certificate client credential, PKCE, and an error taxonomy keyed on the OAuth `error` value                         | G24, G3 |
-| A9+ | Category writes are serialised per message                                                                          | G23     |
-| A2+ | The generated `Message-ID` is set on the draft as a secondary correlator. The immutable draft id stays the key      | G27     |
+## 3. What is reused and what gets a provider seam
 
-## Decisions
+The policy engine, approval, audit, idempotency, staging and the companion are reused. These are not, and
+each gets a seam in Phase 1:
 
-These are the owner's to make. Each has a recommendation, and the spec is written as if it were accepted.
+| Area                   | Gmail today                                                    | Why it cannot be shared                                                |
+| ---------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Identity verification  | `verifyIdToken` in `worker/src/google/oidc.ts`                 | Requires `email_verified` and a Google issuer (G2)                     |
+| Token refresh          | `RefreshResponse` drops `refresh_token`                        | Entra rotates refresh tokens on every use (G3)                         |
+| Recovery egress        | `allowed()` in `recovery-http.ts` hard-codes `GOOGLE.tokenUrl` | Needs the Entra token URL and the Graph send route (G3)                |
+| Id schema              | `GmailId`, `[A-Za-z0-9_-]`                                     | Graph ids carry `=` padding (G21)                                      |
+| Sensitivity classifier | `isSystemLabel`, `/^[A-Z][A-Z0-9_]*$/`                         | Folders and categories never match, so `+sensitive` would be lost (G8) |
+| Send pipeline          | MIME build, resumable upload, `GMAIL_SEND_MAX`                 | Graph sends JSON drafts with attachment sessions (G10)                 |
+| Concurrency            | none                                                           | Graph allows four concurrent requests per mailbox (G6)                 |
 
-| ID  | Question                        | Recommendation                                                                                                                                                                                                                      | Why                                                                                                                                                                 |
-| --- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D1  | Which accounts can connect      | Two registrations. A personal-accounts app on `/consumers`. A single-tenant app in a developer tenant the owner administers, on `/{tenant-id}`. University and employer tenants are out of scope until their administrator consents | Default tenant policy blocks user consent to `Mail.ReadWrite` for every third-party app, verified or not (G20, V). Single-tenant apps avoid step-up consent (G5, V) |
-| D2  | `update_draft` on Outlook       | Unsupported in v1                                                                                                                                                                                                                   | Replacing an attachment needs a DELETE that breaks invariant 7b (G11)                                                                                               |
-| D3  | Label administration on Outlook | `list_labels` reads well-known folders only, and the category master list is out of v1. `create_label`, `update_label` and `delete_label` are unsupported                                                                           | The master list needs a `MailboxSettings.*` scope (V), one more consent item. Assigning a category by name needs no extra scope (V)                                 |
-| D4  | Client credential               | A certificate, with the private key in a Worker secret, used to sign a `private_key_jwt` assertion. Rotate yearly                                                                                                                   | Secrets are capped at 24 months and Microsoft says not to use them in production (G24, V)                                                                           |
+## 4. The Graph mail surface and its disposition
 
-## Identity and connect (A4, A5, A16)
+Every v1.0 mail endpoint, grouped. "Offered" means a tool reaches it. "Internal" means the Worker calls it
+and no tool exposes it directly. "Refused" means `graphFetch` has no route for it, so no code path can
+reach it, and the mutation test in 6.2 proves that for the destructive ones.
 
-### Registrations and endpoints
+### 4.1 Messages and drafts
+
+| Endpoint                                              | Disposition    | Through                                        | Why                                                                                 |
+| ----------------------------------------------------- | -------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `GET messages`, `mailFolders/{id}/messages`           | Offered        | `search_threads`, `list_folder_messages`       |                                                                                     |
+| `GET messages/{id}`                                   | Offered        | `get_message`, `get_thread`, `get_draft`       |                                                                                     |
+| `GET messages/{id}/$value` (MIME)                     | Offered        | `export_message`                               | The bytes go to staging as `.eml`, never into a tool result                         |
+| `POST messages` (JSON)                                | Offered        | `create_draft`, every send                     |                                                                                     |
+| `POST messages` (MIME)                                | Refused        |                                                | Recipients sit inside base64, out of sight of the policy engine (G34)               |
+| `PATCH messages/{id}`                                 | Offered        | drafts, `update_message_state`, category tools | Only the properties in 7.4 are ever sent                                            |
+| `DELETE messages/{id}`                                | Refused        |                                                | Undocumented destination (U), invariant 7b                                          |
+| `POST …/permanentDelete`                              | Refused        |                                                | Invariant 7b, under every path prefix including `/users/{id}` (G31)                 |
+| `POST messages/{id}/move`                             | Offered        | trash, spam, archive, `move_message`           | Every move is classified (7.2)                                                      |
+| `POST messages/{id}/copy`                             | Offered        | `copy_message`                                 |                                                                                     |
+| `POST createReply`, `createReplyAll`, `createForward` | Offered        | `reply`, `forward`                             | They return the draft and its id                                                    |
+| `POST messages/{id}/send`                             | Offered        | every send                                     | The only route that sends                                                           |
+| `POST reply`, `replyAll`, `forward`, `sendMail`       | Refused        |                                                | 202 with no id, so no settlement key; MIME variants hide recipients (G33)           |
+| `GET mailFolders/{id}/messages/delta`                 | Offered        | `sync_folder`                                  |                                                                                     |
+| Single- and multi-value extended properties           | Internal, read | the Worker reads `PR_` properties it needs     | Writing raw MAPI properties can change anything a client shows. No tool writes them |
+| Open extensions                                       | Refused        |                                                | Application-private data with no owner value; their DELETE is one more delete route |
+| `internetMessageHeaders` on create                    | Refused        |                                                | The retired `P6-AUDIT-HEADER` rule: no `x-` header leaves the service               |
+
+### 4.2 Attachments
+
+| Endpoint                                            | Disposition | Through                                                              | Why                                                                                  |
+| --------------------------------------------------- | ----------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `GET messages/{id}/attachments`, `…/{id}`           | Offered     | `get_message`, `download_attachment`                                 |                                                                                      |
+| `GET …/attachments/{id}/$value`                     | Offered     | `download_attachment`                                                | File attachments stream as bytes; item attachments arrive as MIME and save as `.eml` |
+| `POST messages/{id}/attachments` (file, under 3 MB) | Offered     | drafts and sends                                                     | Only on a draft this service created                                                 |
+| `POST …` item attachment                            | Offered     | `forward` with `as_attachment`, `attach_from_message` with `as_item` | Capped at 3 MB (V)                                                                   |
+| `createUploadSession`, `PUT`/`DELETE {uploadUrl}`   | Offered     | drafts and sends                                                     | `uploadFetch` only (6.1)                                                             |
+| Reference attachments                               | Read only   | listed as not downloadable                                           | `$value` returns 405 (V); creating one needs beta properties                         |
+| `DELETE messages/{id}/attachments/{id}`             | Refused     |                                                                      | `update_draft` replaces the draft instead (8.3)                                      |
+
+### 4.3 Folders and search folders
+
+| Endpoint                                  | Disposition | Through                                 | Why                                                              |
+| ----------------------------------------- | ----------- | --------------------------------------- | ---------------------------------------------------------------- |
+| `GET mailFolders`, `childFolders`, `{id}` | Offered     | `list_folders`, `list_labels`           | Always with `includeHiddenFolders=true` (G42)                    |
+| `GET mailFolders/delta`                   | Internal    | folder cache                            | Folders are not subscribable (V), so delta keeps the cache fresh |
+| `POST mailFolders`, `childFolders`        | Offered     | `create_folder`                         |                                                                  |
+| `PATCH mailFolders/{id}`                  | Offered     | `rename_folder`, `update_search_folder` |                                                                  |
+| `POST mailFolders/{id}/move`              | Offered     | `move_folder`, `trash_folder`           | `trash_folder` is a move to `deleteditems`                       |
+| `POST mailFolders/{id}/copy`              | Offered     | `copy_folder`                           | Copies the contents too (V)                                      |
+| `DELETE mailFolders/{id}`                 | Refused     |                                         | Undocumented destination (U), invariant 7b                       |
+| `POST mailFolders/{id}/permanentDelete`   | Refused     |                                         | "Permanently deleted folders are removed from the mailbox" (V)   |
+| `POST childFolders` as `mailSearchFolder` | Offered     | `create_search_folder`                  | They expire after 45 days unused (V); the result says so         |
+| `POST mailFolders/{id}/messages`          | Refused     |                                         | Plants an item in any folder. Drafts are created in Drafts only  |
+
+### 4.4 Categories
+
+| Endpoint                               | Disposition | Through        | Why                                                                                                            |
+| -------------------------------------- | ----------- | -------------- | -------------------------------------------------------------------------------------------------------------- |
+| `GET outlook/masterCategories`         | Offered     | `list_labels`  |                                                                                                                |
+| `POST outlook/masterCategories`        | Offered     | `create_label` | `color` is one of `none` and `preset0` to `preset24` (V)                                                       |
+| `PATCH outlook/masterCategories/{id}`  | Offered     | `update_label` | Colour only. A rename is refused with `immutable_on_provider` (V)                                              |
+| `DELETE outlook/masterCategories/{id}` | Offered     | `delete_label` | Deletes a definition, not mail, like Gmail's `delete_label`. What happens to tagged items is U; P13 records it |
+
+### 4.5 Inbox rules
+
+| Endpoint                                       | Disposition | Through       | Why                                                                                  |
+| ---------------------------------------------- | ----------- | ------------- | ------------------------------------------------------------------------------------ |
+| `GET mailFolders/inbox/messageRules`, `…/{id}` | Offered     | `list_rules`  | Flags every rule that forwards, redirects or deletes, including rules made elsewhere |
+| `POST mailFolders/inbox/messageRules`          | Offered     | `create_rule` | Policy in 7.5. A `permanentDelete` action is refused outright                        |
+| `PATCH …/messageRules/{id}`                    | Offered     | `update_rule` | Same policy as create, evaluated on the merged rule                                  |
+| `DELETE …/messageRules/{id}`                   | Offered     | `delete_rule` | Deletes a rule, not mail                                                             |
+
+### 4.6 Mailbox settings, Focused Inbox and MailTips
+
+| Endpoint                                                                                | Disposition | Through                                       | Why                                                            |
+| --------------------------------------------------------------------------------------- | ----------- | --------------------------------------------- | -------------------------------------------------------------- |
+| `GET mailboxSettings`                                                                   | Offered     | `get_mailbox_settings`                        |                                                                |
+| `PATCH mailboxSettings` (`automaticRepliesSetting`)                                     | Offered     | `set_auto_reply`                              | `+external` unless `externalAudience` is `none` (7.6)          |
+| `PATCH mailboxSettings` (time zone, language, formats, working hours, meeting delivery) | Offered     | `update_mailbox_settings`                     | Changing delegate meeting delivery is `+sensitive`             |
+| `GET outlook/supportedLanguages`, `supportedTimeZones`                                  | Internal    | validates `update_mailbox_settings` arguments |                                                                |
+| `GET`, `POST`, `PATCH inferenceClassification/overrides`                                | Offered     | `list_focus_overrides`, `set_focus_override`  | Moving a sender to Other is `+sensitive`: it buries their mail |
+| `DELETE inferenceClassification/overrides/{id}`                                         | Offered     | `remove_focus_override`                       | Deletes a preference, not mail                                 |
+| `POST getMailTips`                                                                      | Offered     | `get_mail_tips`, and before every send        | Can only raise a modifier, never lower one (8.5)               |
+
+### 4.7 Change notifications and batching
+
+| Endpoint                                               | Disposition | Through                                             | Why                                                                                   |
+| ------------------------------------------------------ | ----------- | --------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `POST`, `PATCH`, `DELETE subscriptions`, `reauthorize` | Internal    | send observation and folder-cache refresh (Phase 6) | Basic notifications only, no resource data, `notificationUrl` pinned to this Worker   |
+| `$batch`                                               | Internal    | thread tools                                        | Built by the Worker from allowlisted routes only. A caller can never supply one (G30) |
+
+### 4.8 Excluded by version or audience
+
+| Endpoint                                                     | Why                                                                                               |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `reportMessage`, `markAsJunk`, `markAsNotJunk`               | Beta. `markAsJunk` also edits the blocked-senders list and was deprecated on 30 December 2025 (V) |
+| `unsubscribe`                                                | Beta, and it sends an email and moves the message to Deleted Items (V)                            |
+| `recall`                                                     | Beta                                                                                              |
+| `mentions`                                                   | Beta                                                                                              |
+| `updateAllMessagesReadState` on a folder                     | Beta                                                                                              |
+| `/admin/exchange/mailboxes/…` export, import, items, folders | Administrator consent, no personal accounts, and `disposalType=hardDelete` (V)                    |
+| `/admin/exchange/tracing/messageTraces`                      | Administrator scope                                                                               |
+
+## 5. Identity and connect (A4, A5, A16)
+
+### 5.1 Registrations and endpoints
 
 | Registration       | Supported account types | Authorize and token endpoints                                 | Expected `tid`                             |
 | ------------------ | ----------------------- | ------------------------------------------------------------- | ------------------------------------------ |
 | `outlook-personal` | Personal accounts only  | `https://login.microsoftonline.com/consumers/oauth2/v2.0/…`   | `9188040d-6c67-4c5b-b112-36a304b66dad` (V) |
 | `outlook-tenant`   | This directory only     | `https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/…` | the configured tenant id                   |
 
-The registration is chosen by the owner on the connect page, never inferred from an address. The Microsoft
-Learn MSAL authority page still says a personal-only app must be registered as "work and school and
-personal" and restricted in code, while the current portal offers "personal accounts only" (V, conflicting).
-The runbook registers whichever the portal offers and the verifier enforces the `tid` either way.
+The owner picks the registration on the connect page; it is never inferred from an address. Work and
+school tenants need their administrator to consent, because the default policy blocks user consent to
+every `Mail.*` and `MailboxSettings.*` scope this design needs (V, G20, G38). That is decision D1.
 
-### Scopes
+### 5.2 Scopes
 
-`openid profile offline_access User.Read Mail.ReadWrite Mail.Send`. `profile` is required, because `oid` is
-only issued with it (V). A negative test refuses a grant carrying any `Mail-Advanced.*`, `Mail.ReadWrite.Shared`,
-`Mail.Send.Shared` or `MailboxSettings.*` scope, mirroring the Gmail check that refuses a grant without
-`gmail.modify` and never requests `https://mail.google.com/`.
+`openid profile offline_access User.Read Mail.ReadWrite Mail.Send MailboxSettings.ReadWrite`.
 
-### Authorization code flow
+- `profile` is required for `oid` (V).
+- `MailboxSettings.ReadWrite` covers categories, rules, settings and is consentable by personal accounts
+  (V). In a work tenant it adds no consent cost, since `Mail.ReadWrite` already needs the administrator.
+- `connect` refuses a grant carrying any `Mail-Advanced.*`, `*.Shared`, `MailboxItem.*`, `MailboxFolder.*`
+  or `*.All` scope, mirroring the Gmail check that refuses a grant without `gmail.modify` and never asks for
+  `https://mail.google.com/`. A negative test covers each family.
 
-Confidential client with PKCE (S256). PKCE is "recommended for all application types, both public and
-confidential clients" (V). The Google connect flow does not use PKCE today. That is out of scope here, and
-the deferred register should record it.
+### 5.3 Authorization code flow
 
-### Identity verifier
+Confidential client with PKCE (S256), which Microsoft recommends "for all application types, both public
+and confidential clients" (V). The client authenticates with a certificate: the Worker signs a
+`private_key_jwt` assertion with WebCrypto, using a private key held in a Worker secret (D4). The Google flow
+has no PKCE today; the deferred register records that.
 
-A new `verifyMicrosoftIdToken`, separate from the Google verifier so that neither can be loosened by the
-other:
+### 5.4 Identity verifier
 
-1. Signature against the JWKS at `https://login.microsoftonline.com/{tenant}/discovery/v2.0/keys`, where
-   `{tenant}` is `consumers` or the configured tenant id. Fetched per verification, as the Google verifier
-   already does. Keys "could be rolled over immediately" (V).
+`verifyMicrosoftIdToken` is separate from the Google verifier, so neither can be loosened by editing the
+other.
+
+1. Signature against `https://login.microsoftonline.com/{tenant}/discovery/v2.0/keys`, fetched per
+   verification as the Google verifier already does. Keys "could be rolled over immediately" (V).
 2. `aud` equals the registration's client id.
 3. `tid` is a GUID and equals the registration's expected `tid`.
-4. `iss` equals exactly `https://login.microsoftonline.com/{tid}/v2.0`, with `{tid}` taken from the token (V).
+4. `iss` equals exactly `https://login.microsoftonline.com/{tid}/v2.0` (V).
 5. `oid` is present and a GUID.
-6. `nonce` matches the state row, as for Google.
+6. `nonce` matches the consumed state row.
 
-The account subject is `ms:{tid}:{oid}`. The claims-validation page says to use `tid` and `oid` as a
-combined key (V). `email` and `preferred_username` are never used for identity, because both are mutable
-(V). The display address comes from `GET /me` (`mail`, falling back to `userPrincipalName`) and is a label,
-not a key.
+The account subject is `ms:{tid}:{oid}` (V: "use the immutable claim values tid and oid as a combined
+key"). `email` and `preferred_username` never identify anyone (V: mutable). The display address comes from
+`GET /me` (`mail`, else `userPrincipalName`) and is a label.
 
-Tests: an issuer whose tenant differs from `tid`; a personal token presented to the tenant registration and
-the reverse; a token with no `email`; a token with no `oid`; a reconnect where the same `oid` arrives with a
-different address, which must update the same account and never create a second.
+Tests: an issuer whose tenant differs from `tid`; a personal token at the tenant registration and the
+reverse; no `email`; no `oid`; the same `oid` returning with a new address, which must update one account
+and never create a second.
 
-### Token lifecycle
+### 5.5 Token lifecycle and error taxonomy
 
-Every successful refresh returns a new refresh token, and the old one is not revoked (V). The refresh
-response schema gains an optional `refresh_token`. When present, the new token is encrypted and written
-through the existing `guardedWrite` fenced on `credential_version`. A lost race discards the newer token,
-which is safe because the old one still works for its remaining lifetime (90 days by default, V).
+Each refresh returns a new refresh token and does not revoke the old one (V). The refresh schema gains an
+optional `refresh_token`, written through the existing `guardedWrite` fenced on `credential_version`. Losing
+that race discards the newer token, which is safe: the old one stays valid for its lifetime.
 
-### Error taxonomy
+No page maps an AADSTS code to an OAuth `error` value, so the classifier keys on `error` and uses the code
+only for the message shown to the owner.
 
-No Microsoft page maps an AADSTS code to an OAuth `error` value (V/U), so the classifier keys on the OAuth
-`error` first and uses the AADSTS code only to pick the reason shown to the owner.
+| OAuth `error`          | Codes (texts V)                                  | Result                                                                                                                                          |
+| ---------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `invalid_grant`        | 70000, 700082 (inactivity), 50173 (revoked)      | `needs_reconnect`                                                                                                                               |
+| `interaction_required` | 50076, 50079 (MFA)                               | `needs_reconnect`, "sign in again"                                                                                                              |
+| `consent_required`     | 65001                                            | `needs_reconnect`, "consent"                                                                                                                    |
+| `invalid_client`       | 7000215, 7000222 (credential invalid or expired) | Operator fault. Every account on that registration is held and the owner is told to rotate the certificate. Never `internal`, never per account |
+| other, or 5xx          |                                                  | `internal`, transient                                                                                                                           |
 
-| OAuth `error` from the token endpoint | Example codes (texts V)                          | Account state                                                                                                                                                |
-| ------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `invalid_grant`                       | 70000, 700082 (inactivity), 50173 (revoked)      | `needs_reconnect`                                                                                                                                            |
-| `interaction_required`                | 50076, 50079 (MFA)                               | `needs_reconnect`, reason "sign in again"                                                                                                                    |
-| `consent_required`                    | 65001                                            | `needs_reconnect`, reason "consent"                                                                                                                          |
-| `invalid_client`                      | 7000215, 7000222 (credential invalid or expired) | operator fault: every Outlook account on that registration is held, and the owner is told the credential needs rotating. Never `internal`, never per-account |
-| anything else, or 5xx                 |                                                  | `internal`, transient                                                                                                                                        |
+## 6. Graph transport (A6, A7, A10, A14, A15, A17)
 
-P6 captures the real response bodies, including whether an `error_codes` array is present (M).
+### 6.1 Two transports
 
-## Graph transport (A6, A7, A10, A14, A15)
+| Transport     | Host                                                  | `Authorization` | `Prefer: IdType="ImmutableId"` | Used for                        |
+| ------------- | ----------------------------------------------------- | --------------- | ------------------------------ | ------------------------------- |
+| `graphFetch`  | `graph.microsoft.com`, path prefix `/v1.0/me/`        | yes             | every request                  | everything but upload chunks    |
+| `uploadFetch` | learned in P8; documented as `outlook.office.com` (V) | never (V)       | no                             | upload-session `PUT` and cancel |
 
-### Two transports, one choke point each
+`graphFetch` refuses every other host, every `/beta/` path and every `/users/` path. `uploadFetch` checks
+the session URL with a validator written from the P8 capture, as `validateSessionUrl` was for Gmail. The
+upload URL is a bearer credential (V), so it is never logged and never enters a tool result. One test drives
+every Outlook tool through the fake and fails if a Graph request lacks the immutable-id header, if an
+upload request carries `Authorization`, or if any request sends `Prefer: outlook.allow-unsafe-html`.
 
-| Transport     | Host                                                  | Carries `Authorization` | Carries `Prefer: IdType="ImmutableId"` | Used for                         |
-| ------------- | ----------------------------------------------------- | ----------------------- | -------------------------------------- | -------------------------------- |
-| `graphFetch`  | `graph.microsoft.com`, `/v1.0` only                   | yes                     | yes, on every request (V)              | everything except upload chunks  |
-| `uploadFetch` | learned in P8, documented as `outlook.office.com` (V) | **never** (V)           | no                                     | attachment upload-session chunks |
+### 6.2 Route allowlist and invariant 7b
 
-`graphFetch` refuses any other host. `uploadFetch` validates the session URL with a validator that is
-written from the P8 capture, as `validateSessionUrl` was for Gmail. A test drives every Outlook tool
-through the fake and fails if any request to `graph.microsoft.com` lacks the immutable-id header, or if any
-request to the upload host carries `Authorization`.
+`graphFetch` accepts only enumerated method and path shapes: the "Offered" and "Internal" rows of section 4.
+The only DELETE routes are on `masterCategories/{id}`, `messageRules/{id}`,
+`inferenceClassification/overrides/{id}` and `subscriptions/{id}`. None of them holds mail. No route
+matches `DELETE` on a message, folder or attachment, and no route matches `permanentDelete` under any
+prefix. `$batch` bodies are assembled by the Worker, and every sub-request passes the same allowlist before
+the batch is sent.
 
-### Method allowlist (invariant 7b)
-
-`graphFetch` accepts only an enumerated set of method and path shapes. The list is closed: `GET` reads,
-`POST` to `messages`, `createReply`, `createReplyAll`, `createForward`, `send`, `move`,
-`attachments`, `attachments/createUploadSession`, and `PATCH` on a message. It has no `DELETE` on any
-path and no `permanentDelete`. DELETE on a message is undocumented (V: the page never says whether it moves
-or purges), so it is treated as destructive. A mutation test adds a DELETE route to the list and must turn
-the suite red. A stray draft left by a crash is left in place, matching Gmail's refusal to delete anything.
-
-`Mail.ReadWrite` is the only permission for `permanentDelete` and nothing narrower exists (V), so invariant
-7 is split:
+`Mail.ReadWrite` cannot be narrowed (V), so invariant 7 splits:
 
 - **7a, Gmail.** Scope-enforced, unchanged.
-- **7b, Outlook.** Code-enforced at `graphFetch`, with the mutation test above as its proof type. A leaked
-  Outlook access token can permanently delete, and a leaked Gmail token cannot. That goes into SECURITY.md
-  as a residual-risk row the day Outlook ships.
+- **7b, Outlook.** Code-enforced at `graphFetch`. Proof type: a mutation test that adds each refused route
+  in turn (message DELETE, folder DELETE, attachment DELETE, `permanentDelete` under `/me` and `/users`, a
+  rule with a `permanentDelete` action, a caller-supplied `$batch`) and must turn the suite red each time.
+- SECURITY.md gains the residual row: a leaked Outlook access token can permanently delete, and a leaked
+  Gmail token cannot.
 
-### Ids
+### 6.3 Ids (A14)
 
-A new `ProviderId` schema per provider. For Outlook it is URL-safe base64 with optional `=` padding,
-`^[A-Za-z0-9_-]+={0,2}$`, up to 512 characters. The Graph examples show `-`, `_` and a trailing `=` and never
-`+` or `/` (V), but the character set of a REST id is undocumented. P12 records the observed set. An id
-outside the schema is refused, never widened silently. Every id is path-encoded with `encodeURIComponent`.
-Ids are case-sensitive (V). Every tool result that moves an item returns the post-move id (A7).
+`ProviderId` per provider. Outlook ids are URL-safe base64 with optional padding,
+`^[A-Za-z0-9_-]+={0,2}$`, up to 512 characters. The examples show `-`, `_` and a trailing `=`, never `+` or
+`/`; the REST id character set is undocumented (U), so P12 records it. An id outside the schema is refused,
+never widened silently. Ids are case-sensitive (V) and always path-encoded. Every tool that moves an item
+returns the post-move id.
 
-### Concurrency and throttling
+### 6.4 Concurrency and throttling (A10)
 
-The limits are per app per mailbox: 10,000 requests per 10 minutes, four concurrent requests, and 150 MB
-uploaded per 5 minutes (V). An isolate-local semaphore does not span isolates, so the limiter is a Durable
-Object keyed on the account id. That is new infrastructure, and its design is a Phase 1 deliverable. It
-holds a concurrency of three, keeping one slot for the cron and the recovery path, and an upload byte
-budget. It serialises category writes per message (G23). A `429` honours `Retry-After`. P10 measures the
-real behaviour.
+The limiter is a Durable Object keyed on the account id, because an isolate-local semaphore does not span
+isolates. That is new infrastructure and its design is a Phase 1 deliverable. It holds at most three
+concurrent requests, keeping one of the mailbox's four for the cron and recovery, and an upload budget
+against 150 MB per 5 minutes. A `$batch` counts as one slot, because Outlook runs at most four of its
+requests at a time (V). It serialises category writes per message (G23), and send admissions per account
+against 30 messages a minute (V). A `429` honours `Retry-After`.
 
-## Mailbox model (A9, A13)
+## 7. Policy: actions, modifiers and classification (A18 to A21)
 
-### Folders and categories
+### 7.1 New actions
 
-Gmail labels map onto two Outlook concepts, and the classifier is supplied by the provider
-(`classifyTarget`), never by the shape of a string.
+Four actions join `ACTIONS` in `shared/src/actions.ts`. The `action` columns carry no CHECK constraint, so
+this is additive, and the policy and audit pages read the list.
 
-| Gmail concept    | Outlook concept                     | Classified `+sensitive` |
-| ---------------- | ----------------------------------- | ----------------------- |
-| `TRASH`          | well-known folder `deleteditems`    | yes                     |
-| `SPAM`           | well-known folder `junkemail`       | yes                     |
-| removing `INBOX` | move to well-known folder `archive` | yes                     |
-| `INBOX`          | well-known folder `inbox`           | yes, as a move target   |
-| user label       | category, by display name           | no                      |
-| any other folder | user mail folder, by immutable id   | yes, as a move target   |
+| Action             | Meaning                                                                 | Default |
+| ------------------ | ----------------------------------------------------------------------- | ------- |
+| `folder.manage`    | create, rename, move, copy or trash a folder or search folder           | ask     |
+| `message.organize` | move or copy a message, or change read state, flag, importance or focus | allow   |
+| `rule.manage`      | create, update or delete an inbox rule                                  | ask     |
+| `settings.edit`    | change mailbox settings, automatic replies or Focused Inbox overrides   | ask     |
 
-Every move is `+sensitive`, because a move is how Outlook hides mail. A matrix test asserts that every
-Outlook route into Deleted Items, Junk or Archive yields `+sensitive`, and the mutation that neutralises
-the predicate must turn it red. Categories are display names, a string collection on the message (V), and
-are not label ids. A category write reads the collection, applies the change, and writes it back, under
-the per-message serialisation above. P13 tests `If-Match` on `@odata.etag` (M) and records the length and
-character limits, which are undocumented.
+Reads of folders, rules, settings, overrides and MailTips use the existing `read.message`. No new
+modifier is needed: `+external`, `+bulk` and `+sensitive` already say what is wrong.
 
-### Restore (G26)
+### 7.2 Folder classification (A9, A19)
 
-Graph has no `untrash`. When our tool moves an item into Deleted Items or Junk, the operation payload keeps
-the source folder id. `untrash_message` and `unmark_message_spam` move the item back there if the operation
-is ours and the folder still exists, and to Inbox otherwise. The result reports which.
+The classifier is `classifyTarget`, supplied by the provider, never the shape of a string.
 
-### Search and threads (G14, G25)
+| Target                                                                                                                                                                                                      | Gmail analogue       | Modifier                 |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- | ------------------------ |
+| `deleteditems`                                                                                                                                                                                              | `TRASH`              | `+sensitive`             |
+| `junkemail`                                                                                                                                                                                                 | `SPAM`               | `+sensitive`             |
+| `archive`, or any move out of `inbox`                                                                                                                                                                       | removing `INBOX`     | `+sensitive`             |
+| a hidden folder (`isHidden`), or creating one                                                                                                                                                               | none                 | `+sensitive`             |
+| `inbox`, user folders, as a restore target                                                                                                                                                                  | `INBOX`, user labels | `+sensitive`             |
+| a category                                                                                                                                                                                                  | a user label         | none                     |
+| `recoverableitemsdeletions`, `outbox`, `drafts`, `sentitems`, `scheduled`, `conflicts`, `syncissues`, `localfailures`, `serverfailures`, `conversationhistory`, `clutter`, `msgfolderroot`, `searchfolders` | system labels        | refused as a move target |
 
-- `$search` is KQL, returns at most 1,000 results, and is ordered by sent date (V). It is not combined with
-  `$filter` on messages (S). `search_threads` on Outlook takes KQL, groups by `conversationId` in the Worker,
-  and says when the 1,000 cap truncates.
-- A `$filter` with `$orderby` must name the order properties in the filter, first and in the same order, or
-  Graph returns `InefficientFilter` (V). `get_thread` therefore filters on `conversationId` alone, caps the
-  page count, and sorts in the Worker.
-- Tool descriptions become provider-neutral. `list_accounts` reports `provider`, `capabilities` and
-  `query_dialect` (`gmail` or `kql`) per account.
+`recoverableitemsdeletions` holds soft-deleted items that the retention policy purges (V), so a move there
+is a delayed permanent delete and is refused under invariant 7b (G45). A move into Deleted Items is how
+Outlook trashes and a move into a hidden folder is how mail hides, so every move is `+sensitive`, as
+removing `INBOX` already is for Gmail. A matrix test covers every well-known
+name, and the mutation that neutralises the predicate must turn it red.
 
-### Bodies and attachments (G17)
+### 7.3 Category writes (G23)
 
-Reads send `Prefer: outlook.body-content-type="text"` and check the `Preference-Applied` response header
-(V). File attachments stream from `/$value` as raw bytes. Item attachments return MIME and are downloaded as
-`.eml`. Reference attachments return `405` (V) and are listed as not downloadable, with their link withheld.
+A message's `categories` is a collection of display names (V), so a label edit is read, modify and write of
+the whole collection. Writes to one message are serialised by the limiter, and P13 tests whether `If-Match`
+on `@odata.etag` is honoured.
 
-## Send (A1, A2, A3, A12)
+### 7.4 Message state
 
-Direct `sendMail` is forbidden: it returns `202` with an empty body (V), so it leaves no correlation key.
-Every send is draft-first.
+`update_message_state` sends only `isRead`, `flag` (status, start, due, completed), `importance` and
+`inferenceClassification`. A due date needs a start date or Graph returns 400 (V), so the tool requires both.
+Setting `inferenceClassification` to `other` is `+sensitive`. Nothing else on a received message is
+patched, which keeps every change clear of the `Mail-Advanced` boundary.
 
-| Step | Graph call                                                                                           | Operation state                             | Persisted before the call   |
-| ---- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------- | --------------------------- |
-| 1    | `POST messages`, or `createReply` / `createReplyAll` / `createForward` (201 with the draft, V)       | `claimed`                                   | the operation and intent    |
-| 2    | `PATCH` the draft: body, recipients, `internetMessageId = <op_…@host>` (writable while `isDraft`, V) | `claimed`                                   | the immutable draft id      |
-| 3    | attachments: `POST` below 3 MB, upload session from 3 MB to 150 MB (V)                               | `claimed`                                   | each attachment's admission |
-| 4    | `POST messages/{id}/send` (202, V)                                                                   | `executing`, with `byte_admitted=1`         | the full recovery binding   |
-| 5    | `GET messages/{id}` until it is in Sent Items                                                        | `executed` on 202, confirmed on observation | nothing new                 |
+### 7.5 Rules (A20, G32)
 
-Byte admission means step 4, which is what the protocol-2 `begin` permit in `0005_operation_recovery.sql`
-already requires. No new operation state is added: the set is closed by a CHECK constraint and the CI legacy
-corpus would fail. A crash before step 4 leaves a stray draft and no delivery.
+Rules run on the server after this service is gone, so they get the strictest policy here.
 
-The settlement key is the immutable draft id, which survives send to the Sent Items copy, after a delay (V).
-The `Message-ID` set in step 2 is secondary. Whether it survives send is undocumented, so P2 decides
-whether observation may use it. Absence of the Sent copy, or the item still being a draft, is never proof
-of non-delivery and never settles `failed_safe`. That is the existing `delivery_unknown` rule.
+- A `permanentDelete` action is refused with `forbidden`, whatever the policy (invariant 7b).
+- `forwardTo`, `redirectTo` and `forwardAsAttachmentTo` targets are recipients, checked against the trusted
+  set exactly as a send is: any outside target is `+external`, more than ten is `+bulk`.
+- A `delete` action, a `moveToFolder` into any target that 7.2 marks `+sensitive`, or `markAsRead` together
+  with a move is `+sensitive`. That combination is the classic way to hide forwarded mail.
+- The approval summary renders the rule in plain words, conditions and actions both.
+- `list_rules` marks each rule that forwards, redirects or deletes, so an owner can find one an attacker
+  left. Tenants may already block external forwarding with an NDR (V), and P15 records what a personal
+  account does.
 
-`from` must be the mailbox that sends (V). `senderFor` accepts only the mailbox address for Outlook in v1.
+### 7.6 Settings (A21)
 
-Limits: 500 recipients across To, Cc and Bcc (V); a default message size limit of 35 MB that tenant
-administrators can change (V). The Outlook ceiling is therefore a per-account value learned at connect
-time and in P9, never `GMAIL_SEND_MAX`. An upload session for a file under 3 MB fails (V), so the path
-choice is strictly by size. Chunks go in order and under 4 MB (V); the 320 KiB rule is OneDrive's and does
-not apply.
+- `set_auto_reply` with `externalAudience` other than `none` is `+external`: it sends owner text to
+  strangers. A schedule must be in the future (V).
+- `update_mailbox_settings` changing `delegateMeetingMessageDeliveryOptions` is `+sensitive`.
+- `set_focus_override` with `classifyAs: other` is `+sensitive`. Creating an override for an address that
+  already has one overwrites it (V), so the summary shows the old value.
 
-## Capability matrix (A8)
+## 8. Tool semantics on Outlook
 
-`list_accounts` exposes this per account. An unsupported tool returns `unsupported_for_provider` before
-policy evaluation, so it never creates a pending action.
+### 8.1 Search and read (G14, G25)
 
-| Tools                                                                                                                                        | Outlook v1                      | Phase |
-| -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | ----- |
-| `list_accounts`, `get_policy`, `list_pending`, `execute_pending`, `cancel_pending`, `connect_account`, `open_policy_editor`                  | supported                       | 2     |
-| `search_threads`, `get_thread`, `get_message`, `download_attachment`, `list_drafts`, `get_draft`                                             | supported                       | 2     |
-| `list_labels`                                                                                                                                | well-known folders only (D3)    | 3     |
-| `label_message`, `unlabel_message`, `update_message_labels`                                                                                  | categories                      | 3     |
-| `apply_sensitive_message_label`, `trash_message`, `untrash_message`, `mark_message_spam`, `unmark_message_spam`                              | moves, always `+sensitive`      | 3     |
-| `create_draft`                                                                                                                               | supported                       | 4     |
-| `send_message`, `reply`, `forward`, `send_draft`                                                                                             | draft-first send                | 4     |
-| `label_thread`, `unlabel_thread`, `apply_sensitive_thread_label`, `trash_thread`, `untrash_thread`, `mark_thread_spam`, `unmark_thread_spam` | `unsupported_for_provider` (G7) | n/a   |
-| `update_draft`                                                                                                                               | `unsupported_for_provider` (D2) | n/a   |
-| `create_label`, `update_label`, `delete_label`                                                                                               | `unsupported_for_provider` (D3) | n/a   |
+- `search_threads` takes KQL on Outlook. Results are at most 1,000 and ordered by sent date (V), grouped by
+  `conversationId` in the Worker, with a `truncated` flag at the cap. `$search` is never combined with
+  `$filter`.
+- `get_thread` filters on `conversationId` alone, caps the page count and sorts in the Worker, because a
+  `$orderby` would need the same property in the filter (V).
+- Reads send `Prefer: outlook.body-content-type="text"` and check `Preference-Applied`.
+- `list_accounts` reports `provider`, `capabilities` and `query_dialect` (`gmail` or `kql`) per account,
+  and tool descriptions become provider-neutral.
 
-That is 27 of 38 tools supported and 11 refused.
+### 8.2 Thread mutations (A22)
 
-## Schema (A11)
+The seven thread tools are supported. Graph has no thread resource, so each is a bounded loop over the
+conversation's messages, designed as convergent rather than as a batch:
 
-Additive only. The CI legacy writer baseline and the protocol-2 triggers reject anything else, by design.
+1. Resolve the member set once, before approval: at most 100 messages, else `limit_exceeded`. The intent
+   hash freezes the account, the conversation and the member ids, so an approval covers exactly those.
+2. Each step states a target ("message M is in folder F", "message M carries category C"), not a delta.
+   Already in the target state counts as done.
+3. Execution runs in `$batch` groups of up to 20, every sub-request allowlisted.
+4. One parent operation records a per-item outcome: `done`, `already`, `failed` with the Graph code, or
+   `gone`. A retry re-reads each item and acts only where the target does not hold, so a repeat cannot
+   double-apply or silently shrink the approved set.
+5. Messages that joined the conversation after approval are reported and left alone.
+
+This is the Outlook instance of `P6-BATCH` and owes its acceptance tests: duplicates, partial failure, a
+retry with changed order, response loss and cross-account ids.
+
+### 8.3 Drafts (A23)
+
+- `update_draft` patches body, subject and recipients in place, and the id stays the same.
+- If attachments change, Graph would need an attachment DELETE, which is refused. Instead the tool builds a
+  new draft with the requested content, moves the old draft to Deleted Items, and returns the new
+  `draft_id`. The result says the id changed. Gmail's `drafts.update` also replaces the whole draft, so the
+  owner-visible effect matches.
+- Drafts are always created in Drafts. `POST mailFolders/{id}/messages` is refused.
+
+### 8.4 Trash, spam and restore (G26)
+
+- `trash_*` moves to `deleteditems`, and `mark_*_spam` moves to `junkemail`. v1.0 has no junk report
+  (`reportMessage` is beta), so no sender is added to a block list.
+- Graph has no `untrash`. When this service moves an item, the operation keeps the source folder id.
+  `untrash_*` and `unmark_*_spam` move back there if the operation is ours and the folder still exists, and
+  to Inbox otherwise. The result reports which.
+
+### 8.5 Send (A1 to A3, A24)
+
+Direct `sendMail`, `reply`, `replyAll` and `forward` are refused: each returns 202 with no id (V). Every send
+is draft-first.
+
+| Step | Graph call                                                             | Operation state                             | Persisted before the call       |
+| ---- | ---------------------------------------------------------------------- | ------------------------------------------- | ------------------------------- |
+| 1    | `POST messages`, or `createReply` / `createReplyAll` / `createForward` | `claimed`                                   | the operation and intent        |
+| 2    | `PATCH` the draft: body, recipients, `internetMessageId = <op_…@host>` | `claimed`                                   | the immutable draft id          |
+| 3    | attachments: under 3 MB direct, 3 to 150 MB by upload session          | `claimed`                                   | each attachment's admission     |
+| 4    | `getMailTips` for every recipient                                      | `claimed`                                   | the modifiers it raised, if any |
+| 5    | `POST messages/{id}/send`                                              | `executing`, `byte_admitted=1`              | the full recovery binding       |
+| 6    | observation (below)                                                    | `executed` on 202, confirmed on observation | nothing new                     |
+
+Step 4 can only raise. `recipientScope` of `external` on an address the trusted set would accept adds
+`+external`. `externalMemberCount` or `totalMemberCount` above ten adds `+bulk`, which closes the gap where
+a distribution list counts as one recipient (G15). A raised modifier after approval sends the request back
+for approval instead of sending.
+
+Byte admission means step 5, which the protocol-2 `begin` permit already requires. No new operation state
+is added. A crash before step 5 leaves a stray draft and no delivery.
+
+**Observation (A24, G29).** The two Microsoft pages disagree on whether the draft's immutable id survives
+send. So observation has two keys and trusts neither alone:
+
+1. `GET messages/{draft-id}`: if it resolves to an item in Sent Items that is no longer a draft, delivery
+   is observed.
+2. Otherwise `$filter=internetMessageId eq '<op_…@host>'` on Sent Items. Exactly one match is observed;
+   more than one is an anomaly reported to the owner.
+
+Neither key finding nothing proves non-delivery. Absence never settles `failed_safe`, which is the existing
+`delivery_unknown` rule. P1 and P2 decide which key is reliable, and P3 whether the filter works.
+
+`reply` gains `mode: "reply" | "reply_all"`. On Outlook it picks `createReply` or `createReplyAll`. On Gmail
+`reply_all` is a follow-on and refused for now. `forward` gains `as_attachment`, which sends the original as
+an item attachment (3 MB cap, V).
+
+Limits: 500 recipients (V); the default 35 MB message size is configurable by tenant administrators (V), so
+the ceiling is per account, learned from MailTips `maxMessageSize` and P9, and never `GMAIL_SEND_MAX`. At
+most 250 attachments (V). `from` must be the mailbox itself (V), so `senderFor` accepts only its address.
+
+### 8.6 Delta cursors
+
+`sync_folder` returns an opaque cursor that names a server-side row holding the delta link, bound to owner,
+account and folder. A delta link's lifetime "isn't fixed" (V), so an expired one returns
+`cursor_expired` and the caller restarts. Raw delta links never reach the model.
+
+## 9. Tool surface
+
+### 9.1 The existing 38 on Outlook
+
+All 38 are supported. Differences from Gmail:
+
+| Tools                                                                                                                                        | Outlook behaviour                                                               |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| control tools (7)                                                                                                                            | unchanged; `list_accounts` adds `provider`, `capabilities`, `query_dialect`     |
+| `search_threads`, `get_thread`                                                                                                               | KQL, 1,000 cap, Worker-side grouping and sort (8.1)                             |
+| `get_message`, `get_draft`, `list_drafts`, `download_attachment`                                                                             | item attachments save as `.eml`; reference attachments listed, not downloadable |
+| `list_labels`                                                                                                                                | folders and master categories, each typed                                       |
+| `create_label`, `update_label`, `delete_label`                                                                                               | master categories; colour presets; rename refused (`immutable_on_provider`)     |
+| `label_message`, `unlabel_message`, `update_message_labels`                                                                                  | categories, serialised per message                                              |
+| `apply_sensitive_message_label`                                                                                                              | moves to `deleteditems`, `junkemail` or `archive`                               |
+| `label_thread`, `unlabel_thread`, `apply_sensitive_thread_label`, `trash_thread`, `untrash_thread`, `mark_thread_spam`, `unmark_thread_spam` | convergent loops (8.2)                                                          |
+| `trash_message`, `untrash_message`, `mark_message_spam`, `unmark_message_spam`                                                               | moves with recorded source (8.4)                                                |
+| `create_draft`, `update_draft`                                                                                                               | JSON drafts; attachment change replaces the draft (8.3)                         |
+| `send_message`, `reply`, `forward`, `send_draft`                                                                                             | draft-first with MailTips and two-key observation (8.5)                         |
+
+### 9.2 New tools (25)
+
+On a Gmail account each returns `unsupported_for_provider` until a Gmail follow-on adds it (Gmail filters,
+vacation responder and forwarding need the `gmail.settings.basic` and `gmail.settings.sharing` scopes,
+which the Gmail grant does not request today). Every refusal happens before policy evaluation, so it never
+creates a pending action.
+
+| Tool                      | Action           | Graph                                     | Notes                                                            |
+| ------------------------- | ---------------- | ----------------------------------------- | ---------------------------------------------------------------- |
+| `list_folders`            | read.message     | `mailFolders`, `childFolders`             | Tree with counts, hidden folders marked, depth and count bounded |
+| `list_folder_messages`    | read.message     | `mailFolders/{id}/messages`               | `limit` default 20, max 50, `page_token`                         |
+| `sync_folder`             | read.message     | `messages/delta`                          | Opaque cursor; the delta link stays server-side (8.6)            |
+| `export_message`          | read.attachment  | `messages/{id}/$value`                    | `.eml` into staging, 25 MiB ceiling                              |
+| `get_mail_tips`           | read.message     | `getMailTips`                             | Recipient scope, member counts, automatic replies, size limit    |
+| `create_folder`           | folder.manage    | `POST mailFolders`, `childFolders`        | `hidden: true` is `+sensitive`                                   |
+| `rename_folder`           | folder.manage    | `PATCH mailFolders/{id}`                  | Well-known folders refused                                       |
+| `move_folder`             | folder.manage    | `mailFolders/{id}/move`                   | Classified by target (7.2)                                       |
+| `copy_folder`             | folder.manage    | `mailFolders/{id}/copy`                   | Copies contents                                                  |
+| `trash_folder`            | folder.manage    | `mailFolders/{id}/move` to `deleteditems` | Always `+sensitive`. Never DELETE                                |
+| `create_search_folder`    | folder.manage    | `childFolders` as `mailSearchFolder`      | Result warns of the 45-day expiry                                |
+| `update_search_folder`    | folder.manage    | `PATCH mailFolders/{id}`                  | Query, sources, nesting                                          |
+| `move_message`            | message.organize | `messages/{id}/move`                      | Classified by target (7.2)                                       |
+| `copy_message`            | message.organize | `messages/{id}/copy`                      | System folders refused as targets                                |
+| `update_message_state`    | message.organize | `PATCH messages/{id}`                     | Read state, flag, importance, focus (7.4)                        |
+| `list_rules`              | read.message     | `messageRules`                            | Marks forwarding, redirecting and deleting rules                 |
+| `create_rule`             | rule.manage      | `POST messageRules`                       | 7.5                                                              |
+| `update_rule`             | rule.manage      | `PATCH messageRules/{id}`                 | Includes enable, disable and sequence                            |
+| `delete_rule`             | rule.manage      | `DELETE messageRules/{id}`                | Deletes the rule only                                            |
+| `get_mailbox_settings`    | read.message     | `GET mailboxSettings`                     | Includes automatic replies                                       |
+| `set_auto_reply`          | settings.edit    | `PATCH mailboxSettings`                   | 7.6                                                              |
+| `update_mailbox_settings` | settings.edit    | `PATCH mailboxSettings`                   | Values checked against supported languages and time zones        |
+| `list_focus_overrides`    | read.message     | `inferenceClassification/overrides`       | At most 1,000 per mailbox (V)                                    |
+| `set_focus_override`      | settings.edit    | `POST` or `PATCH` an override             | 7.6                                                              |
+| `remove_focus_override`   | settings.edit    | `DELETE` an override                      | Deletes a preference only                                        |
+
+38 existing plus 25 new makes 63 tools on an Outlook account.
+
+### 9.3 Annotations
+
+Following the Gmail design's 2.5: every `list_*`, `get_*`, `sync_folder` and `get_mail_tips` carry
+`readOnlyHint: true`. `export_message` matches `download_attachment`. `trash_folder`, `move_folder`,
+`move_message`, `delete_rule`, `delete_label`, `create_rule` and `update_rule` carry `destructiveHint: true`,
+the rule tools because a rule can trash future mail. `set_auto_reply` carries `openWorldHint: true`. They
+are hints only; the policy engine is the enforcement.
+
+## 10. Schema (A11)
+
+Additive only, because the CI legacy writer baseline and the protocol-2 triggers reject anything else.
 
 - `accounts.provider TEXT NOT NULL DEFAULT 'gmail' CHECK(provider IN ('gmail','outlook'))`.
-- `accounts.provider_registration TEXT`, `NULL` for Gmail, `outlook-personal` or `outlook-tenant` otherwise.
-- The Outlook subject is stored in the existing `google_sub` column as `ms:{tid}:{oid}`. A Google `sub` is
-  numeric, so the prefix cannot collide, and the existing `UNIQUE (user_id, google_sub)` keeps meaning "one
-  account per identity" without a table rebuild. The address goes in `google_email`. The naming debt is
-  accepted (G19).
-- No renamed columns, no new operation states.
+- `accounts.provider_registration TEXT`, `NULL` for Gmail.
+- The Outlook subject goes in the existing `google_sub` as `ms:{tid}:{oid}`. A Google `sub` is numeric, so
+  the prefix cannot collide, and `UNIQUE (user_id, google_sub)` keeps meaning one account per identity
+  without a table rebuild. The address goes in `google_email`. The naming debt is accepted (G19).
+- New tables: `delta_cursors` (8.6), `graph_subscriptions` (Phase 6) and per-item outcomes for 8.2. Their
+  columns are a Phase 1 deliverable.
+- No renamed columns and no new operation states.
 
-## Documents that change when the code ships
+## 11. Documents that change when the code ships
 
-| Document                           | Change                                                                                                            | Ships with |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ---------- |
-| `docs/INVARIANTS.md`               | Split 7 into 7a and 7b with their proof types. New invariant: every Graph request carries the immutable-id header | Phase 2    |
-| `SECURITY.md`                      | Residual row: a leaked Outlook token can permanently delete. Admin consent in work tenants                        | Phase 2    |
-| `docs/runbooks/microsoft-entra.md` | New, the counterpart of `google-cloud.md`: both registrations, certificate rotation, scopes                       | Phase 2    |
-| `README.md`, `ARCHITECTURE.md`     | Provider seam, capability matrix, status rows marked "locally verified against a synthetic Graph" until live      | each phase |
-| Deferred register                  | PKCE for the Google connect flow. Thread batch mutations for Outlook. Category administration                     | Phase 1    |
+| Document                           | Change                                                                                                                 | Ships with |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------- |
+| `docs/INVARIANTS.md`               | 7a and 7b with proof types; every Graph request carries the immutable-id header; no rule may permanently delete        | Phase 2    |
+| `SECURITY.md`                      | A leaked Outlook token can permanently delete; administrator consent in work tenants; rules as persistent exfiltration | Phase 2    |
+| `docs/runbooks/microsoft-entra.md` | New: both registrations, certificate rotation, scopes, administrator consent                                           | Phase 2    |
+| `README.md`, `ARCHITECTURE.md`     | Provider seam, capability matrix, "locally verified against a synthetic Graph" until live                              | each phase |
+| Deferred register                  | PKCE for the Google flow; Gmail `reply_all`; Gmail filters, vacation and forwarding                                    | Phase 1    |
 
-## Phases and gates
+## 12. Phases and gates
 
-| Phase | What                                                                                                           | Gate                                                                          |
-| ----- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| 0     | Probes P1 to P14 on a throwaway personal account and an owned developer tenant. Evidence and recorded fixtures | Evidence in the Plan 6 feasibility format, with each probe's falsifier stated |
-| 1     | Provider seam, additive migration, `ProviderId`, `classifyTarget`, both transports, allowlist, limiter design  | 862 TypeScript tests and the CI legacy corpus unchanged and green             |
-| 2     | Outlook read-only: connect, verifier, token rotation, search, threads, messages, drafts list, attachments      | A live read on a real mailbox the owner controls                              |
-| 3     | Categories, moves to Deleted Items, Junk and Archive with `+sensitive`, restore                                | Classifier matrix and allowlist mutation tests                                |
-| 4     | Draft-first send, reply, forward, `send_draft`, observation                                                    | O2 proven live. O1 stays `not_run`                                            |
+| Phase | What                                                                                                 | Gate                                                                     |
+| ----- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| 0     | Probes P1 to P18 on a throwaway personal account and an owned developer tenant                       | Evidence in the Plan 6 feasibility format, each with its falsifier       |
+| 1     | Provider seam, migration, `ProviderId`, `classifyTarget`, both transports, allowlist, limiter design | 862 TypeScript tests and the CI legacy corpus unchanged and green        |
+| 2     | Connect and read: every read tool in 9.1 and 9.2                                                     | A live read on a real mailbox the owner controls                         |
+| 3     | Organise: labels, categories, folders, moves, message state, thread loops                            | Classifier matrix, allowlist mutation tests, `P6-BATCH` acceptance tests |
+| 4     | Send: draft-first sends, `update_draft`, MailTips, observation                                       | O2 proven live. O1 stays `not_run`                                       |
+| 5     | Rules and settings                                                                                   | Rule-policy matrix, including the refused `permanentDelete` action       |
+| 6     | Change notifications for observation and the folder cache                                            | Validation handshake and lifecycle events against the fake and live      |
 
-A `fake-graph` built from the Phase 0 fixtures backs the worker suite. Results against it are labelled
-"Locally verified against a synthetic Graph" and never "live" (G16). Any probe that sends mail goes only to
-mailboxes the owner controls, and any probe that mutates a real mailbox needs explicit authorization first.
+A `fake-graph` built from Phase 0 fixtures backs the worker suite, and its results are labelled "Locally
+verified against a synthetic Graph", never "live" (G16). Probes that send go only to mailboxes the owner
+controls, and probes that change a real mailbox need explicit authorization first.
 
-## Phase 0 probes
+## 13. Phase 0 probes
 
-P1 to P13 are as in the gauntlet, with these changes.
+P1 to P13 are as in the gauntlet, amended by revision 2. Revision 3 adds:
 
-| ID  | Change from the gauntlet                                                                                                       |
-| --- | ------------------------------------------------------------------------------------------------------------------------------ |
-| P2  | Set `internetMessageId` on the draft, then compare it with the Sent copy and with the header the recipient sees                |
-| P5  | Confirm `SearchWithFilter` on `/messages`, and `InefficientFilter` for `conversationId` with `$orderby`                        |
-| P6  | Record the token-endpoint bodies for each row of the error taxonomy, including any `error_codes` array                         |
-| P7  | Expect "admin consent required" for a default work tenant. Record whether the personal-only registration meets step-up consent |
-| P8  | Record the upload URL host, path and query shape. Confirm a chunk sent with `Authorization` is refused or ignored              |
-| P12 | Also record the id character set seen across messages, folders and attachments                                                 |
-| P13 | Also test `If-Match` with `@odata.etag` on a category PATCH                                                                    |
-| P14 | New. Error bodies and states when a tenant has blocked client secrets or the certificate has expired                           |
+| ID  | Measure                                                                                                   | Falsifier                                                       |
+| --- | --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| P1  | (amended) Draft id after send, on personal and work, against the two conflicting Microsoft pages          | The id resolves to a different item, or never resolves          |
+| P14 | Error bodies when the certificate has expired or the tenant blocks the credential type                    | A body the taxonomy cannot place                                |
+| P15 | A forwarding rule to an external address on personal and work; whether an NDR comes back                  | A forward that leaves silently where the docs say it is blocked |
+| P16 | Delta link lifetime and the `syncStateNotFound` and 410 paths                                             | An expired link that returns data instead of an error           |
+| P17 | Subscription validation, renewal, `missed` and `reauthorizationRequired` events against a deployed Worker | A notification the Worker cannot authenticate by `clientState`  |
+| P18 | What happens to items when a master category is deleted, and to a search folder after 45 days             | Mail content lost when a category definition goes               |
 
-## Open questions
+## 14. Decisions
 
-- What DELETE does to a message (P4). Until then it is destructive and unreachable.
-- Whether the `Message-ID` set on a draft survives send (P2).
-- Where the Durable Object limiter's state lives across deploys, and whether it is in the release path's
-  quiescence story. This is part of the Phase 1 design and may touch the open feasibility decisions.
+| ID  | Question                           | Recommendation, and what v2 assumes                                                                                                |
+| --- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | Which accounts can connect         | Personal accounts, and a single-tenant app in a tenant the owner administers. Other work tenants once their administrator consents |
+| D2  | `update_draft`                     | Supported. Attachment changes replace the draft and return a new id (8.3). Reversed from v1                                        |
+| D3  | Label administration               | Supported, with `MailboxSettings.ReadWrite`. Reversed from v1, because full coverage needs the scope anyway                        |
+| D4  | Client credential                  | A certificate and `private_key_jwt`, rotated yearly                                                                                |
+| D5  | Gmail equivalents of the new tools | A separate follow-on spec. It needs new Google scopes and its own review                                                           |
+
+## 15. Open questions
+
+- What DELETE does to a message or folder (P4). Until then both stay refused.
+- Which observation key is reliable after send (P1, P2, P3).
+- Where the Durable Object limiter sits in the release path's quiescence story. Part of the Phase 1 design,
+  and it may touch the open feasibility decisions.
 - O1, the provider commit barrier, which Outlook inherits as `not_run`.
 
-## References
+## 16. References
 
-The full reference list is in the [gauntlet](../reviews/2026-10-05-outlook-spec-gauntlet.md#references) and
-its [revision 2](../reviews/2026-10-05-outlook-spec-gauntlet.md#additional-references). The pages this spec
-leans on most:
-
-Microsoft (n.d.) [Get immutable identifiers for Outlook resources](https://learn.microsoft.com/en-us/graph/outlook-immutable-id), Microsoft Learn, accessed 5 October 2026.
-
-Microsoft (n.d.) [Update message](https://learn.microsoft.com/en-us/graph/api/message-update?view=graph-rest-1.0), Microsoft Learn, accessed 5 October 2026.
-
-Microsoft (n.d.) [Attach large files to Outlook messages or events](https://learn.microsoft.com/en-us/graph/outlook-large-attachments), Microsoft Learn, accessed 5 October 2026.
-
-Microsoft (n.d.) [Microsoft Graph service-specific throttling limits](https://learn.microsoft.com/en-us/graph/throttling-limits), Microsoft Learn, accessed 5 October 2026.
-
-Microsoft (n.d.) [Secure applications and APIs by validating claims](https://learn.microsoft.com/en-us/entra/identity-platform/claims-validation), Microsoft Learn, accessed 5 October 2026.
-
-Microsoft (n.d.) [Refresh tokens in the Microsoft identity platform](https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens), Microsoft Learn, accessed 5 October 2026.
-
-Microsoft (n.d.) [Manage app consent policies](https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/manage-app-consent-policies), Microsoft Learn, accessed 5 October 2026.
-
-Microsoft (n.d.) [Add and manage application credentials](https://learn.microsoft.com/en-us/entra/identity-platform/how-to-add-credentials), Microsoft Learn, accessed 5 October 2026.
-
-Microsoft 365 Developer Blog (2026) [Breaking change ahead: Graph API updates to sensitive email properties](https://devblogs.microsoft.com/microsoft365dev/graph-api-updates-to-sensitive-email-properties/), 26 March, accessed 5 October 2026.
+Every source is listed in the [gauntlet](../reviews/2026-10-05-outlook-spec-gauntlet.md#references), its
+[revision 2](../reviews/2026-10-05-outlook-spec-gauntlet.md#additional-references) and its
+[revision 3](../reviews/2026-10-05-outlook-spec-gauntlet.md#revision-3-references).

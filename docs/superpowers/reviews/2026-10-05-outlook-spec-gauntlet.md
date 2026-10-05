@@ -540,3 +540,168 @@ Microsoft (n.d.ab) [Add and manage application credentials](https://learn.micros
 Microsoft 365 Developer Blog (2026) [Breaking change ahead: Graph API updates to sensitive email properties](https://devblogs.microsoft.com/microsoft365dev/graph-api-updates-to-sensitive-email-properties/), 26 March, accessed 5 October 2026.
 
 Microsoft Q&A (n.d.b) [Question 1184920](https://learn.microsoft.com/en-us/answers/questions/1184920) and [question 1401458](https://learn.microsoft.com/en-us/answers/questions/1401458), answers quoting the `SearchWithFilter` error, accessed 5 October 2026.
+
+## Revision 3: full-surface inventory
+
+Appended 2026-10-05, same baseline. The owner asked for coverage of everything the Graph mail API exposes,
+not a Gmail-parity subset. This pass inventoried every v1.0 method on messages, attachments, folders,
+search folders, categories, inbox rules, mailbox settings, Focused Inbox, MailTips, subscriptions, delta and
+batching, and listed the beta-only and administrator-only endpoints. About 110 Microsoft Learn pages were
+fetched as raw HTML and the text was grepped, so quotes are verbatim. The authorization boundary is
+unchanged: no request went to Graph or Entra. It is still the same author.
+
+Spec v2 is the result. It supports all 38 existing tools on Outlook, adds 25 Outlook tools, and gives every
+endpoint a disposition: offered, internal or refused.
+
+### Findings
+
+| ID  | Severity | Finding                                                                                               | Outcome      |
+| --- | -------- | ----------------------------------------------------------------------------------------------------- | ------------ |
+| G29 | High     | Microsoft's own pages disagree on whether a draft's immutable id survives send                        | Spec amended |
+| G30 | High     | `$batch` can carry any method and path, so an allowlist that ignores batch bodies is bypassable       | Spec amended |
+| G31 | High     | `permanentDelete` is documented only under `/users/{id}/…`, so a `/me`-only block misses it           | Spec amended |
+| G32 | High     | Inbox rules can forward, redirect, delete and permanently delete, and run after this service is gone  | Spec amended |
+| G33 | High     | `reply`, `replyAll`, `forward` and `sendMail` all return 202 with no id                               | Spec amended |
+| G34 | Medium   | MIME request bodies carry recipients inside base64, out of sight of the policy engine                 | Spec amended |
+| G35 | Medium   | Automatic replies with an external audience send owner text to any sender                             | Spec amended |
+| G36 | Medium   | Delegate meeting delivery can route meeting mail away from the owner                                  | Spec amended |
+| G37 | Medium   | Focused Inbox overrides can bury a sender, and a create silently overwrites                           | Spec amended |
+| G38 | Medium   | The default consent policy also blocks `MailboxSettings.*` and `Mail.ReadBasic` in work tenants       | Decision D3  |
+| G39 | Medium   | Change notifications have short lifetimes, a 10-second handshake, and do not cover folders            | Phase 6      |
+| G40 | Medium   | `Prefer: outlook.allow-unsafe-html` returns unsanitised HTML                                          | Spec amended |
+| G41 | Low      | Search folders expire after 45 days unused and can be evicted                                         | Spec amended |
+| G42 | Low      | Hidden folders are left out of listings by default                                                    | Spec amended |
+| G43 | Low      | Exchange Online limits sending to 30 messages a minute                                                | Spec amended |
+| G44 | Low      | Mailbox export, import, item hard delete and message trace are v1.0, not beta, but administrator-only | Excluded     |
+| G45 | High     | A move into `recoverableitemsdeletions` is a delayed permanent delete                                 | Spec amended |
+| G46 | Medium   | A category name cannot be changed after creation                                                      | Spec amended |
+
+**G29. Draft id across send (High).** The immutable-id page says to create a draft with the header, send
+it, and get it by the same id: "This is the copy in Sent Items" (V, Microsoft n.d.g). The mail overview
+says immutable ids hold "as long as the message remains in the same mailbox, with the exception of sending
+a draft message, and a few other scenarios" (V, Microsoft n.d.ac). Both are primary pages, and they
+conflict. A1 to A3 relied on the first. Amendment A24: two observation keys, the draft id and the
+`internetMessageId` stamped by G27, neither trusted alone and neither proving non-delivery by absence. P1
+now tests both pages' claims on personal and work accounts.
+
+**G30. Batch bodies (High).** A batch carries up to 20 sub-requests, each with its own method and URL
+(V, Microsoft n.d.ad). An allowlist that checks only the outer `POST $batch` lets a refused DELETE through.
+Amendment A17: only the Worker builds batches, and every sub-request passes the allowlist first. The 7b
+mutation test includes a caller-supplied batch.
+
+**G31. Path prefixes (High).** Message and folder `permanentDelete` are documented under `/users/{id}/…`
+only (V, Microsoft n.d.a, n.d.ae). A17: `graphFetch` accepts `/v1.0/me/` paths only, refuses `/users/` and
+`/beta/` outright, and matches `permanentDelete` under any prefix.
+
+**G32. Inbox rules (High).** The rule actions are `assignCategories`, `copyToFolder`, `delete`,
+`forwardAsAttachmentTo`, `forwardTo`, `markAsRead`, `markImportance`, `moveToFolder`, `permanentDelete`,
+`redirectTo` and `stopProcessingRules`. `permanentDelete` means the message is "permanently deleted and not
+saved to the Deleted Items folder" (V, Microsoft n.d.af). Microsoft's own security guidance names rules
+that forward externally as a compromise pattern, and since 2021 new organisations block automatic
+external forwarding by default with an NDR (V, Microsoft n.d.ag). Nothing documents the personal-account
+behaviour (U). Amendment A20: a `permanentDelete` action is refused whatever the policy, forward targets
+are recipients for `+external` and `+bulk`, and delete or hide patterns are `+sensitive`. `list_rules`
+marks every forwarding or deleting rule, including ones this service did not create.
+
+**G33. Direct sends (High).** All four direct routes return 202 with an empty body (V, Microsoft n.d.b,
+n.d.c, n.d.ah). A1 is extended from `sendMail` to all four.
+
+**G34. MIME writes (Medium).** Draft creation, `sendMail` and the reply family all accept base64 MIME,
+with recipients taken from its headers (V, Microsoft n.d.e). The policy engine would have to parse MIME to
+see who receives the mail. Amendment: every write is JSON; MIME is only read, through `export_message`.
+
+**G35 to G37. Settings (Medium).** `automaticRepliesSetting.externalAudience` is `none`, `contactsOnly` or
+`all` (V). `delegateMeetingMessageDeliveryOptions` includes `sendToDelegateOnly` (V). A Focused Inbox
+override for an address that already has one updates it in place, and a mailbox holds at most 1,000 (V,
+Microsoft n.d.ai). Amendment A21: an external audience is `+external`, a delivery change is `+sensitive`,
+and an override to Other is `+sensitive`.
+
+**G38. Consent (Medium).** The managed default excludes from user consent, among others, `Mail.Read`,
+`Mail.ReadWrite`, `Mail.ReadBasic`, `MailBoxSettings.Read` and `MailBoxSettings.ReadWrite` (V, Microsoft
+n.d.x). Personal accounts can consent to `MailboxSettings.ReadWrite` (V, Microsoft n.d.y). So requesting it
+adds nothing in a work tenant, where `Mail.ReadWrite` needs the administrator anyway. D3 is reversed: the
+scope is requested and label administration, rules and settings are supported.
+
+**G39. Change notifications (Medium).** Message subscriptions last at most 10,080 minutes, or 1,440 with
+resource data, and a mailbox allows 1,000 of them across all applications. The validation reply is due
+within 10 seconds. `mailFolder` is not subscribable. The webhook page calls `clientState` required while
+the resource page calls it optional (V, Microsoft n.d.aj). Phase 6 uses basic notifications only, always
+sets `clientState`, and pins the notification URL to this Worker.
+
+**G40. Unsafe HTML (Medium).** `Prefer: outlook.allow-unsafe-html` returns the original, unsanitised HTML
+(V, Microsoft n.d.ak). A17's transport test fails if any request carries it.
+
+**G41 and G42. Folders (Low).** Search folders "expire after 45 days of no usage", and older ones are
+evicted past a per-folder limit (V). Folders created with `isHidden` are left out unless
+`includeHiddenFolders=true` (V). Amendment A19: listings always include hidden folders, creating one is
+`+sensitive`, and a search folder result warns of expiry.
+
+**G43. Send rate (Low).** "30 messages per minute" (V, Microsoft n.d.al). The limiter admits sends against it.
+
+**G44. Administrator APIs (Low).** `exportItems`, `createImportSession`, `mailboxItem` delta and delete,
+and message trace are v1.0 under `/admin/exchange/`. They need administrator-consented scopes, do not
+support personal accounts, and item delete takes `disposalType=hardDelete` (V). Excluded, and the scope
+check refuses `MailboxItem.*` and `MailboxFolder.*`.
+
+**G45. Recoverable items (High).** `recoverableitemsdeletions` is a well-known folder name a move can
+target. Items there stay "until the deleted item retention period is reached", which defaults to 14 days,
+and then the Managed Folder Assistant purges them (V, Microsoft n.d.am). A move there is a delayed
+permanent delete. A19 refuses it, and every other system folder except Inbox, Archive, Deleted Items and
+Junk, as a move target.
+
+**G46. Category names (Medium).** "You can't modify the displayName property once you have created the
+category" (V, Microsoft n.d.an). Gmail `update_label` can rename. On Outlook a rename returns
+`immutable_on_provider` and a colour change is allowed.
+
+### Amendments A17 to A24
+
+| ID  | Amendment                                                                                                          | From          |
+| --- | ------------------------------------------------------------------------------------------------------------------ | ------------- |
+| A17 | `graphFetch` takes `/v1.0/me/` only; refuses `/users/`, `/beta/`, caller batches and the unsafe-HTML header        | G30, G31, G40 |
+| A18 | Four new actions: `folder.manage`, `message.organize`, `rule.manage`, `settings.edit`                              | full coverage |
+| A19 | Classification covers hidden folders and refuses system folders, including `recoverableitemsdeletions`, as targets | G41, G42, G45 |
+| A20 | Rule policy: no `permanentDelete` action, forward targets are recipients, hide patterns are `+sensitive`           | G32           |
+| A21 | Settings policy: external auto-replies, delegate delivery and Focused overrides raise modifiers                    | G35 to G37    |
+| A22 | Thread tools as convergent, bounded loops with a frozen member set and per-item outcomes                           | G7            |
+| A23 | `update_draft` patches in place, and replaces the draft when attachments change                                    | G11           |
+| A24 | Two-key send observation, and MailTips before send that can only raise modifiers                                   | G29, G15      |
+
+A8 is superseded: no existing tool is `unsupported_for_provider` on Outlook. D2 and D3 are reversed.
+
+### Not established, after this revision
+
+- Which observation key holds after send. The two pages conflict.
+- What DELETE does to a message or a folder. Both stay refused.
+- What happens to tagged items when a master category is deleted (U, P18).
+- Personal-account behaviour for external forwarding rules (U, P15).
+- Everything live. No request was made.
+
+### Revision 3 references
+
+Microsoft (n.d.ac) [Use the Outlook mail REST API](https://learn.microsoft.com/en-us/graph/api/resources/mail-api-overview?view=graph-rest-1.0), Microsoft Learn, accessed 5 October 2026.
+
+Microsoft (n.d.ad) [Combine multiple HTTP requests using JSON batching](https://learn.microsoft.com/en-us/graph/json-batching), Microsoft Learn, accessed 5 October 2026.
+
+Microsoft (n.d.ae) [mailFolder: permanentDelete](https://learn.microsoft.com/en-us/graph/api/mailfolder-permanentdelete?view=graph-rest-1.0), Microsoft Learn, accessed 5 October 2026.
+
+Microsoft (n.d.af) [messageRuleActions resource type](https://learn.microsoft.com/en-us/graph/api/resources/messageruleactions?view=graph-rest-1.0), Microsoft Learn, accessed 5 October 2026.
+
+Microsoft (n.d.ag) [Control automatic external email forwarding](https://learn.microsoft.com/en-us/defender-office-365/outbound-spam-policies-external-email-forwarding), Microsoft Learn, accessed 5 October 2026.
+
+Microsoft (n.d.ah) [message: reply](https://learn.microsoft.com/en-us/graph/api/message-reply?view=graph-rest-1.0), Microsoft Learn, accessed 5 October 2026.
+
+Microsoft (n.d.ai) [Create inferenceClassificationOverride](https://learn.microsoft.com/en-us/graph/api/inferenceclassification-post-overrides?view=graph-rest-1.0), Microsoft Learn, accessed 5 October 2026.
+
+Microsoft (n.d.aj) [subscription resource type](https://learn.microsoft.com/en-us/graph/api/resources/subscription?view=graph-rest-1.0) and [Receive change notifications through webhooks](https://learn.microsoft.com/en-us/graph/change-notifications-delivery-webhooks), Microsoft Learn, accessed 5 October 2026.
+
+Microsoft (n.d.ak) [Create and send Outlook messages](https://learn.microsoft.com/en-us/graph/outlook-create-send-messages), Microsoft Learn, accessed 5 October 2026.
+
+Microsoft (n.d.al) [Exchange Online limits](https://learn.microsoft.com/en-us/office365/servicedescriptions/exchange-online-service-description/exchange-online-limits), Microsoft Learn, accessed 5 October 2026.
+
+Microsoft (n.d.am) [Recoverable Items folder in Exchange Online](https://learn.microsoft.com/en-us/exchange/policy-and-compliance/recoverable-items-folder/recoverable-items-folder), Microsoft Learn, accessed 5 October 2026.
+
+Microsoft (n.d.an) [Update outlookCategory](https://learn.microsoft.com/en-us/graph/api/outlookcategory-update?view=graph-rest-1.0), Microsoft Learn, accessed 5 October 2026.
+
+Microsoft (n.d.ao) [Get mail tips](https://learn.microsoft.com/en-us/graph/api/user-getmailtips?view=graph-rest-1.0), Microsoft Learn, accessed 5 October 2026.
+
+Microsoft (n.d.ap) [Get incremental changes to messages in a folder](https://learn.microsoft.com/en-us/graph/delta-query-messages), Microsoft Learn, accessed 5 October 2026.
