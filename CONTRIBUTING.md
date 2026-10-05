@@ -6,9 +6,9 @@ tests, and what makes a change easy to review.
 ## Getting set up
 
 You need Node 22.18 or newer, which the root `engines` field pins. The repository is an npm workspace
-with four packages: `shared` holds the contracts, `worker` holds the Cloudflare Worker, `companion` holds
-the local stdio client and its Swift helper, and `scripts/qualification` holds the release-evidence
-tooling.
+with five packages: `shared` holds the contracts, `worker` holds the Cloudflare Worker, `companion` holds
+the local stdio client and its Swift helper, `scripts/qualification` holds the release-evidence tooling,
+and `scripts/outlook-probes` holds the Phase 0 harness for the proposed Outlook provider.
 
 ```bash
 npm install
@@ -17,7 +17,7 @@ npm run verify
 
 There are two gates and they are not the same gate.
 
-`npm run verify` runs formatting, linting, type checking and the TypeScript suites across all four
+`npm run verify` runs formatting, linting, type checking and the TypeScript suites across all five
 workspaces, in that order. CI runs exactly this, so green locally means green in CI. It does **not**
 compile or test Swift.
 
@@ -31,7 +31,7 @@ For a faster loop, run the gates one at a time:
 npm run format        # rewrite files to the project style
 npm run lint          # eslint, type-aware
 npm run typecheck     # regenerates Worker types, then tsc
-npm test              # the TypeScript tests in all four workspaces
+npm test              # the TypeScript tests in all five workspaces
 ```
 
 To run a single test file:

@@ -5,7 +5,8 @@
     "shared",
     "worker",
     "companion",
-    "scripts/qualification"
+    "scripts/qualification",
+    "scripts/outlook-probes"
   ],
   "scripts": {
     "test": "npm run test --workspaces --if-present",

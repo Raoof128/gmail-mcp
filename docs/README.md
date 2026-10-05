@@ -19,6 +19,7 @@ Read these for the present tense.
 | What changed, and what are the current test counts?   | [CHANGELOG.md](../CHANGELOG.md)                                                              |
 | How do I set up Google Cloud?                         | [runbooks/google-cloud.md](runbooks/google-cloud.md)                                         |
 | How do I install and operate the companion?           | [runbooks/companion.md](runbooks/companion.md)                                               |
+| How do I run the Outlook Phase 0 probes?              | [runbooks/outlook-probes.md](runbooks/outlook-probes.md)                                     |
 | What would a release need, and why can it not happen? | [runbooks/release-qualification.md](runbooks/release-qualification.md)                       |
 | What is verified privately before any release?        | [runbooks/release.md](runbooks/release.md)                                                   |
 | What is deliberately not built?                       | [The deferred register](superpowers/plans/2026-09-15-gmail-mcp-deferred-feature-register.md) |
@@ -51,7 +52,10 @@ statement about the code today.
   4 staging and the companion, 5 recovery, 6 qualification closure (in progress), 7 owner repair and
   documentation reconciliation.
 - `superpowers/specs/` holds the design spec plus the per-plan design inputs for recovery, closure and the
-  follow-on features.
+  follow-on features, and the [Outlook provider design](superpowers/specs/2026-10-05-outlook-provider-design.md)
+  with its [Gmail follow-on](superpowers/specs/2026-10-05-gmail-settings-follow-on.md), drafts with no
+  implementation acceptance whose review is the
+  [Outlook spec gauntlet](superpowers/reviews/2026-10-05-outlook-spec-gauntlet.md).
 - `superpowers/reviews/` holds the gauntlets and their resolutions. Two matter most:
   - [The full-project gauntlet](superpowers/reviews/2026-09-17-full-project-gauntlet.md) is canonical for
     the proof type behind each invariant as of 2026-09-18, the load-bearing predicate table, the
