@@ -9,7 +9,7 @@
     "start": "node cli.ts"
   },
   "devDependencies": {
-    "@types/node": "26.6.2",
+    "@types/node": "26.6.4",
     "vitest": "4.1.11"
   },
   "engines": {
