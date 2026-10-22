@@ -67,7 +67,19 @@ async function planCompose(
     account,
     given,
     inline.reduce((n, d) => n + d.size, 0),
-  );
+  ).catch((e: unknown) => {
+    // Said outright because a caller once read this refusal as having stripped the draft's attachments
+    // and re-staged to repair damage that never happened. It is raised while planning, before any write.
+    if (!(e instanceof GmailMcpError) || e.code !== "handle_invalid") throw e;
+    const missing = (e.details?.handles as string[] | undefined) ?? [];
+    throw new GmailMcpError(
+      "handle_invalid",
+      `handle_invalid: ${missing.join(", ")} is not a usable staging handle on this account. A handle attaches ` +
+        `once and then expires, so stage the file again and pass the new handle. ` +
+        (base.draft_id ? "The draft was not changed." : "No draft was created."),
+      e.details,
+    );
+  });
   const files = [
     ...rows.map((r) => ({ filename: r.filename, size: r.size })),
     ...inline.map((d) => ({ filename: d.filename, size: d.size })),

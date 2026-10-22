@@ -59,6 +59,15 @@ counts are stated; other documents link here rather than repeating them.
 
 ### Fixed
 
+- **A refused draft edit now says the draft is untouched.** Passing an already-used staging handle to
+  `update_draft` answered only `handle_invalid: <handle>`, and a live session took that as the call
+  having stripped the draft's attachment, then re-staged to repair damage that never happened. The
+  production audit and operations tables showed every write to that draft succeeding, and the server
+  raises the refusal while planning, before any write. The message now names the handle, says a handle attaches once
+  and must be staged again, and says the draft was not changed (or, for `create_draft`, that none was
+  created). A regression test asserts the refused call makes only reads, leaves the draft byte for byte as
+  it was, and writes no audit or operation row; letting `listUploadHandles` accept a used handle turns it red.
+
 - **The ledger table's header covered its first row on every console page.** `overflow: hidden` on
   `table` made the table the scroll container for its sticky `th`, so the header was offset from the
   table's own edge. `overflow: clip` keeps the rounded corners without it. The Allow everything note on

@@ -272,4 +272,50 @@ describe("update_draft", () => {
       details: { status: 404 },
     });
   });
+
+  // A live session read this refusal as having stripped the draft's attachment, and re-staged to repair
+  // damage that never happened. The refusal is raised while planning, so it must leave the draft byte
+  // for byte as it was and must say so.
+  it("a handle already used is refused before any write, and the refusal says the draft is unchanged", async () => {
+    const h = await stage("once.txt", new TextEncoder().encode("once"));
+    const created = await call("create_draft", {
+      account: "personal",
+      to: ["a@example.test"],
+      body: "keep",
+      attachments: [h],
+    });
+    const id = created.result.draft.id as string;
+    const before = rawOf(id);
+    const messageBefore = gm().drafts.get(id)!.message.id;
+    expect(before).toContain('filename="once.txt"');
+    const requestsBefore = gm().requests.length;
+    const auditBefore = (await env.DB.prepare("SELECT count(*) AS n FROM audit_log").first<any>()).n as number;
+    const opsBefore = (await env.DB.prepare("SELECT count(*) AS n FROM operations").first<any>()).n as number;
+
+    const r = await call("update_draft", { account: "personal", draft_id: id, body: "edited", attachments: [h] });
+
+    expect(r.result).toMatchObject({ error: "handle_invalid", details: { handles: [h] } });
+    expect(r.result.message).toContain(h);
+    expect(r.result.message).toContain("The draft was not changed");
+    expect(r.result.message).toMatch(/stage the file again/i);
+    // The trigger fired: the plan did read the draft, so a request was made, and it was the only one.
+    const made = gm().requests.slice(requestsBefore);
+    expect(made.length).toBeGreaterThan(0);
+    expect(made.every((q) => q.method === "GET")).toBe(true);
+    expect(rawOf(id)).toBe(before);
+    expect(gm().drafts.get(id)!.message.id).toBe(messageBefore);
+    expect((await env.DB.prepare("SELECT count(*) AS n FROM audit_log").first<any>()).n).toBe(auditBefore);
+    expect((await env.DB.prepare("SELECT count(*) AS n FROM operations").first<any>()).n).toBe(opsBefore);
+  });
+
+  it("create_draft refuses a used handle with the same advice and creates nothing", async () => {
+    const h = await stage("spent.txt", new Uint8Array(4));
+    await call("create_draft", { account: "personal", to: ["a@example.test"], attachments: [h] });
+    const draftsBefore = gm().drafts.size;
+    const r = await call("create_draft", { account: "personal", to: ["a@example.test"], attachments: [h] });
+    expect(r.result).toMatchObject({ error: "handle_invalid" });
+    expect(r.result.message).toContain("No draft was created");
+    expect(r.result.message).toMatch(/stage the file again/i);
+    expect(gm().drafts.size).toBe(draftsBefore);
+  });
 });
